@@ -1,0 +1,883 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  RECEPTION
+  WINE_STAFF
+  EVENT_MANAGER
+  TELECALLER
+  GUEST
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  PAID
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum WineCategory {
+  RED
+  WHITE
+  ROSE
+  SPARKLING
+  RESERVE
+  DESSERT
+}
+
+enum ExperienceCategory {
+  TASTING
+  TOUR
+  CULINARY
+  PRIVATE
+}
+
+enum EventStatus {
+  UPCOMING
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+enum EventAvailability {
+  AVAILABLE
+  FEW_SEATS_LEFT
+  SOLD_OUT
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ReviewCategory {
+  WINE_TASTING
+  VINEYARD_TOUR
+  EVENTS
+  FOOD
+}
+
+enum DrinkAgainOption {
+  YES
+  MAYBE
+  NO
+}
+
+enum ConversationChannel {
+  WEB_CHAT
+  VOICE
+  PHONE
+  WHATSAPP
+}
+
+enum CallDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  WHATSAPP
+  PUSH
+}
+
+enum NotificationType {
+  BOOKING_CONFIRMATION
+  BOOKING_REMINDER
+  BOOKING_MODIFICATION
+  BOOKING_CANCELLATION
+  EVENT_REMINDER
+  REVIEW_REQUEST
+}
+
+// ----------------------------------------------------
+// 1. Winery Domain (Multi-tenant root)
+// ----------------------------------------------------
+model Winery {
+  id           String   @id @default(uuid())
+  name         String
+  slug         String   @unique
+  description  String   @db.Text
+  story        String?  @db.Text
+  address      String
+  city         String
+  state        String
+  country      String
+  postalCode   String
+  latitude     Decimal? @db.Decimal(10, 7)
+  longitude    Decimal? @db.Decimal(10, 7)
+  phone        String
+  email        String
+  website      String?
+  openingHours String?
+  timezone     String   @default("America/Los_Angeles")
+  currency     String   @default("USD")
+  status       String   @default("ACTIVE")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  users              User[]
+  wines              Wine[]
+  experiences        Experience[]
+  events             Event[]
+  bookings           Booking[]
+  reviews            Review[]
+  galleryImages      GalleryImage[]
+  closures           WineryClosure[]
+  availabilityRules  AvailabilityRule[]
+
+  @@map("wineries")
+}
+
+// ----------------------------------------------------
+// 2. Users & Guest Domain
+// ----------------------------------------------------
+model User {
+  id           String    @id @default(uuid())
+  wineryId     String?
+  email        String    @unique
+  passwordHash String?
+  role         UserRole  @default(GUEST)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  winery       Winery?   @relation(fields: [wineryId], references: [id], onDelete: SetNull)
+  guestProfile GuestProfile?
+
+  @@index([role])
+  @@map("users")
+}
+
+model GuestProfile {
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  name                String
+  phone               String?
+  avatar              String?
+  dateOfBirth         DateTime?
+  dietaryPreferences  String?  @db.Text
+  notes               String?  @db.Text
+  emailNotifications  Boolean  @default(true)
+  smsNotifications    Boolean  @default(false)
+  whatsappNotifications Boolean @default(false)
+  visitsCount         Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  winePreference      GuestWinePreference?
+  bookings            Booking[]
+  bookingGuests       BookingGuest[]
+  tastingSessions     TastingSession[]
+  tastingRecords      TastingRecord[]
+  reviews             Review[]
+  conversations       Conversation[]
+  voiceCalls          VoiceCall[]
+  eventBookings       EventBooking[]
+
+  @@map("guest_profiles")
+}
+
+model GuestWinePreference {
+  id                 String   @id @default(uuid())
+  guestProfileId     String   @unique
+  favoriteVarietals  String[]
+  preferredSweetness String?  // e.g. "Dry (1–3)"
+  preferredBody      String?  // e.g. "Full & Opulent (7–9)"
+  preferredAcidity   String?  // e.g. "Vibrant & Crisp (6–8)"
+  favoriteWineId     String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  guestProfile       GuestProfile @relation(fields: [guestProfileId], references: [id], onDelete: Cascade)
+  favoriteWine       Wine?        @relation(fields: [favoriteWineId], references: [id], onDelete: SetNull)
+
+  @@index([favoriteWineId])
+  @@map("guest_wine_preferences")
+}
+
+// ----------------------------------------------------
+// 3. Wine & Vintages Domain
+// ----------------------------------------------------
+model Wine {
+  id               String       @id @default(uuid())
+  wineryId         String
+  slug             String
+  name             String
+  category         WineCategory
+  description      String       @db.Text
+  shortDescription String       @db.Text
+  story            String?      @db.Text
+  vineyardParcel   String?
+  servingTemp      String?
+  cellarPotential  String?
+  featured         Boolean      @default(false)
+  rating           Decimal      @default(0) @db.Decimal(3, 2)
+  reviewCount      Int          @default(0)
+  characteristics  String[]
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  winery           Winery       @relation(fields: [wineryId], references: [id], onDelete: Cascade)
+  vintages         WineVintage[]
+  images           WineImage[]
+  foodPairings     WineFoodPairing[]
+  experienceWines  ExperienceWine[]
+  reviews          Review[]
+  favoredByGuests  GuestWinePreference[]
+
+  @@unique([wineryId, slug])
+  @@index([wineryId])
+  @@map("wines")
+}
+
+model WineVintage {
+  id              String   @id @default(uuid())
+  wineId          String
+  vintageYear     Int
+  price           Decimal  @db.Decimal(10, 2)
+  currency        String   @default("USD")
+  alcohol         String   // e.g. "14.5%"
+  oakAging        String?  // e.g. "22 months in French oak"
+  tastingNotes    String?  @db.Text
+  aromaTags       String[]
+  // Sensory Profile (1 to 10 scale)
+  body            Int      @default(5)
+  acidity         Int      @default(5)
+  sweetness       Int      @default(2)
+  tannin          Int      @default(5)
+  isAvailable     Boolean  @default(true)
+  inventoryCount  Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  wine            Wine     @relation(fields: [wineId], references: [id], onDelete: Cascade)
+  tastingRecords  TastingRecord[]
+
+  @@unique([wineId, vintageYear])
+  @@index([wineId])
+  @@map("wine_vintages")
+}
+
+model WineImage {
+  id        String   @id @default(uuid())
+  wineId    String
+  url       String
+  altText   String?
+  isPrimary Boolean  @default(false)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  wine      Wine     @relation(fields: [wineId], references: [id], onDelete: Cascade)
+
+  @@index([wineId])
+  @@map("wine_images")
+}
+
+model WineFoodPairing {
+  id          String   @id @default(uuid())
+  wineId      String
+  dishName    String
+  description String?
+  createdAt   DateTime @default(now())
+
+  wine        Wine     @relation(fields: [wineId], references: [id], onDelete: Cascade)
+
+  @@unique([wineId, dishName])
+  @@index([wineId])
+  @@map("wine_food_pairings")
+}
+
+// ----------------------------------------------------
+// 4. Experiences Domain
+// ----------------------------------------------------
+model Experience {
+  id                String             @id @default(uuid())
+  wineryId          String
+  slug              String
+  title             String
+  category          ExperienceCategory
+  durationMinutes   Int
+  durationText      String             // e.g. "75 Minutes"
+  price             Decimal            @db.Decimal(10, 2)
+  currency          String             @default("USD")
+  shortDescription  String             @db.Text
+  description       String             @db.Text
+  rating            Decimal            @default(0) @db.Decimal(3, 2)
+  reviewCount       Int                @default(0)
+  capacity          Int                @default(12)
+  minGuests         Int                @default(1)
+  maxGuests         Int                @default(12)
+  foodPairing       String?            @db.Text
+  highlights        String[]
+  includedItems     String[]
+  guestExpectations String[]
+  importantInfo     String[]
+  featured          Boolean            @default(false)
+  badge             String?
+  isActive          Boolean            @default(true)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  winery            Winery             @relation(fields: [wineryId], references: [id], onDelete: Cascade)
+  images            ExperienceImage[]
+  faqs              ExperienceFAQ[]
+  timelines         ExperienceTimeline[]
+  includedWines     ExperienceWine[]
+  availabilityRules AvailabilityRule[]
+  timeSlotOverrides TimeSlotOverride[]
+  bookingItems      BookingItem[]
+  reviews           Review[]
+
+  @@unique([wineryId, slug])
+  @@index([wineryId])
+  @@map("experiences")
+}
+
+model ExperienceImage {
+  id           String     @id @default(uuid())
+  experienceId String
+  url          String
+  altText      String?
+  isPrimary    Boolean    @default(false)
+  sortOrder    Int        @default(0)
+  createdAt    DateTime   @default(now())
+
+  experience   Experience @relation(fields: [experienceId], references: [id], onDelete: Cascade)
+
+  @@index([experienceId])
+  @@map("experience_images")
+}
+
+model ExperienceFAQ {
+  id           String     @id @default(uuid())
+  experienceId String
+  question     String
+  answer       String     @db.Text
+  sortOrder    Int        @default(0)
+  createdAt    DateTime   @default(now())
+
+  experience   Experience @relation(fields: [experienceId], references: [id], onDelete: Cascade)
+
+  @@unique([experienceId, question])
+  @@index([experienceId])
+  @@map("experience_faqs")
+}
+
+model ExperienceTimeline {
+  id           String     @id @default(uuid())
+  experienceId String
+  timeRange    String     // e.g. "00–15 min"
+  title        String
+  description  String     @db.Text
+  sortOrder    Int        @default(0)
+  createdAt    DateTime   @default(now())
+
+  experience   Experience @relation(fields: [experienceId], references: [id], onDelete: Cascade)
+
+  @@unique([experienceId, title])
+  @@index([experienceId])
+  @@map("experience_timelines")
+}
+
+model ExperienceWine {
+  id           String     @id @default(uuid())
+  experienceId String
+  wineId       String
+  sortOrder    Int        @default(0)
+  notes        String?
+  createdAt    DateTime   @default(now())
+
+  experience   Experience @relation(fields: [experienceId], references: [id], onDelete: Cascade)
+  wine         Wine       @relation(fields: [wineId], references: [id], onDelete: Cascade)
+
+  @@unique([experienceId, wineId])
+  @@map("experience_wines")
+}
+
+// ----------------------------------------------------
+// 5. Availability Engine
+// ----------------------------------------------------
+model AvailabilityRule {
+  id           String     @id @default(uuid())
+  wineryId     String
+  experienceId String?
+  dayOfWeek    Int        // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  startTime    String     // HH:mm (e.g. "10:00") in winery timezone
+  endTime      String     // HH:mm (e.g. "17:00")
+  slotInterval Int        @default(60) // minutes
+  capacity     Int        @default(12)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  winery       Winery      @relation(fields: [wineryId], references: [id], onDelete: Cascade)
+  experience   Experience? @relation(fields: [experienceId], references: [id], onDelete: Cascade)
+
+  @@index([wineryId, dayOfWeek])
+  @@map("availability_rules")
+}
+
+model TimeSlotOverride {
+  id           String     @id @default(uuid())
+  experienceId String
+  date         DateTime   @db.Date
+  time         String     // HH:mm (e.g. "14:00")
+  capacity     Int        // customized capacity
+  isBlocked    Boolean    @default(false)
+  reason       String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  experience   Experience @relation(fields: [experienceId], references: [id], onDelete: Cascade)
+
+  @@unique([experienceId, date, time])
+  @@index([experienceId, date])
+  @@map("time_slot_overrides")
+}
+
+model WineryClosure {
+  id          String    @id @default(uuid())
+  wineryId    String
+  startDate   DateTime  @db.Date
+  endDate     DateTime  @db.Date
+  reason      String
+  createdAt   DateTime  @default(now())
+
+  winery      Winery    @relation(fields: [wineryId], references: [id], onDelete: Cascade)
+
+  @@index([wineryId, startDate, endDate])
+  @@map("winery_closures")
+}
+
+// ----------------------------------------------------
+// 6. Bookings & Payments Domain
+// ----------------------------------------------------
+model Booking {
+  id                  String               @id @default(uuid())
+  bookingNumber       String               @unique // e.g. "DVR-2026-10482"
+  wineryId            String
+  guestProfileId      String
+  date                DateTime             @db.Date
+  time                String               // e.g. "2:00 PM"
+  adults              Int                  @default(1)
+  children            Int                  @default(0)
+  totalGuests         Int                  @default(1)
+  subtotal            Decimal              @db.Decimal(10, 2)
+  taxAmount           Decimal              @db.Decimal(10, 2)
+  totalPrice          Decimal              @db.Decimal(10, 2)
+  currency            String               @default("USD")
+  status              BookingStatus        @default(CONFIRMED)
+  specialRequests     String?              @db.Text
+  dietaryRequirements String?              @db.Text
+  qrCodeUrl           String?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  winery              Winery               @relation(fields: [wineryId], references: [id], onDelete: Cascade)
+  guestProfile        GuestProfile         @relation(fields: [guestProfileId], references: [id], onDelete: Restrict)
+  items               BookingItem[]
+  attendees           BookingGuest[]
+  statusHistory       BookingStatusHistory[]
+  payments            Payment[]
+  tastingSessions     TastingSession[]
+  reviews             Review[]
+
+  @@index([wineryId, date, status])
+  @@index([guestProfileId])
+  @@index([bookingNumber])
+  @@map("bookings")
+}
+
+model BookingGuest {
+  id             String       @id @default(uuid())
+  bookingId      String
+  guestProfileId String?
+  fullName       String
+  email          String?
+  phone          String?
+  isPrimary      Boolean      @default(false)
+  dietaryNotes   String?
+  createdAt      DateTime     @default(now())
+
+  booking        Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  guestProfile   GuestProfile? @relation(fields: [guestProfileId], references: [id], onDelete: SetNull)
+
+  @@unique([bookingId, fullName])
+  @@index([bookingId])
+  @@map("booking_guests")
+}
+
+model BookingItem {
+  id           String      @id @default(uuid())
+  bookingId    String
+  experienceId String?
+  itemType     String      // "EXPERIENCE", "WINE_ADDON", "CULINARY_UPGRADE"
+  title        String
+  unitPrice    Decimal     @db.Decimal(10, 2)
+  quantity     Int         @default(1)
+  totalPrice   Decimal     @db.Decimal(10, 2)
+  createdAt    DateTime    @default(now())
+
+  booking      Booking     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  experience   Experience? @relation(fields: [experienceId], references: [id], onDelete: SetNull)
+
+  @@index([bookingId])
+  @@map("booking_items")
+}
+
+model BookingStatusHistory {
+  id         String        @id @default(uuid())
+  bookingId  String
+  fromStatus BookingStatus
+  toStatus   BookingStatus
+  changedBy  String?       // user ID or SYSTEM
+  notes      String?
+  createdAt  DateTime      @default(now())
+
+  booking    Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@map("booking_status_histories")
+}
+
+model Payment {
+  id              String        @id @default(uuid())
+  bookingId       String
+  amount          Decimal       @db.Decimal(10, 2)
+  currency        String        @default("USD")
+  status          PaymentStatus @default(PENDING)
+  provider        String?       // "STRIPE", "RAZORPAY", "MANUAL", "ON_SITE"
+  providerPaymentId String?
+  paymentMethod   String?       // "CREDIT_CARD", "APPLE_PAY", etc.
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  booking         Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@map("payments")
+}
+
+// ----------------------------------------------------
+// 7. Events Domain
+// ----------------------------------------------------
+model Event {
+  id               String            @id @default(uuid())
+  wineryId         String
+  slug             String
+  title            String
+  eventDate        DateTime          @db.Date
+  timeRange        String            // e.g. "6:30 PM – 10:00 PM"
+  venue            String
+  price            Decimal           @db.Decimal(10, 2)
+  currency         String            @default("USD")
+  description      String            @db.Text
+  shortDescription String            @db.Text
+  availability     EventAvailability @default(AVAILABLE)
+  availableTickets Int
+  maxCapacity      Int
+  entertainment    String?
+  featuredImage    String
+  winesServed      String[]
+  culinaryMenu     String[]
+  galleryImages    String[]
+  isPast           Boolean           @default(false)
+  status           EventStatus       @default(UPCOMING)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  winery           Winery            @relation(fields: [wineryId], references: [id], onDelete: Cascade)
+  schedules        EventSchedule[]
+  faqs             EventFAQ[]
+  ticketTypes      EventTicketType[]
+  eventBookings    EventBooking[]
+  reviews          Review[]
+
+  @@unique([wineryId, slug])
+  @@index([wineryId, eventDate])
+  @@map("events")
+}
+
+model EventSchedule {
+  id        String   @id @default(uuid())
+  eventId   String
+  timeSlot  String   // e.g. "6:30 PM"
+  activity  String
+  sortOrder Int      @default(0)
+
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, timeSlot, activity])
+  @@index([eventId])
+  @@map("event_schedules")
+}
+
+model EventFAQ {
+  id        String   @id @default(uuid())
+  eventId   String
+  question  String
+  answer    String   @db.Text
+  sortOrder Int      @default(0)
+
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, question])
+  @@index([eventId])
+  @@map("event_faqs")
+}
+
+model EventTicketType {
+  id            String         @id @default(uuid())
+  eventId       String
+  name          String         // e.g. "General Admission", "VIP Table"
+  price         Decimal        @db.Decimal(10, 2)
+  capacity      Int
+  soldCount     Int            @default(0)
+
+  event         Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventBookings EventBooking[]
+
+  @@unique([eventId, name])
+  @@index([eventId])
+  @@map("event_ticket_types")
+}
+
+model EventBooking {
+  id                String          @id @default(uuid())
+  eventId           String
+  eventTicketTypeId String?
+  guestProfileId    String
+  ticketCount       Int             @default(1)
+  totalPrice        Decimal         @db.Decimal(10, 2)
+  status            BookingStatus   @default(CONFIRMED)
+  createdAt         DateTime        @default(now())
+
+  event             Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticketType        EventTicketType? @relation(fields: [eventTicketTypeId], references: [id], onDelete: SetNull)
+  guestProfile      GuestProfile    @relation(fields: [guestProfileId], references: [id], onDelete: Restrict)
+
+  @@index([eventId])
+  @@index([guestProfileId])
+  @@map("event_bookings")
+}
+
+// ----------------------------------------------------
+// 8. Wine Tasting & Sensory Journal
+// ----------------------------------------------------
+model TastingSession {
+  id             String          @id @default(uuid())
+  guestProfileId String
+  bookingId      String?
+  sessionDate    DateTime        @default(now())
+  location       String?         // e.g. "Historic Salon", "Vault 1784"
+  notes          String?         @db.Text
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  guestProfile   GuestProfile    @relation(fields: [guestProfileId], references: [id], onDelete: Cascade)
+  booking        Booking?        @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  records        TastingRecord[]
+
+  @@index([guestProfileId])
+  @@map("tasting_sessions")
+}
+
+model TastingRecord {
+  id                   String           @id @default(uuid())
+  tastingSessionId     String?
+  guestProfileId       String
+  wineVintageId        String
+  wineNameSnapshot     String           // Historic preservation
+  vintageYear          Int
+  experienceName       String?
+  rating               Decimal          @db.Decimal(2, 1) // e.g. 4.8, 5.0
+  tasteCharacteristics String[]         // e.g. ["Full-bodied", "Dry", "Fruity"]
+  notes                String           @db.Text
+  wouldDrinkAgain      DrinkAgainOption @default(YES)
+  // Sensory Radar Profile (1 to 10 scale)
+  body                 Int              @default(5)
+  acidity              Int              @default(5)
+  sweetness            Int              @default(2)
+  tannin               Int              @default(5)
+  tastedAt             DateTime         @default(now())
+  createdAt            DateTime         @default(now())
+
+  tastingSession       TastingSession?  @relation(fields: [tastingSessionId], references: [id], onDelete: SetNull)
+  guestProfile         GuestProfile     @relation(fields: [guestProfileId], references: [id], onDelete: Cascade)
+  wineVintage          WineVintage      @relation(fields: [wineVintageId], references: [id], onDelete: Restrict)
+
+  @@index([guestProfileId])
+  @@index([wineVintageId])
+  @@map("tasting_records")
+}
+
+// ----------------------------------------------------
+// 9. Reviews Domain (Unified relational with foreign keys)
+// ----------------------------------------------------
+model Review {
+  id           String         @id @default(uuid())
+  wineryId     String
+  guestProfileId String?
+  authorName   String
+  rating       Int            // 1 to 5
+  title        String
+  comment      String         @db.Text
+  category     ReviewCategory
+  targetName   String         // Human-readable target
+  verified     Boolean        @default(true)
+  helpfulCount Int            @default(0)
+  status       ReviewStatus   @default(APPROVED)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  // Target references
+  experienceId String?
+  wineId       String?
+  eventId      String?
+  bookingId    String?
+
+  winery       Winery         @relation(fields: [wineryId], references: [id], onDelete: Cascade)
+  guestProfile GuestProfile?  @relation(fields: [guestProfileId], references: [id], onDelete: SetNull)
+  experience   Experience?    @relation(fields: [experienceId], references: [id], onDelete: SetNull)
+  wine         Wine?          @relation(fields: [wineId], references: [id], onDelete: SetNull)
+  event        Event?         @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  booking      Booking?       @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  @@unique([wineryId, authorName, title])
+  @@index([wineryId, status])
+  @@index([guestProfileId])
+  @@index([experienceId])
+  @@index([wineId])
+  @@index([eventId])
+  @@map("reviews")
+}
+
+// ----------------------------------------------------
+// 10. Gallery Domain
+// ----------------------------------------------------
+model GalleryImage {
+  id        String   @id @default(uuid())
+  wineryId  String
+  title     String
+  category  String   // "Vineyard", "Cellar", "Wine", "Food", "Events", "Sunset"
+  imageUrl  String
+  caption   String?  @db.Text
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  winery    Winery   @relation(fields: [wineryId], references: [id], onDelete: Cascade)
+
+  @@unique([wineryId, title])
+  @@index([wineryId, category])
+  @@map("gallery_images")
+}
+
+// ----------------------------------------------------
+// 11. AI Concierge & Telecaller Foundation
+// ----------------------------------------------------
+model Conversation {
+  id             String              @id @default(uuid())
+  guestProfileId String?
+  channel        ConversationChannel @default(WEB_CHAT)
+  startedAt      DateTime            @default(now())
+  endedAt        DateTime?
+  metadata       Json?
+
+  guestProfile   GuestProfile?       @relation(fields: [guestProfileId], references: [id], onDelete: SetNull)
+  messages       ConversationMessage[]
+
+  @@index([guestProfileId])
+  @@map("conversations")
+}
+
+model ConversationMessage {
+  id             String       @id @default(uuid())
+  conversationId String
+  role           String       // "user", "assistant", "system"
+  content        String       @db.Text
+  toolCallName   String?
+  toolCallData   Json?
+  timestamp      DateTime     @default(now())
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("conversation_messages")
+}
+
+model VoiceCall {
+  id             String        @id @default(uuid())
+  guestProfileId String?
+  callerPhone    String
+  direction      CallDirection @default(INBOUND)
+  startTime      DateTime      @default(now())
+  endTime        DateTime?
+  durationSec    Int?
+  transcript     String?       @db.Text
+  outcome        String?       // "BOOKING_MADE", "INQUIRY_ANSWERED", "ESCALATED"
+  bookingId      String?
+  createdAt      DateTime      @default(now())
+
+  guestProfile   GuestProfile? @relation(fields: [guestProfileId], references: [id], onDelete: SetNull)
+  callLogs       CallLog[]
+
+  @@index([guestProfileId])
+  @@map("voice_calls")
+}
+
+model CallLog {
+  id          String    @id @default(uuid())
+  voiceCallId String
+  logLevel    String    @default("INFO")
+  event       String
+  details     Json?
+  timestamp   DateTime  @default(now())
+
+  voiceCall   VoiceCall @relation(fields: [voiceCallId], references: [id], onDelete: Cascade)
+
+  @@index([voiceCallId])
+  @@map("call_logs")
+}
+
+// ----------------------------------------------------
+// 12. Notifications Domain
+// ----------------------------------------------------
+model Notification {
+  id        String              @id @default(uuid())
+  recipient String              // email or phone
+  channel   NotificationChannel
+  type      NotificationType
+  title     String
+  content   String              @db.Text
+  isSent    Boolean             @default(false)
+  sentAt    DateTime?
+  metadata  Json?
+  createdAt DateTime            @default(now())
+
+  @@index([recipient, channel])
+  @@map("notifications")
+}
