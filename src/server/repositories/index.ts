@@ -72,6 +72,88 @@ export class ExperienceRepository {
       },
     });
   }
+
+  static async findAllAdmin(filters: {
+    search?: string;
+    category?: string;
+    isActive?: boolean;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const page = filters.page || 1;
+    const pageSize = filters.pageSize || 20;
+    const skip = (page - 1) * pageSize;
+
+    const where: Prisma.ExperienceWhereInput = {};
+
+    if (filters.search) {
+      const searchTerm = filters.search.trim();
+      where.OR = [
+        { title: { contains: searchTerm, mode: 'insensitive' } },
+        { slug: { contains: searchTerm, mode: 'insensitive' } },
+        { shortDescription: { contains: searchTerm, mode: 'insensitive' } },
+      ];
+    }
+
+    if (filters.category) {
+      where.category = filters.category as import('@prisma/client').ExperienceCategory;
+    }
+
+    if (filters.isActive !== undefined) {
+      where.isActive = filters.isActive;
+    }
+
+    const [experiences, total] = await Promise.all([
+      prisma.experience.findMany({
+        where,
+        include: {
+          images: true,
+          _count: { select: { bookingItems: true, reviews: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: pageSize,
+      }),
+      prisma.experience.count({ where }),
+    ]);
+
+    return {
+      experiences,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    };
+  }
+
+  static async findBySlugAdmin(slug: string) {
+    return prisma.experience.findFirst({
+      where: { slug },
+      include: {
+        images: { orderBy: { sortOrder: 'asc' } },
+        faqs: { orderBy: { sortOrder: 'asc' } },
+        timelines: { orderBy: { sortOrder: 'asc' } },
+        includedWines: {
+          include: {
+            wine: {
+              include: { vintages: true, images: true },
+            },
+          },
+          orderBy: { sortOrder: 'asc' },
+        },
+        availabilityRules: {
+          orderBy: { dayOfWeek: 'asc' },
+        },
+        timeSlotOverrides: {
+          orderBy: { date: 'desc' },
+          take: 50,
+        },
+        _count: { select: { bookingItems: true, reviews: true } },
+      },
+    });
+  }
 }
 
 export class EventRepository {
@@ -144,6 +226,71 @@ export class AvailabilityRepository {
         totalGuests: true,
       },
     });
+  }
+
+  static async findAllRules(wineryId: string) {
+    return prisma.availabilityRule.findMany({
+      where: { wineryId },
+      include: {
+        experience: { select: { id: true, title: true, slug: true } },
+      },
+      orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }],
+    });
+  }
+
+  static async findAllOverrides(wineryId: string) {
+    return prisma.timeSlotOverride.findMany({
+      where: {
+        experience: { wineryId },
+      },
+      include: {
+        experience: { select: { id: true, title: true, slug: true } },
+      },
+      orderBy: { date: 'desc' },
+      take: 100,
+    });
+  }
+
+  static async findAllClosures(wineryId: string) {
+    return prisma.wineryClosure.findMany({
+      where: { wineryId },
+      orderBy: { startDate: 'desc' },
+    });
+  }
+
+  static async getScheduleForDateRange(wineryId: string, startDate: Date, endDate: Date) {
+    const experiences = await prisma.experience.findMany({
+      where: { wineryId, isActive: true },
+      select: { id: true, title: true, slug: true, capacity: true },
+    });
+
+    const bookings = await prisma.booking.findMany({
+      where: {
+        wineryId,
+        date: { gte: startDate, lte: endDate },
+        status: { in: [BookingStatus.CONFIRMED, BookingStatus.CHECKED_IN, BookingStatus.PENDING] },
+      },
+      select: {
+        date: true,
+        time: true,
+        totalGuests: true,
+        bookingNumber: true,
+        status: true,
+        guestProfile: { select: { name: true } },
+        items: { select: { experienceId: true, title: true } },
+      },
+    });
+
+    const closures = await prisma.wineryClosure.findMany({
+      where: {
+        wineryId,
+        OR: [
+          { startDate: { lte: endDate }, endDate: { gte: startDate } },
+        ],
+      },
+    });
+
+    return { experiences, bookings, closures };
   }
 }
 

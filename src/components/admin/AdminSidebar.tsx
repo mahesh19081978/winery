@@ -51,8 +51,8 @@ const NAVIGATION_SECTIONS: NavSection[] = [
     items: [
       { name: 'Bookings', href: '/admin/bookings', icon: CalendarDays, isImplemented: true },
       { name: 'Calendar', href: '/admin/calendar', icon: Calendar, isImplemented: false },
-      { name: 'Experiences', href: '/admin/experiences', icon: Sparkles, isImplemented: false },
-      { name: 'Availability', href: '/admin/availability', icon: Clock, isImplemented: false },
+      { name: 'Experiences', href: '/admin/experiences', icon: Sparkles, isImplemented: true },
+      { name: 'Availability', href: '/admin/availability', icon: Clock, isImplemented: true },
     ],
   },
   {

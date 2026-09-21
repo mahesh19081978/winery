@@ -43,6 +43,24 @@ export class ExperienceService {
     }
     return experience;
   }
+
+  static async listExperiencesAdmin(filters: {
+    search?: string;
+    category?: string;
+    isActive?: boolean;
+    page?: number;
+    pageSize?: number;
+  }) {
+    return ExperienceRepository.findAllAdmin(filters);
+  }
+
+  static async getExperienceBySlugAdmin(slug: string) {
+    const experience = await ExperienceRepository.findBySlugAdmin(slug);
+    if (!experience) {
+      throw new Error(`Experience with slug '${slug}' not found`);
+    }
+    return experience;
+  }
 }
 
 export class EventService {
@@ -208,6 +226,21 @@ export class AvailabilityService {
       status: 'AVAILABLE',
       availableSlots,
     };
+  }
+
+  static async getAvailabilityOverview(wineryId: string) {
+    const [rules, overrides, closures] = await Promise.all([
+      AvailabilityRepository.findAllRules(wineryId),
+      AvailabilityRepository.findAllOverrides(wineryId),
+      AvailabilityRepository.findAllClosures(wineryId),
+    ]);
+    return { rules, overrides, closures };
+  }
+
+  static async getScheduleView(wineryId: string, startDate: string, endDate: string) {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    return AvailabilityRepository.getScheduleForDateRange(wineryId, start, end);
   }
 }
 
