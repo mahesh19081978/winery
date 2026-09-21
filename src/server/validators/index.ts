@@ -58,6 +58,14 @@ export const TastingRecordCreateSchema = z.object({
 
 export type TastingRecordCreateInput = z.infer<typeof TastingRecordCreateSchema>;
 
+export const TastingSessionCreateSchema = z.object({
+  bookingNumber: z.string().min(1, 'Booking number is required'),
+  location: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+export type TastingSessionCreateInput = z.infer<typeof TastingSessionCreateSchema>;
+
 export const ReviewCreateSchema = z.object({
   authorName: z.string().min(2, 'Author name is required'),
   guestEmail: z.string().email().optional(),

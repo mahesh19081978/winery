@@ -49,6 +49,7 @@ const NAVIGATION_SECTIONS: NavSection[] = [
   {
     title: 'OPERATIONS',
     items: [
+      { name: 'Front Desk', href: '/admin/front-desk', icon: UserCheck, isImplemented: true },
       { name: 'Bookings', href: '/admin/bookings', icon: CalendarDays, isImplemented: true },
       { name: 'Calendar', href: '/admin/calendar', icon: Calendar, isImplemented: false },
       { name: 'Experiences', href: '/admin/experiences', icon: Sparkles, isImplemented: true },
@@ -66,8 +67,8 @@ const NAVIGATION_SECTIONS: NavSection[] = [
   {
     title: 'GUESTS',
     items: [
-      { name: 'Guests', href: '/admin/guests', icon: Users, isImplemented: false },
-      { name: 'Guest CRM', href: '/admin/crm', icon: UserCheck, isImplemented: false },
+      { name: 'Guests', href: '/admin/guests', icon: Users, isImplemented: true },
+      { name: 'Guest CRM', href: '/admin/guests', icon: UserCheck, isImplemented: true },
       { name: 'Wine Profiles', href: '/admin/profiles', icon: HeartHandshake, isImplemented: false },
     ],
   },
@@ -162,7 +163,11 @@ export function AdminSidebar({ isOpen, onClose }: AdminSidebarProps) {
               </div>
               <ul className="space-y-0.5">
                 {section.items.map((item) => {
-                  const isActive = pathname === item.href || (item.href !== '/admin' && pathname.startsWith(item.href));
+                  const isActive = item.name === 'Guest CRM'
+                    ? pathname.startsWith('/admin/guests/')
+                    : item.name === 'Guests'
+                      ? pathname === '/admin/guests'
+                      : pathname === item.href || (item.href !== '/admin' && pathname.startsWith(item.href));
                   const Icon = item.icon;
 
                   if (item.isImplemented) {

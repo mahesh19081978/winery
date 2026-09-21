@@ -1,6 +1,15 @@
 import { prisma } from '@/lib/db';
 import { BookingStatus, ReviewStatus, Prisma } from '@prisma/client';
 
+const VALID_BOOKING_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
+  [BookingStatus.PENDING]: [BookingStatus.CONFIRMED, BookingStatus.CANCELLED],
+  [BookingStatus.CONFIRMED]: [BookingStatus.CHECKED_IN, BookingStatus.NO_SHOW, BookingStatus.CANCELLED],
+  [BookingStatus.CHECKED_IN]: [BookingStatus.COMPLETED],
+  [BookingStatus.COMPLETED]: [],
+  [BookingStatus.CANCELLED]: [],
+  [BookingStatus.NO_SHOW]: [],
+};
+
 export class WineRepository {
   static async findAll() {
     return prisma.wine.findMany({
@@ -492,6 +501,10 @@ export class BookingRepository {
         throw new Error('Cannot update a completed booking');
       }
 
+      if (!VALID_BOOKING_TRANSITIONS[fromStatus].includes(toStatus)) {
+        throw new Error(`Invalid booking status transition from ${fromStatus} to ${toStatus}`);
+      }
+
       const updated = await tx.booking.update({
         where: { id: bookingId },
         data: { status: toStatus },
@@ -649,7 +662,191 @@ export class BookingRepository {
   }
 }
 
+export class FrontDeskRepository {
+  static async getDefaultWinery() {
+    return prisma.winery.findFirst({
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, name: true, timezone: true },
+    });
+  }
+
+  static async findBookingsForDate(date: Date) {
+    return prisma.booking.findMany({
+      where: { date },
+      include: {
+        guestProfile: {
+          include: {
+            user: { select: { email: true } },
+            winePreference: {
+              include: {
+                favoriteWine: { select: { name: true, slug: true, category: true } },
+              },
+            },
+            _count: {
+              select: {
+                bookings: true,
+                tastingSessions: true,
+                tastingRecords: true,
+                reviews: true,
+              },
+            },
+          },
+        },
+        items: {
+          include: {
+            experience: { select: { id: true, title: true, slug: true } },
+          },
+        },
+        attendees: true,
+        statusHistory: { orderBy: { createdAt: 'asc' } },
+        tastingSessions: {
+          include: {
+            records: {
+              include: {
+                wineVintage: {
+                  include: {
+                    wine: { select: { id: true, name: true, slug: true, category: true } },
+                  },
+                },
+              },
+              orderBy: { tastedAt: 'asc' },
+            },
+          },
+          orderBy: { sessionDate: 'asc' },
+        },
+      },
+      orderBy: [{ time: 'asc' }, { createdAt: 'asc' }],
+    });
+  }
+}
+
 export class GuestRepository {
+  static async findAllAdmin(filters: {
+    search?: string;
+    hasBookings?: string;
+    hasTastings?: string;
+    hasReviews?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const page = filters.page || 1;
+    const pageSize = filters.pageSize || 20;
+    const skip = (page - 1) * pageSize;
+
+    const where: Prisma.GuestProfileWhereInput = {};
+
+    if (filters.search) {
+      const searchTerm = filters.search.trim();
+      where.OR = [
+        { name: { contains: searchTerm, mode: 'insensitive' } },
+        { user: { email: { contains: searchTerm, mode: 'insensitive' } } },
+        { phone: { contains: searchTerm, mode: 'insensitive' } },
+      ];
+    }
+
+    if (filters.hasBookings === 'yes') {
+      where.bookings = { some: {} };
+    } else if (filters.hasBookings === 'no') {
+      where.bookings = { none: {} };
+    }
+
+    if (filters.hasTastings === 'yes') {
+      where.tastingRecords = { some: {} };
+    } else if (filters.hasTastings === 'no') {
+      where.tastingRecords = { none: {} };
+    }
+
+    if (filters.hasReviews === 'yes') {
+      where.reviews = { some: {} };
+    } else if (filters.hasReviews === 'no') {
+      where.reviews = { none: {} };
+    }
+
+    const [guests, total] = await Promise.all([
+      prisma.guestProfile.findMany({
+        where,
+        include: {
+          user: { select: { email: true, role: true } },
+          _count: {
+            select: {
+              bookings: true,
+              tastingSessions: true,
+              tastingRecords: true,
+              reviews: true,
+              eventBookings: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: pageSize,
+      }),
+      prisma.guestProfile.count({ where }),
+    ]);
+
+    return {
+      guests,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    };
+  }
+
+  static async findByIdAdmin(id: string) {
+    return prisma.guestProfile.findUnique({
+      where: { id },
+      include: {
+        user: { select: { id: true, email: true, role: true, createdAt: true } },
+        winePreference: {
+          include: { favoriteWine: { select: { id: true, name: true, slug: true, category: true } } },
+        },
+        bookings: {
+          include: {
+            items: { include: { experience: { select: { id: true, title: true, slug: true } } } },
+          },
+          orderBy: { date: 'desc' },
+        },
+        tastingSessions: {
+          include: {
+            booking: { select: { id: true, bookingNumber: true, date: true, status: true } },
+            records: {
+              include: {
+                wineVintage: { include: { wine: { select: { id: true, name: true, slug: true, category: true } } } },
+              },
+              orderBy: { tastedAt: 'desc' },
+            },
+          },
+          orderBy: { sessionDate: 'desc' },
+        },
+        tastingRecords: {
+          include: {
+            wineVintage: { include: { wine: { select: { id: true, name: true, slug: true, category: true } } } },
+            tastingSession: { select: { id: true, sessionDate: true } },
+          },
+          orderBy: { tastedAt: 'desc' },
+        },
+        reviews: {
+          include: {
+            experience: { select: { id: true, title: true, slug: true } },
+            wine: { select: { id: true, name: true, slug: true } },
+            event: { select: { id: true, title: true, slug: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+        eventBookings: {
+          include: {
+            event: { select: { id: true, title: true, slug: true, eventDate: true, status: true } },
+            ticketType: { select: { name: true, price: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+  }
+
   static async findByEmail(email: string) {
     return prisma.guestProfile.findFirst({
       where: {
@@ -840,6 +1037,65 @@ export class TastingRepository {
   static async findSessionByIdAdmin(id: string) {
     return prisma.tastingSession.findUnique({
       where: { id },
+      include: {
+        guestProfile: {
+          include: { user: true },
+        },
+        booking: {
+          include: {
+            items: { include: { experience: true } },
+          },
+        },
+        records: {
+          include: {
+            wineVintage: {
+              include: { wine: true },
+            },
+          },
+          orderBy: { tastedAt: 'asc' },
+        },
+      },
+    });
+  }
+
+  static async findSessionByBookingId(bookingId: string) {
+    return prisma.tastingSession.findFirst({
+      where: { bookingId },
+      include: {
+        guestProfile: {
+          include: { user: true },
+        },
+        booking: {
+          include: {
+            items: { include: { experience: true } },
+          },
+        },
+        records: {
+          include: {
+            wineVintage: {
+              include: { wine: true },
+            },
+          },
+          orderBy: { tastedAt: 'asc' },
+        },
+      },
+      orderBy: { sessionDate: 'asc' },
+    });
+  }
+
+  static async createSessionForBooking(data: {
+    bookingId: string;
+    guestProfileId: string;
+    location?: string;
+    notes?: string;
+  }) {
+    return prisma.tastingSession.create({
+      data: {
+        bookingId: data.bookingId,
+        guestProfileId: data.guestProfileId,
+        location: data.location,
+        notes: data.notes,
+      },
       include: {
         guestProfile: {
           include: { user: true },

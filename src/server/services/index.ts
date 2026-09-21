@@ -4,6 +4,7 @@ import {
   EventRepository,
   AvailabilityRepository,
   BookingRepository,
+  FrontDeskRepository,
   GuestRepository,
   TastingRepository,
   ReviewRepository,
@@ -13,9 +14,10 @@ import {
   GuestProfileUpdateInput,
   TastingRecordCreateInput,
   ReviewCreateInput,
+  TastingSessionCreateInput,
 } from '../validators';
 import { prisma } from '@/lib/db';
-import { Prisma } from '@prisma/client';
+import { BookingStatus, Prisma } from '@prisma/client';
 
 export class WineService {
   static async getAllWines() {
@@ -414,7 +416,112 @@ export class BookingService {
   }
 }
 
+function getDatePartsForTimeZone(date: Date, timeZone: string) {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const [year, month, day] = formatter.format(date).split('-');
+  return { year, month, day, dateString: `${year}-${month}-${day}` };
+}
+
+function getMinutesForTimeZone(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value || '0');
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value || '0');
+  return hour * 60 + minute;
+}
+
+function parseBookingTimeToMinutes(time: string) {
+  const match = time.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+  if (!match) return Number.MAX_SAFE_INTEGER;
+
+  let hour = Number(match[1]);
+  const minute = Number(match[2] || '0');
+  const meridiem = match[3]?.toUpperCase();
+
+  if (meridiem === 'PM' && hour < 12) hour += 12;
+  if (meridiem === 'AM' && hour === 12) hour = 0;
+
+  return hour * 60 + minute;
+}
+
+export class FrontDeskService {
+  static async getTodayOperations() {
+    const winery = await FrontDeskRepository.getDefaultWinery();
+    const timezone = winery?.timezone || 'America/Los_Angeles';
+    const now = new Date();
+    const today = getDatePartsForTimeZone(now, timezone);
+    const todayDate = new Date(`${today.dateString}T00:00:00.000Z`);
+    const currentMinutes = getMinutesForTimeZone(now, timezone);
+
+    const bookings = await FrontDeskRepository.findBookingsForDate(todayDate);
+    const sortedBookings = [...bookings].sort((a, b) => {
+      const byTime = parseBookingTimeToMinutes(a.time) - parseBookingTimeToMinutes(b.time);
+      if (byTime !== 0) return byTime;
+      return a.createdAt.getTime() - b.createdAt.getTime();
+    });
+
+    const awaitingArrival = sortedBookings.filter((booking) =>
+      booking.status === BookingStatus.PENDING || booking.status === BookingStatus.CONFIRMED
+    );
+    const upcomingArrivals = awaitingArrival.filter((booking) =>
+      parseBookingTimeToMinutes(booking.time) >= currentMinutes
+    );
+    const checkedIn = sortedBookings.filter((booking) => booking.status === BookingStatus.CHECKED_IN);
+    const noShows = sortedBookings.filter((booking) => booking.status === BookingStatus.NO_SHOW);
+    const completed = sortedBookings.filter((booking) => booking.status === BookingStatus.COMPLETED);
+
+    return {
+      winery,
+      date: today.dateString,
+      timezone,
+      currentMinutes,
+      summary: {
+        totalBookings: sortedBookings.length,
+        awaitingArrival: awaitingArrival.length,
+        upcomingArrivals: upcomingArrivals.length,
+        checkedIn: checkedIn.length,
+        noShows: noShows.length,
+        completed: completed.length,
+      },
+      todayArrivals: awaitingArrival,
+      upcomingArrivals,
+      checkedIn,
+      noShows,
+      completed,
+      allBookings: sortedBookings,
+    };
+  }
+}
+
 export class GuestService {
+  static async listGuests(filters: {
+    search?: string;
+    hasBookings?: string;
+    hasTastings?: string;
+    hasReviews?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    return GuestRepository.findAllAdmin(filters);
+  }
+
+  static async getGuestAdmin(id: string) {
+    const guest = await GuestRepository.findByIdAdmin(id);
+    if (!guest) {
+      throw new Error(`Guest with id '${id}' not found`);
+    }
+    return guest;
+  }
+
   static async getGuestProfile(email: string) {
     const profile = await GuestRepository.findByEmail(email);
     if (!profile) {
@@ -471,6 +578,29 @@ export class TastingService {
       throw new Error(`Tasting session '${sessionId}' not found`);
     }
     return session;
+  }
+
+  static async startSessionForBooking(input: TastingSessionCreateInput) {
+    const booking = await BookingRepository.findByBookingNumber(input.bookingNumber);
+    if (!booking) {
+      throw new Error(`Booking ${input.bookingNumber} not found`);
+    }
+
+    if (booking.status !== BookingStatus.CHECKED_IN) {
+      throw new Error('A tasting session can only be started for a checked-in booking');
+    }
+
+    const existing = await TastingRepository.findSessionByBookingId(booking.id);
+    if (existing) {
+      return existing;
+    }
+
+    return TastingRepository.createSessionForBooking({
+      bookingId: booking.id,
+      guestProfileId: booking.guestProfileId,
+      location: input.location,
+      notes: input.notes,
+    });
   }
 
   static async createTastingRecord(input: TastingRecordCreateInput) {
