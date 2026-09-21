@@ -1,0 +1,61 @@
+import { Booking } from '@/types';
+
+export const initialMockBookings: Booking[] = [
+  {
+    id: 'DVR-2026-10482',
+    experienceId: 'exp-signature-tasting',
+    experienceTitle: 'Signature Estate Wine Tasting',
+    date: '2026-10-18',
+    time: '2:00 PM',
+    adults: 2,
+    children: 0,
+    totalGuests: 2,
+    guestName: 'Eleanor Vance',
+    guestEmail: 'eleanor.vance@example.com',
+    guestPhone: '+1 (555) 234-5678',
+    specialRequests: 'Anniversary celebration; quiet table overlooking the south terrace if possible.',
+    basePrice: 130,
+    taxAmount: 11.7,
+    totalPrice: 141.7,
+    status: 'Confirmed',
+    createdAt: '2026-09-18T14:30:00Z'
+  },
+  {
+    id: 'DVR-2026-09124',
+    experienceId: 'exp-vineyard-picnic',
+    experienceTitle: 'Vineyard Gourmet Picnic Experience',
+    date: '2026-08-20',
+    time: '12:00 PM',
+    adults: 2,
+    children: 0,
+    totalGuests: 2,
+    guestName: 'Eleanor Vance',
+    guestEmail: 'eleanor.vance@example.com',
+    guestPhone: '+1 (555) 234-5678',
+    specialRequests: 'Gluten-free crackers if available.',
+    basePrice: 240,
+    taxAmount: 21.6,
+    totalPrice: 261.6,
+    status: 'Completed',
+    createdAt: '2026-08-01T10:15:00Z'
+  },
+  {
+    id: 'DVR-2026-07890',
+    experienceId: 'exp-barrel-cellar-tour',
+    experienceTitle: 'Subterranean Cellar Tour & Barrel Tasting',
+    date: '2026-07-12',
+    time: '10:00 AM',
+    adults: 1,
+    children: 0,
+    totalGuests: 1,
+    guestName: 'Eleanor Vance',
+    guestEmail: 'eleanor.vance@example.com',
+    guestPhone: '+1 (555) 234-5678',
+    specialRequests: '',
+    basePrice: 95,
+    taxAmount: 8.55,
+    totalPrice: 103.55,
+    status: 'Completed',
+    createdAt: '2026-06-25T09:00:00Z'
+  }
+];
