@@ -162,6 +162,120 @@ export class BookingRepository {
     });
   }
 
+  static async findMany(filters: {
+    search?: string;
+    status?: string;
+    experienceId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const page = filters.page || 1;
+    const pageSize = filters.pageSize || 20;
+    const skip = (page - 1) * pageSize;
+
+    const where: Prisma.BookingWhereInput = {};
+
+    if (filters.search) {
+      const searchTerm = filters.search.trim();
+      where.OR = [
+        { bookingNumber: { contains: searchTerm, mode: 'insensitive' } },
+        { guestProfile: { name: { contains: searchTerm, mode: 'insensitive' } } },
+        { guestProfile: { user: { email: { contains: searchTerm, mode: 'insensitive' } } } },
+      ];
+    }
+
+    if (filters.status) {
+      where.status = filters.status as BookingStatus;
+    }
+
+    if (filters.experienceId) {
+      where.items = { some: { experienceId: filters.experienceId } };
+    }
+
+    if (filters.dateFrom || filters.dateTo) {
+      where.date = {};
+      if (filters.dateFrom) {
+        where.date.gte = new Date(filters.dateFrom);
+      }
+      if (filters.dateTo) {
+        where.date.lte = new Date(filters.dateTo);
+      }
+    }
+
+    const [bookings, total] = await Promise.all([
+      prisma.booking.findMany({
+        where,
+        include: {
+          guestProfile: true,
+          items: { include: { experience: true } },
+          payments: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: pageSize,
+      }),
+      prisma.booking.count({ where }),
+    ]);
+
+    return {
+      bookings,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    };
+  }
+
+  static async updateStatus(
+    bookingId: string,
+    toStatus: BookingStatus,
+    changedBy: string,
+    notes?: string
+  ) {
+    return prisma.$transaction(async (tx) => {
+      const existing = await tx.booking.findUnique({
+        where: { id: bookingId },
+      });
+
+      if (!existing) throw new Error('Booking not found');
+
+      const fromStatus = existing.status;
+
+      if (fromStatus === toStatus) {
+        throw new Error(`Booking is already in ${toStatus} status`);
+      }
+
+      if (fromStatus === BookingStatus.CANCELLED) {
+        throw new Error('Cannot update a cancelled booking');
+      }
+
+      if (fromStatus === BookingStatus.COMPLETED) {
+        throw new Error('Cannot update a completed booking');
+      }
+
+      const updated = await tx.booking.update({
+        where: { id: bookingId },
+        data: { status: toStatus },
+      });
+
+      await tx.bookingStatusHistory.create({
+        data: {
+          bookingId,
+          fromStatus,
+          toStatus,
+          changedBy,
+          notes: notes || `Status changed from ${fromStatus} to ${toStatus} by staff`,
+        },
+      });
+
+      return updated;
+    });
+  }
+
   static async createBookingWithTransaction(data: {
     bookingNumber: string;
     wineryId: string;

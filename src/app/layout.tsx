@@ -4,9 +4,6 @@ import "./globals.css";
 import { BookingProvider } from "@/context/BookingContext";
 import { GuestProvider } from "@/context/GuestContext";
 import { ConciergeProvider } from "@/context/ConciergeContext";
-import Header from "@/components/layout/Header";
-import Footer from "@/components/layout/Footer";
-import WineConcierge from "@/components/concierge/WineConcierge";
 
 const cormorant = Cormorant_Garamond({
   variable: "--font-cormorant",
@@ -46,10 +43,7 @@ export default function RootLayout({
         <BookingProvider>
           <GuestProvider>
             <ConciergeProvider>
-              <Header />
-              <main className="flex-1">{children}</main>
-              <Footer />
-              <WineConcierge />
+              {children}
             </ConciergeProvider>
           </GuestProvider>
         </BookingProvider>

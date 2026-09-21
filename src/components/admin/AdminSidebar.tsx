@@ -49,7 +49,7 @@ const NAVIGATION_SECTIONS: NavSection[] = [
   {
     title: 'OPERATIONS',
     items: [
-      { name: 'Bookings', href: '/admin/bookings', icon: CalendarDays, isImplemented: false },
+      { name: 'Bookings', href: '/admin/bookings', icon: CalendarDays, isImplemented: true },
       { name: 'Calendar', href: '/admin/calendar', icon: Calendar, isImplemented: false },
       { name: 'Experiences', href: '/admin/experiences', icon: Sparkles, isImplemented: false },
       { name: 'Availability', href: '/admin/availability', icon: Clock, isImplemented: false },
@@ -162,7 +162,7 @@ export function AdminSidebar({ isOpen, onClose }: AdminSidebarProps) {
               </div>
               <ul className="space-y-0.5">
                 {section.items.map((item) => {
-                  const isActive = pathname === item.href;
+                  const isActive = pathname === item.href || (item.href !== '/admin' && pathname.startsWith(item.href));
                   const Icon = item.icon;
 
                   if (item.isImplemented) {

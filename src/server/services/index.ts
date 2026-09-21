@@ -220,6 +220,32 @@ export class BookingService {
     return booking;
   }
 
+  static async listBookings(filters: {
+    search?: string;
+    status?: string;
+    experienceId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    return BookingRepository.findMany(filters);
+  }
+
+  static async updateBookingStatus(
+    bookingNumber: string,
+    toStatus: import('@prisma/client').BookingStatus,
+    changedBy: string,
+    notes?: string
+  ) {
+    const booking = await BookingRepository.findByBookingNumber(bookingNumber);
+    if (!booking) {
+      throw new Error(`Booking ${bookingNumber} not found`);
+    }
+
+    return BookingRepository.updateStatus(booking.id, toStatus, changedBy, notes);
+  }
+
   static async createBooking(input: BookingCreateInput) {
     const experience = await prisma.experience.findFirst({
       where: { slug: input.experienceSlug, isActive: true },

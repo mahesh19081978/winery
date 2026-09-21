@@ -73,6 +73,14 @@ export const ReviewCreateSchema = z.object({
 });
 
 export type ReviewCreateInput = z.infer<typeof ReviewCreateSchema>;
+
+export const BookingStatusUpdateSchema = z.object({
+  status: z.enum(['PENDING', 'CONFIRMED', 'CHECKED_IN', 'COMPLETED', 'CANCELLED', 'NO_SHOW']),
+  notes: z.string().optional().default(''),
+});
+
+export type BookingStatusUpdateInput = z.infer<typeof BookingStatusUpdateSchema>;
+
 export const AdminLoginSchema = z.object({
   email: z.string().email('Valid email is required'),
   password: z.string().min(8, 'Password must be at least 8 characters'),

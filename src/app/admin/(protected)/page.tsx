@@ -1,4 +1,5 @@
 import React from 'react';
+import Link from 'next/link';
 import { AuthService } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import {
@@ -13,6 +14,7 @@ import {
   Wine as WineIcon,
   CalendarPlus,
   Clock,
+  ArrowRight,
 } from 'lucide-react';
 import {
   StatCard,
@@ -169,9 +171,13 @@ export default async function AdminDashboardPage() {
             title="Today's Vineyard Schedule"
             description="Active appointments, tastings, and cellar tours scheduled for today"
             action={
-              <span className="text-xs font-mono font-medium text-stone-500 bg-stone-100 px-2.5 py-1 rounded-md border border-stone-200">
-                {bookings.length} reservations
-              </span>
+              <Link
+                href="/admin/bookings"
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-[#6c2432] hover:text-[#461822] transition"
+              >
+                View All
+                <ArrowRight className="w-3 h-3" />
+              </Link>
             }
           >
             <div className="overflow-x-auto -mx-5 -my-2">
@@ -231,6 +237,15 @@ export default async function AdminDashboardPage() {
           <SectionCard
             title="Recent Reservations"
             description="Latest confirmed and pending booking inquiries"
+            action={
+              <Link
+                href="/admin/bookings"
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-[#6c2432] hover:text-[#461822] transition"
+              >
+                View All
+                <ArrowRight className="w-3 h-3" />
+              </Link>
+            }
           >
             <div className="overflow-x-auto -mx-5 -my-2">
               <table className="w-full text-left text-xs border-collapse">
