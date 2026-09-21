@@ -27,6 +27,94 @@ export class WineRepository {
       },
     });
   }
+
+  static async findAllAdmin(filters: {
+    search?: string;
+    category?: string;
+    featured?: boolean;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const page = filters.page || 1;
+    const pageSize = filters.pageSize || 20;
+    const skip = (page - 1) * pageSize;
+
+    const where: Prisma.WineWhereInput = {};
+
+    if (filters.search) {
+      const searchTerm = filters.search.trim();
+      where.OR = [
+        { name: { contains: searchTerm, mode: 'insensitive' } },
+        { slug: { contains: searchTerm, mode: 'insensitive' } },
+        { shortDescription: { contains: searchTerm, mode: 'insensitive' } },
+      ];
+    }
+
+    if (filters.category) {
+      where.category = filters.category as import('@prisma/client').WineCategory;
+    }
+
+    if (filters.featured !== undefined) {
+      where.featured = filters.featured;
+    }
+
+    const [wines, total] = await Promise.all([
+      prisma.wine.findMany({
+        where,
+        include: {
+          vintages: { select: { id: true, vintageYear: true, price: true, isAvailable: true, inventoryCount: true } },
+          images: { select: { id: true, url: true, isPrimary: true } },
+          _count: { select: { reviews: true, experienceWines: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: pageSize,
+      }),
+      prisma.wine.count({ where }),
+    ]);
+
+    return {
+      wines,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    };
+  }
+
+  static async findBySlugAdmin(slug: string) {
+    return prisma.wine.findFirst({
+      where: { slug },
+      include: {
+        vintages: {
+          include: {
+            tastingRecords: {
+              select: { id: true, rating: true, notes: true },
+              orderBy: { tastedAt: 'desc' },
+              take: 10,
+            },
+          },
+          orderBy: { vintageYear: 'desc' },
+        },
+        images: { orderBy: { sortOrder: 'asc' } },
+        foodPairings: { orderBy: { dishName: 'asc' } },
+        experienceWines: {
+          include: {
+            experience: { select: { id: true, title: true, slug: true } },
+          },
+          orderBy: { sortOrder: 'asc' },
+        },
+        reviews: {
+          where: { status: ReviewStatus.APPROVED },
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+        },
+        _count: { select: { reviews: true, experienceWines: true, favoredByGuests: true } },
+      },
+    });
+  }
 }
 
 export class ExperienceRepository {

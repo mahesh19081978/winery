@@ -58,7 +58,7 @@ const NAVIGATION_SECTIONS: NavSection[] = [
   {
     title: 'WINE',
     items: [
-      { name: 'Wines', href: '/admin/wines', icon: Wine, isImplemented: false },
+      { name: 'Wines', href: '/admin/wines', icon: Wine, isImplemented: true },
       { name: 'Vintages', href: '/admin/vintages', icon: Layers, isImplemented: false },
       { name: 'Tastings', href: '/admin/tastings', icon: GlassWater, isImplemented: false },
     ],

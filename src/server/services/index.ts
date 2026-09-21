@@ -29,6 +29,24 @@ export class WineService {
     }
     return wine;
   }
+
+  static async listWinesAdmin(filters: {
+    search?: string;
+    category?: string;
+    featured?: boolean;
+    page?: number;
+    pageSize?: number;
+  }) {
+    return WineRepository.findAllAdmin(filters);
+  }
+
+  static async getWineBySlugAdmin(slug: string) {
+    const wine = await WineRepository.findBySlugAdmin(slug);
+    if (!wine) {
+      throw new Error(`Wine with slug '${slug}' not found`);
+    }
+    return wine;
+  }
 }
 
 export class ExperienceService {
