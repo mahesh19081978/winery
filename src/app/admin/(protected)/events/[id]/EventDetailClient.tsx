@@ -47,17 +47,22 @@ interface EventData {
   ticketTypes: { id: string; name: string; price: string | number; capacity: number; soldCount: number }[];
   eventBookings: {
     id: string;
-    ticketCount: number;
+    bookingNumber: string;
     totalPrice: string | number;
     status: string;
     createdAt: string;
+    eventSchedule: { id: string; timeSlot: string; activity: string };
     guestProfile: {
       id: string;
       name: string;
       phone: string | null;
       user: { email: string };
     };
-    ticketType: { id: string; name: string; price: string | number; capacity: number; soldCount: number } | null;
+    tickets: {
+      quantity: number;
+      unitPrice: string | number;
+      ticketType: { id: string; name: string; price: string | number; capacity: number; soldCount: number } | null;
+    }[];
   }[];
   reviews: {
     id: string;
@@ -90,10 +95,24 @@ function formatDateTime(date: string) {
   });
 }
 
+function getBookingTicketCount(booking: EventData['eventBookings'][number]) {
+  return booking.tickets.reduce((sum, ticket) => sum + ticket.quantity, 0);
+}
+
+function getBookingTicketSummary(booking: EventData['eventBookings'][number]) {
+  if (booking.tickets.length === 0) {
+    return 'No ticket lines';
+  }
+
+  return booking.tickets
+    .map((ticket) => `${ticket.ticketType?.name || 'Archived ticket'} x ${ticket.quantity}`)
+    .join(', ');
+}
+
 export function EventDetailClient({ event }: { event: EventData }) {
   const ticketCapacity = event.ticketTypes.reduce((sum, ticket) => sum + ticket.capacity, 0);
   const soldTickets = event.ticketTypes.reduce((sum, ticket) => sum + ticket.soldCount, 0);
-  const bookingTickets = event.eventBookings.reduce((sum, booking) => sum + booking.ticketCount, 0);
+  const bookingTickets = event.eventBookings.reduce((sum, booking) => sum + getBookingTicketCount(booking), 0);
   const averageReviewRating = event.reviews.length > 0
     ? (event.reviews.reduce((sum, review) => sum + review.rating, 0) / event.reviews.length).toFixed(1)
     : null;
@@ -239,15 +258,18 @@ export function EventDetailClient({ event }: { event: EventData }) {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <p className="font-medium text-stone-900">{booking.guestProfile.name}</p>
-                        <p className="text-[11px] text-stone-500">{booking.guestProfile.user.email}</p>
+                        <p className="text-[11px] text-stone-500">{booking.bookingNumber} · {booking.guestProfile.user.email}</p>
                       </div>
                       <StatusBadge status={booking.status} size="sm" />
                     </div>
                     <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-stone-600 sm:grid-cols-3">
-                      <span>{booking.ticketType?.name || 'Standard ticket'}</span>
-                      <span>{booking.ticketCount} ticket{booking.ticketCount !== 1 ? 's' : ''}</span>
+                      <span>{getBookingTicketSummary(booking)}</span>
+                      <span>{getBookingTicketCount(booking)} ticket{getBookingTicketCount(booking) !== 1 ? 's' : ''}</span>
                       <span className="font-mono">${Number(booking.totalPrice).toFixed(2)}</span>
                     </div>
+                    <p className="mt-2 text-[11px] text-stone-500">
+                      {booking.eventSchedule.timeSlot} · {booking.eventSchedule.activity}
+                    </p>
                     <p className="mt-2 text-[10px] font-mono text-stone-400">Booked {formatDateTime(booking.createdAt)}</p>
                   </div>
                 ))}

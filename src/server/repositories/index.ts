@@ -361,7 +361,10 @@ export class EventRepository {
             guestProfile: {
               include: { user: { select: { email: true } } },
             },
-            ticketType: true,
+            eventSchedule: true,
+            tickets: {
+              include: { ticketType: true },
+            },
           },
           orderBy: { createdAt: 'desc' },
         },
@@ -933,7 +936,14 @@ export class GuestRepository {
         eventBookings: {
           include: {
             event: { select: { id: true, title: true, slug: true, eventDate: true, status: true } },
-            ticketType: { select: { name: true, price: true } },
+            eventSchedule: { select: { id: true, timeSlot: true, activity: true } },
+            tickets: {
+              select: {
+                quantity: true,
+                unitPrice: true,
+                ticketType: { select: { name: true, price: true } },
+              },
+            },
           },
           orderBy: { createdAt: 'desc' },
         },

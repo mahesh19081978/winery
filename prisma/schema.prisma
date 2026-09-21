@@ -629,8 +629,10 @@ model EventSchedule {
   sortOrder Int      @default(0)
 
   event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventBookings EventBooking[]
 
   @@unique([eventId, timeSlot, activity])
+  @@unique([id, eventId])
   @@index([eventId])
   @@map("event_schedules")
 }
@@ -657,8 +659,8 @@ model EventTicketType {
   capacity      Int
   soldCount     Int            @default(0)
 
-  event         Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  eventBookings EventBooking[]
+  event               Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventBookingTickets EventBookingTicket[]
 
   @@unique([eventId, name])
   @@index([eventId])
@@ -666,22 +668,60 @@ model EventTicketType {
 }
 
 model EventBooking {
-  id                String          @id @default(uuid())
-  eventId           String
-  eventTicketTypeId String?
-  guestProfileId    String
-  ticketCount       Int             @default(1)
-  totalPrice        Decimal         @db.Decimal(10, 2)
-  status            BookingStatus   @default(CONFIRMED)
-  createdAt         DateTime        @default(now())
+  id              String                     @id @default(uuid())
+  bookingNumber   String                     @unique
+  eventId         String
+  eventScheduleId String
+  guestProfileId  String
+  totalPrice      Decimal                    @db.Decimal(10, 2)
+  status          BookingStatus              @default(CONFIRMED)
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
 
-  event             Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  ticketType        EventTicketType? @relation(fields: [eventTicketTypeId], references: [id], onDelete: SetNull)
-  guestProfile      GuestProfile    @relation(fields: [guestProfileId], references: [id], onDelete: Restrict)
+  event           Event                      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventSchedule   EventSchedule              @relation(fields: [eventScheduleId, eventId], references: [id, eventId], onDelete: Restrict)
+  guestProfile    GuestProfile               @relation(fields: [guestProfileId], references: [id], onDelete: Restrict)
+  tickets         EventBookingTicket[]
+  statusHistory   EventBookingStatusHistory[]
 
   @@index([eventId])
+  @@index([eventScheduleId])
   @@index([guestProfileId])
+  @@index([status])
   @@map("event_bookings")
+}
+
+model EventBookingTicket {
+  id                String           @id @default(uuid())
+  eventBookingId    String
+  eventTicketTypeId String?
+  quantity          Int              @default(1)
+  unitPrice         Decimal          @db.Decimal(10, 2)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  eventBooking      EventBooking     @relation(fields: [eventBookingId], references: [id], onDelete: Cascade)
+  ticketType        EventTicketType? @relation(fields: [eventTicketTypeId], references: [id], onDelete: SetNull)
+
+  @@unique([eventBookingId, eventTicketTypeId])
+  @@index([eventBookingId])
+  @@index([eventTicketTypeId])
+  @@map("event_booking_tickets")
+}
+
+model EventBookingStatusHistory {
+  id             String        @id @default(uuid())
+  eventBookingId String
+  fromStatus     BookingStatus
+  toStatus       BookingStatus
+  changedBy      String?
+  notes          String?
+  createdAt      DateTime      @default(now())
+
+  eventBooking   EventBooking  @relation(fields: [eventBookingId], references: [id], onDelete: Cascade)
+
+  @@index([eventBookingId])
+  @@map("event_booking_status_histories")
 }
 
 // ----------------------------------------------------

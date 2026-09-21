@@ -168,7 +168,7 @@ interface GuestData {
   }[];
   eventBookings: {
     id: string;
-    ticketCount: number;
+    bookingNumber: string;
     totalPrice: number;
     status: string;
     createdAt: string;
@@ -179,10 +179,19 @@ interface GuestData {
       eventDate: string;
       status: string;
     };
-    ticketType: {
-      name: string;
-      price: number;
-    } | null;
+    eventSchedule: {
+      id: string;
+      timeSlot: string;
+      activity: string;
+    };
+    tickets: {
+      quantity: number;
+      unitPrice: number;
+      ticketType: {
+        name: string;
+        price: number;
+      } | null;
+    }[];
   }[];
 }
 
@@ -238,6 +247,20 @@ function ReviewStatusBadge({ status }: { status: string }) {
       {c.label}
     </span>
   );
+}
+
+function getEventBookingTicketCount(eventBooking: GuestData['eventBookings'][number]) {
+  return eventBooking.tickets.reduce((sum, ticket) => sum + ticket.quantity, 0);
+}
+
+function getEventBookingTicketSummary(eventBooking: GuestData['eventBookings'][number]) {
+  if (eventBooking.tickets.length === 0) {
+    return 'No ticket lines';
+  }
+
+  return eventBooking.tickets
+    .map((ticket) => `${ticket.ticketType?.name || 'Archived ticket'} x ${ticket.quantity}`)
+    .join(', ');
 }
 
 export function GuestDetailClient({ guest }: { guest: GuestData }) {
@@ -885,7 +908,7 @@ export function GuestDetailClient({ guest }: { guest: GuestData }) {
                             {eventBooking.event.title}
                           </h4>
                           <p className="text-[11px] text-stone-500 mt-0.5">
-                            {eventBooking.ticketType?.name || 'Standard'} • {eventBooking.ticketCount} ticket{eventBooking.ticketCount !== 1 ? 's' : ''}
+                            {getEventBookingTicketSummary(eventBooking)} - {getEventBookingTicketCount(eventBooking)} ticket{getEventBookingTicketCount(eventBooking) !== 1 ? 's' : ''}
                           </p>
                         </div>
                         <StatusBadge status={eventBooking.event.status} size="sm" />
@@ -894,6 +917,10 @@ export function GuestDetailClient({ guest }: { guest: GuestData }) {
                         <div className="flex items-center gap-1">
                           <CalendarDays className="w-3 h-3" />
                           {formatDate(eventBooking.event.eventDate)}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {eventBooking.eventSchedule.timeSlot}
                         </div>
                         <div className="flex items-center gap-1">
                           <CreditCard className="w-3 h-3" />
