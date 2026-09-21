@@ -454,6 +454,25 @@ export class TastingService {
     return session;
   }
 
+  static async listTastingSessions(filters: {
+    search?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    hasBooking?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    return TastingRepository.findAllSessionsAdmin(filters);
+  }
+
+  static async getTastingSessionAdmin(sessionId: string) {
+    const session = await TastingRepository.findSessionByIdAdmin(sessionId);
+    if (!session) {
+      throw new Error(`Tasting session '${sessionId}' not found`);
+    }
+    return session;
+  }
+
   static async createTastingRecord(input: TastingRecordCreateInput) {
     const guest = await prisma.guestProfile.findFirst({
       where: { user: { email: input.guestEmail } },

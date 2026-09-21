@@ -69,7 +69,7 @@ export function BookingActionsClient({ currentStatus, bookingNumber, onStatusUpd
     setError('');
 
     try {
-      const response = await fetch(`/api/admin/bookings/${bookingNumber}/status`, {
+      const response = await fetch(`/api/admin/bookings/${bookingNumber}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

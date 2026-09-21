@@ -91,20 +91,13 @@ interface BookingDetailClientProps {
   adminRole?: string;
 }
 
-export function BookingDetailClient({ booking: initialBooking }: BookingDetailClientProps) {
+export function BookingDetailClient({ booking }: BookingDetailClientProps) {
   const router = useRouter();
-  const [booking, setBooking] = useState(initialBooking);
   const [refreshing, setRefreshing] = useState(false);
 
   const handleStatusUpdated = async () => {
     setRefreshing(true);
     try {
-      const response = await fetch(`/api/bookings/${booking.bookingNumber}`);
-      const result = await response.json();
-      if (result.success) {
-        setBooking(result.data);
-      }
-    } catch {
       router.refresh();
     } finally {
       setRefreshing(false);

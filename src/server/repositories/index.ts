@@ -760,6 +760,107 @@ export class TastingRepository {
     });
   }
 
+  static async findAllSessionsAdmin(filters: {
+    search?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    hasBooking?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const page = filters.page || 1;
+    const pageSize = filters.pageSize || 20;
+    const skip = (page - 1) * pageSize;
+
+    const where: Prisma.TastingSessionWhereInput = {};
+
+    if (filters.search) {
+      const searchTerm = filters.search.trim();
+      where.OR = [
+        { guestProfile: { name: { contains: searchTerm, mode: 'insensitive' } } },
+        { guestProfile: { user: { email: { contains: searchTerm, mode: 'insensitive' } } } },
+        { booking: { bookingNumber: { contains: searchTerm, mode: 'insensitive' } } },
+        { location: { contains: searchTerm, mode: 'insensitive' } },
+        { notes: { contains: searchTerm, mode: 'insensitive' } },
+      ];
+    }
+
+    if (filters.dateFrom || filters.dateTo) {
+      where.sessionDate = {};
+      if (filters.dateFrom) {
+        where.sessionDate.gte = new Date(filters.dateFrom);
+      }
+      if (filters.dateTo) {
+        where.sessionDate.lte = new Date(filters.dateTo);
+      }
+    }
+
+    if (filters.hasBooking === 'yes') {
+      where.bookingId = { not: null };
+    } else if (filters.hasBooking === 'no') {
+      where.bookingId = null;
+    }
+
+    const [sessions, total] = await Promise.all([
+      prisma.tastingSession.findMany({
+        where,
+        include: {
+          guestProfile: {
+            include: { user: true },
+          },
+          booking: {
+            select: { bookingNumber: true, date: true, status: true },
+          },
+          records: {
+            include: {
+              wineVintage: {
+                include: { wine: true },
+              },
+            },
+          },
+        },
+        orderBy: { sessionDate: 'desc' },
+        skip,
+        take: pageSize,
+      }),
+      prisma.tastingSession.count({ where }),
+    ]);
+
+    return {
+      sessions,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    };
+  }
+
+  static async findSessionByIdAdmin(id: string) {
+    return prisma.tastingSession.findUnique({
+      where: { id },
+      include: {
+        guestProfile: {
+          include: { user: true },
+        },
+        booking: {
+          include: {
+            items: { include: { experience: true } },
+          },
+        },
+        records: {
+          include: {
+            wineVintage: {
+              include: { wine: true },
+            },
+          },
+          orderBy: { tastedAt: 'asc' },
+        },
+      },
+    });
+  }
+
   static async createRecord(data: {
     guestProfileId: string;
     wineVintageId: string;
