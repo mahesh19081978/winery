@@ -14,7 +14,9 @@ import {
   Wine,
   ArrowRight,
   ArrowLeft,
-  ShieldCheck
+  ShieldCheck,
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
 
 const STEPS = [
@@ -35,6 +37,22 @@ const TIME_SLOTS = [
   '6:00 PM'
 ];
 
+interface ServerBooking {
+  id: string;
+  bookingNumber: string;
+  status: string;
+  totalPrice: number;
+  subtotal: number;
+  taxAmount: number;
+  date: string;
+  time: string;
+  adults: number;
+  children: number;
+  totalGuests: number;
+  guestProfile?: { name: string; user?: { email: string } };
+  items?: { title: string }[];
+}
+
 function BookingContent() {
   const searchParams = useSearchParams();
   const initialExpId = searchParams.get('experience') || mockExperiences[0].id;
@@ -43,13 +61,14 @@ function BookingContent() {
     currentBooking,
     updateBooking,
     calculatePricing,
-    confirmBooking
+    getExperienceSlug
   } = useBooking();
 
   const [step, setStep] = useState(1);
-  const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
+  const [createdBooking, setCreatedBooking] = useState<ServerBooking | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // Selected experience entity
   const selectedExp =
     mockExperiences.find((e) => e.id === currentBooking.experienceId) ||
     mockExperiences.find((e) => e.id === initialExpId) ||
@@ -57,10 +76,9 @@ function BookingContent() {
 
   const { basePrice, taxAmount, totalPrice } = calculatePricing();
 
-  // Helper date list for next 14 days (excluding past dates)
   const availableDates = Array.from({ length: 14 }).map((_, i) => {
     const d = new Date();
-    d.setDate(d.getDate() + i + 1); // starting from tomorrow
+    d.setDate(d.getDate() + i + 1);
     const iso = d.toISOString().split('T')[0];
     const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
     const monthName = d.toLocaleDateString('en-US', { month: 'short' });
@@ -68,21 +86,64 @@ function BookingContent() {
     return { iso, dayName, monthName, dayNum };
   });
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (step < 6) {
       setStep(step + 1);
     } else if (step === 6) {
-      const booked = confirmBooking();
-      setCreatedBookingId(booked.id);
+      await handleSubmitBooking();
+    }
+  };
+
+  const handleSubmitBooking = async () => {
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      const experienceSlug = getExperienceSlug();
+
+      const response = await fetch('/api/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          experienceSlug,
+          date: currentBooking.date,
+          time: currentBooking.time,
+          adults: currentBooking.adults,
+          children: currentBooking.children,
+          guestName: currentBooking.guestName,
+          guestEmail: currentBooking.guestEmail,
+          guestPhone: currentBooking.guestPhone || '',
+          specialRequests: currentBooking.specialRequests || '',
+          dietaryRequirements: ''
+        })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        const errorMsg = result.error || 'Failed to create booking. Please try again.';
+        setSubmitError(errorMsg);
+        return;
+      }
+
+      setCreatedBooking(result.data);
       setStep(7);
+    } catch {
+      setSubmitError('Network error. Please check your connection and try again.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleBack = () => {
     if (step > 1 && step < 7) {
       setStep(step - 1);
+      setSubmitError(null);
     }
   };
+
+  const serverBookingNumber = createdBooking?.bookingNumber || createdBooking?.id;
+  const serverTotal = createdBooking ? Number(createdBooking.totalPrice) : totalPrice;
 
   return (
     <div className="w-full pt-20 pb-24 bg-[#faf8f5]">
@@ -404,6 +465,19 @@ function BookingContent() {
                 </p>
               </div>
 
+              {submitError && (
+                <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-rose-800">Booking Failed</p>
+                    <p className="text-xs text-rose-700 mt-1">{submitError}</p>
+                    <p className="text-xs text-rose-600 mt-2">
+                      Please go back, adjust your selection, and try again.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div className="p-6 bg-[#faf8f5] rounded-3xl border border-[#e6dece] space-y-4">
                 <div className="flex items-center justify-between pb-4 border-b border-[#e6dece]">
                   <div>
@@ -425,7 +499,7 @@ function BookingContent() {
                       Date
                     </span>
                     <strong className="text-[#191c1f] text-sm">
-                      {currentBooking.date || 'Oct 20, 2026'}
+                      {currentBooking.date}
                     </strong>
                   </div>
                   <div>
@@ -433,7 +507,7 @@ function BookingContent() {
                       Time
                     </span>
                     <strong className="text-[#191c1f] text-sm">
-                      {currentBooking.time || '2:00 PM'}
+                      {currentBooking.time}
                     </strong>
                   </div>
                   <div>
@@ -482,7 +556,7 @@ function BookingContent() {
           )}
 
           {/* STEP 7: CONFIRMATION */}
-          {step === 7 && (
+          {step === 7 && createdBooking && (
             <div className="text-center py-6 space-y-8 animate-in zoom-in-95 duration-300">
               <div className="w-16 h-16 mx-auto rounded-full bg-emerald-50 text-emerald-700 flex items-center justify-center border border-emerald-200">
                 <CheckCircle className="w-8 h-8" />
@@ -512,13 +586,13 @@ function BookingContent() {
                     </h4>
                   </div>
                   <span className="font-mono text-xs font-bold text-[#8a3243]">
-                    {createdBookingId || 'DVR-2026-10482'}
+                    {serverBookingNumber}
                   </span>
                 </div>
 
                 <div className="my-6">
                   <QRCodePlaceholder
-                    code={createdBookingId || 'DVR-2026-10482'}
+                    code={serverBookingNumber || ''}
                     size={160}
                     label="Show this digital pass at the Estate Lounge check-in"
                   />
@@ -528,25 +602,25 @@ function BookingContent() {
                   <div>
                     <span>Date:</span>
                     <strong className="block text-[#191c1f]">
-                      {currentBooking.date || '2026-10-20'}
+                      {createdBooking.date}
                     </strong>
                   </div>
                   <div>
                     <span>Time:</span>
                     <strong className="block text-[#191c1f]">
-                      {currentBooking.time || '2:00 PM'}
+                      {createdBooking.time}
                     </strong>
                   </div>
                   <div>
                     <span>Guests:</span>
                     <strong className="block text-[#191c1f]">
-                      {currentBooking.adults} Adults
+                      {createdBooking.totalGuests} Guests
                     </strong>
                   </div>
                   <div>
                     <span>Total:</span>
                     <strong className="block text-[#8a3243] font-serif font-bold">
-                      ${totalPrice.toFixed(2)}
+                      ${serverTotal.toFixed(2)}
                     </strong>
                   </div>
                 </div>
@@ -555,16 +629,10 @@ function BookingContent() {
               {/* Post-confirmation Actions */}
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-4">
                 <Link
-                  href={`/booking/${createdBookingId || 'DVR-2026-10482'}`}
+                  href={`/booking/${serverBookingNumber}`}
                   className="w-full sm:w-auto px-8 py-3.5 rounded-full bg-[#2d1117] hover:bg-[#461822] text-[#faf8f5] text-xs font-semibold uppercase tracking-wider transition-colors shadow-md"
                 >
                   View My Booking Ticket
-                </Link>
-                <Link
-                  href="/app"
-                  className="w-full sm:w-auto px-6 py-3.5 rounded-full border border-[#8a3243] text-[#8a3243] hover:bg-[#f4f0e8] text-xs font-semibold uppercase tracking-wider transition-colors"
-                >
-                  Go to My Wine Journey
                 </Link>
                 <Link
                   href="/"
@@ -583,7 +651,8 @@ function BookingContent() {
                 <button
                   type="button"
                   onClick={handleBack}
-                  className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full border border-[#e6dece] text-xs font-semibold uppercase tracking-wider text-[#525960] hover:bg-[#f4f0e8] transition-colors"
+                  disabled={isSubmitting}
+                  className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full border border-[#e6dece] text-xs font-semibold uppercase tracking-wider text-[#525960] hover:bg-[#f4f0e8] transition-colors disabled:opacity-50"
                 >
                   <ArrowLeft className="w-3.5 h-3.5" /> Back
                 </button>
@@ -594,10 +663,20 @@ function BookingContent() {
               <button
                 type="button"
                 onClick={handleNext}
-                className="inline-flex items-center gap-2 px-8 py-3 rounded-full bg-[#2d1117] hover:bg-[#461822] text-[#faf8f5] text-xs font-semibold uppercase tracking-widest transition-all shadow-md"
+                disabled={isSubmitting}
+                className="inline-flex items-center gap-2 px-8 py-3 rounded-full bg-[#2d1117] hover:bg-[#461822] text-[#faf8f5] text-xs font-semibold uppercase tracking-widest transition-all shadow-md disabled:opacity-60"
               >
-                <span>{step === 6 ? 'Confirm Reservation' : 'Continue'}</span>
-                <ArrowRight className="w-3.5 h-3.5" />
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Processing...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>{step === 6 ? 'Confirm Reservation' : 'Continue'}</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </>
+                )}
               </button>
             </div>
           )}

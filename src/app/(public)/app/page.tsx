@@ -2,31 +2,19 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { useBooking } from '@/context/BookingContext';
 import { useGuest } from '@/context/GuestContext';
-import { mockExperiences } from '@/data/experiences';
 import { mockWines } from '@/data/wines';
 import { 
-  Calendar, 
-  Clock, 
-  Users, 
   Wine, 
   Sparkles, 
   ArrowRight, 
-  QrCode, 
   Star,
   ChevronRight,
   BookOpen
 } from 'lucide-react';
-import QRCodePlaceholder from '@/components/booking/QRCodePlaceholder';
 
 export default function GuestOverviewPage() {
-  const { bookings } = useBooking();
   const { profile, tastings, savedWineIds } = useGuest();
-
-  // Find upcoming booking
-  const upcomingBooking = bookings.find(b => b.status === 'Confirmed');
-  const upcomingExp = upcomingBooking ? mockExperiences.find(e => e.id === upcomingBooking.experienceId) : null;
 
   // Recommended wines
   const recommendedWines = mockWines.slice(0, 3);
@@ -74,79 +62,20 @@ export default function GuestOverviewPage() {
         </div>
       </div>
 
-      {/* Next Upcoming Experience / Digital Pass */}
-      {upcomingBooking && upcomingExp ? (
-        <section className="bg-white rounded-3xl p-8 border border-stone-200/80 shadow-sm relative overflow-hidden">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8">
-            <div className="space-y-4 max-w-xl">
-              <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#8a3243]">
-                <Calendar className="w-4 h-4" /> Next Upcoming Visit
-              </div>
-              <h2 className="font-serif text-2xl md:text-3xl text-stone-900 font-normal">
-                {upcomingExp.title}
-              </h2>
-              <p className="text-stone-600 text-sm leading-relaxed">
-                {upcomingExp.shortDescription}
-              </p>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-2 text-sm text-stone-700">
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-[#8a3243]" />
-                  <span>{new Date(upcomingBooking.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-[#8a3243]" />
-                  <span>{upcomingBooking.time}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Users className="w-4 h-4 text-[#8a3243]" />
-                  <span>{upcomingBooking.totalGuests} {upcomingBooking.totalGuests === 1 ? 'Guest' : 'Guests'}</span>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-4 pt-4">
-                <Link
-                  href={`/app/bookings/${upcomingBooking.id}`}
-                  className="px-6 py-2.5 rounded-full bg-[#8a3243] text-white text-sm font-medium hover:bg-[#732937] transition inline-flex items-center gap-2 shadow-sm"
-                >
-                  <QrCode className="w-4 h-4" /> View Digital Pass
-                </Link>
-                <Link
-                  href={`/experiences/${upcomingExp.slug}`}
-                  className="px-6 py-2.5 rounded-full border border-stone-300 text-stone-700 text-sm font-medium hover:border-[#8a3243] hover:text-[#8a3243] transition"
-                >
-                  Experience Details
-                </Link>
-              </div>
-            </div>
-
-            {/* QR Code Pass Preview */}
-            <div className="flex flex-col items-center justify-center p-6 bg-[#faf8f5] rounded-2xl border border-stone-200/80 text-center w-full lg:w-72 shrink-0">
-              <QRCodePlaceholder code={`WINERY-${upcomingBooking.id}`} size={140} />
-              <div className="mt-4 font-mono text-xs uppercase tracking-wider text-stone-500 font-semibold">
-                Pass #{upcomingBooking.id}
-              </div>
-              <div className="text-xs text-stone-400 mt-1">
-                Scan upon arrival at Cellar Reception
-              </div>
-            </div>
-          </div>
-        </section>
-      ) : (
-        <section className="bg-white rounded-3xl p-8 border border-stone-200/80 shadow-sm text-center">
-          <Wine className="w-12 h-12 text-[#c5a059] mx-auto mb-4 stroke-1" />
-          <h2 className="font-serif text-2xl text-stone-900 mb-2">No Upcoming Reservations</h2>
-          <p className="text-stone-500 text-sm max-w-md mx-auto mb-6">
-            Immerse yourself in our terroirs. Book a private cave tour, tasting flight, or harvest dining experience.
-          </p>
-          <Link
-            href="/experiences"
-            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-[#8a3243] text-white text-sm font-medium hover:bg-[#732937] transition"
-          >
-            Explore Experiences <ArrowRight className="w-4 h-4" />
-          </Link>
-        </section>
-      )}
+      {/* Upcoming Experience / Digital Pass */}
+      <section className="bg-white rounded-3xl p-8 border border-stone-200/80 shadow-sm text-center">
+        <Wine className="w-12 h-12 text-[#c5a059] mx-auto mb-4 stroke-1" />
+        <h2 className="font-serif text-2xl text-stone-900 mb-2">No Upcoming Reservations</h2>
+        <p className="text-stone-500 text-sm max-w-md mx-auto mb-6">
+          Immerse yourself in our terroirs. Book a private cave tour, tasting flight, or harvest dining experience.
+        </p>
+        <Link
+          href="/experiences"
+          className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-[#8a3243] text-white text-sm font-medium hover:bg-[#732937] transition"
+        >
+          Explore Experiences <ArrowRight className="w-4 h-4" />
+        </Link>
+      </section>
 
       {/* Two Column Layout: Recent Tasting Logs & Sommelier Allocations */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
