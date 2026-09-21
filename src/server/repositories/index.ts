@@ -279,6 +279,100 @@ export class EventRepository {
       },
     });
   }
+
+  static async findAllAdmin(filters: {
+    search?: string;
+    status?: string;
+    availability?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const page = filters.page || 1;
+    const pageSize = filters.pageSize || 20;
+    const skip = (page - 1) * pageSize;
+
+    const where: Prisma.EventWhereInput = {};
+
+    if (filters.search) {
+      const searchTerm = filters.search.trim();
+      where.OR = [
+        { title: { contains: searchTerm, mode: 'insensitive' } },
+        { slug: { contains: searchTerm, mode: 'insensitive' } },
+        { shortDescription: { contains: searchTerm, mode: 'insensitive' } },
+        { venue: { contains: searchTerm, mode: 'insensitive' } },
+      ];
+    }
+
+    if (filters.status) {
+      where.status = filters.status as import('@prisma/client').EventStatus;
+    }
+
+    if (filters.availability) {
+      where.availability = filters.availability as import('@prisma/client').EventAvailability;
+    }
+
+    if (filters.dateFrom || filters.dateTo) {
+      where.eventDate = {};
+      if (filters.dateFrom) {
+        where.eventDate.gte = new Date(filters.dateFrom);
+      }
+      if (filters.dateTo) {
+        where.eventDate.lte = new Date(filters.dateTo);
+      }
+    }
+
+    const [events, total] = await Promise.all([
+      prisma.event.findMany({
+        where,
+        include: {
+          schedules: { orderBy: { sortOrder: 'asc' } },
+          ticketTypes: true,
+          _count: { select: { eventBookings: true, reviews: true } },
+        },
+        orderBy: [{ eventDate: 'desc' }, { createdAt: 'desc' }],
+        skip,
+        take: pageSize,
+      }),
+      prisma.event.count({ where }),
+    ]);
+
+    return {
+      events,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    };
+  }
+
+  static async findByIdAdmin(id: string) {
+    return prisma.event.findUnique({
+      where: { id },
+      include: {
+        schedules: { orderBy: { sortOrder: 'asc' } },
+        faqs: { orderBy: { sortOrder: 'asc' } },
+        ticketTypes: true,
+        eventBookings: {
+          include: {
+            guestProfile: {
+              include: { user: { select: { email: true } } },
+            },
+            ticketType: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+        reviews: {
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+        },
+        _count: { select: { eventBookings: true, reviews: true } },
+      },
+    });
+  }
 }
 
 export class AvailabilityRepository {

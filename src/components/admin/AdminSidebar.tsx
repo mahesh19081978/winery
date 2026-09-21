@@ -75,7 +75,7 @@ const NAVIGATION_SECTIONS: NavSection[] = [
   {
     title: 'EVENTS',
     items: [
-      { name: 'Events', href: '/admin/events', icon: Ticket, isImplemented: false },
+      { name: 'Events', href: '/admin/events', icon: Ticket, isImplemented: true },
       { name: 'Event Bookings', href: '/admin/event-bookings', icon: CalendarCheck, isImplemented: false },
     ],
   },

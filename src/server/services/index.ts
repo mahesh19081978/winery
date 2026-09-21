@@ -95,6 +95,26 @@ export class EventService {
     }
     return event;
   }
+
+  static async listEventsAdmin(filters: {
+    search?: string;
+    status?: string;
+    availability?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    return EventRepository.findAllAdmin(filters);
+  }
+
+  static async getEventAdmin(id: string) {
+    const event = await EventRepository.findByIdAdmin(id);
+    if (!event) {
+      throw new Error(`Event with id '${id}' not found`);
+    }
+    return event;
+  }
 }
 
 // Utility: convert "HH:mm" to minutes from midnight
