@@ -36,6 +36,7 @@ import {
 } from '../validators';
 import { prisma } from '@/lib/db';
 import { BookingStatus, Prisma } from '@prisma/client';
+import { createHash, randomBytes } from 'crypto';
 
 export class EventBookingError extends Error {
   statusCode: number;
@@ -1482,5 +1483,215 @@ export class AdminAuthService {
         role: adminUser.role,
       },
     };
+  }
+}
+
+export class GuestAuthService {
+  static async register(input: import('../validators').GuestRegisterInput) {
+    const normalizedEmail = input.email.trim().toLowerCase();
+    const { GuestAuth } = await import('@/lib/auth/guest');
+    const { AuthService } = await import('@/lib/auth');
+
+    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (existing) {
+      throw new EventBookingError('Email already registered', 409);
+    }
+
+    let wineryId: string | null = null;
+    try {
+      const winery = await prisma.winery.findFirst({ where: { slug: 'domaine-elysee' }, select: { id: true } });
+      if (winery) wineryId = winery.id;
+    } catch {
+      // ignore
+    }
+
+    const passwordHash = await AuthService.hashPassword(input.password);
+
+    const result = await prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email: normalizedEmail,
+          passwordHash,
+          role: 'GUEST',
+          wineryId,
+        },
+      });
+      const guestProfile = await tx.guestProfile.create({
+        data: {
+          userId: user.id,
+          name: input.name.trim(),
+        },
+      });
+      return { user, guestProfile };
+    });
+
+    const token = await GuestAuth.createSessionToken({
+      userId: result.user.id,
+      email: result.user.email,
+      role: result.user.role,
+      guestProfileId: result.guestProfile.id,
+      name: result.guestProfile.name,
+    });
+    await GuestAuth.setSessionCookie(token);
+
+    return {
+      userId: result.user.id,
+      email: result.user.email,
+      role: result.user.role,
+      guestProfileId: result.guestProfile.id,
+      name: result.guestProfile.name,
+    };
+  }
+
+  static async login(input: import('../validators').GuestLoginInput) {
+    const normalizedEmail = input.email.trim().toLowerCase();
+    const { GuestAuth } = await import('@/lib/auth/guest');
+    const { AuthService } = await import('@/lib/auth');
+
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      include: { guestProfile: true },
+    });
+
+    if (!user || !user.passwordHash) {
+      throw new EventBookingError('Invalid email or password', 401);
+    }
+
+    if (user.role !== 'GUEST') {
+      throw new EventBookingError('Invalid email or password', 401);
+    }
+
+    const isMatch = await AuthService.verifyPassword(input.password, user.passwordHash);
+    if (!isMatch) {
+      throw new EventBookingError('Invalid email or password', 401);
+    }
+
+    let guestProfile = user.guestProfile;
+    if (!guestProfile) {
+      // Recovery: create missing profile
+      guestProfile = await prisma.guestProfile.create({
+        data: {
+          userId: user.id,
+          name: user.email.split('@')[0],
+        },
+      });
+    }
+
+    const token = await GuestAuth.createSessionToken({
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      guestProfileId: guestProfile.id,
+      name: guestProfile.name,
+    });
+    await GuestAuth.setSessionCookie(token);
+
+    return {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      guestProfileId: guestProfile.id,
+      name: guestProfile.name,
+    };
+  }
+
+  static async logout() {
+    const { GuestAuth } = await import('@/lib/auth/guest');
+    await GuestAuth.clearSessionCookie();
+  }
+
+  static async getCurrentGuest() {
+    const { GuestAuth } = await import('@/lib/auth/guest');
+    const session = await GuestAuth.getSession();
+    if (!session) return null;
+
+    // Verify DB still has GUEST user + profile
+    const user = await prisma.user.findUnique({
+      where: { id: session.userId },
+      include: { guestProfile: { include: { winePreference: true } } },
+    });
+    if (!user || user.role !== 'GUEST' || !user.guestProfile) return null;
+    if (user.email !== session.email) return null;
+    if (user.guestProfile.id !== session.guestProfileId) return null;
+
+    return {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      guestProfileId: user.guestProfile.id,
+      name: user.guestProfile.name,
+      phone: user.guestProfile.phone,
+      avatar: user.guestProfile.avatar,
+      visitsCount: user.guestProfile.visitsCount,
+      emailNotifications: user.guestProfile.emailNotifications,
+      smsNotifications: user.guestProfile.smsNotifications,
+      whatsappNotifications: user.guestProfile.whatsappNotifications,
+      createdAt: user.guestProfile.createdAt,
+      winePreference: user.guestProfile.winePreference,
+      guestProfile: user.guestProfile,
+    };
+  }
+}
+
+const RESET_TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
+const GENERIC_RESET_LINK_ERROR = 'This password reset link is invalid or has expired. Please request a new one.';
+
+function hashResetToken(rawToken: string): string {
+  return createHash('sha256').update(rawToken).digest('hex');
+}
+
+export class GuestPasswordResetService {
+  // Never reveals whether an email is registered; tokens are only created for GUEST accounts.
+  static async requestReset(email: string, requestedIp?: string): Promise<void> {
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user || user.role !== 'GUEST' || !user.passwordHash) return;
+
+    const rawToken = randomBytes(32).toString('base64url');
+    const tokenHash = hashResetToken(rawToken);
+    const expiresAt = new Date(Date.now() + RESET_TOKEN_EXPIRY_MS);
+
+    await prisma.$transaction([
+      // A new request invalidates all previous unused tokens for this user.
+      prisma.passwordResetToken.deleteMany({ where: { userId: user.id, usedAt: null } }),
+      prisma.passwordResetToken.create({
+        data: { userId: user.id, tokenHash, expiresAt, requestedIp },
+      }),
+    ]);
+
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000').replace(/\/+$/, '');
+    const resetUrl = `${appUrl}/reset-password?token=${rawToken}`;
+
+    try {
+      const { sendPasswordResetEmail } = await import('@/lib/email');
+      await sendPasswordResetEmail(user.email, resetUrl, RESET_TOKEN_EXPIRY_MS / 60000);
+    } catch (error) {
+      // Delivery failure must not leak account existence; the API response stays generic.
+      console.error('[PasswordReset] Failed to send reset email:', error instanceof Error ? error.message : error);
+    }
+  }
+
+  static async resetPassword(rawToken: string, newPassword: string): Promise<void> {
+    const record = await prisma.passwordResetToken.findUnique({
+      where: { tokenHash: hashResetToken(rawToken) },
+      include: { user: true },
+    });
+
+    const invalid = new EventBookingError(GENERIC_RESET_LINK_ERROR, 400);
+    if (!record) throw invalid;
+    if (record.usedAt) throw invalid;
+    if (record.expiresAt.getTime() < Date.now()) throw invalid;
+    if (record.user.role !== 'GUEST') throw invalid; // defense in depth: guest flow never touches staff/admin
+
+    const { AuthService } = await import('@/lib/auth');
+    const passwordHash = await AuthService.hashPassword(newPassword);
+
+    await prisma.$transaction(async (tx) => {
+      const consumed = await tx.passwordResetToken.updateMany({
+        where: { id: record.id, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+      if (consumed.count === 0) throw invalid; // consumed concurrently
+      await tx.user.update({ where: { id: record.userId }, data: { passwordHash } });
+    });
   }
 }

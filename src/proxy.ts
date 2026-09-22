@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
 import { ADMIN_AUTH_COOKIE_NAME, getJwtSecretKey } from '@/lib/auth';
+import { GUEST_AUTH_COOKIE_NAME, getGuestJwtSecretKey } from '@/lib/auth/guest';
 
 const STAFF_ROLES = [
   'SUPER_ADMIN',
@@ -48,6 +49,27 @@ export async function proxy(request: NextRequest) {
     }
   }
 
+  // Protect guest account area (/app/*): require a valid GUEST session cookie.
+  // Admin/staff tokens are rejected because the payload role must be GUEST.
+  if (pathname.startsWith('/app')) {
+    const token = request.cookies.get(GUEST_AUTH_COOKIE_NAME)?.value;
+
+    if (token) {
+      try {
+        const { payload } = await jwtVerify(token, getGuestJwtSecretKey());
+        if (payload.role === 'GUEST') {
+          return NextResponse.next();
+        }
+      } catch {
+        // Invalid/expired token or missing secret: fail closed to login
+      }
+    }
+
+    const loginUrl = new URL('/login', request.url);
+    loginUrl.searchParams.set('next', pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+
   // If already logged in and visiting /admin/login, redirect to /admin
   if (pathname === '/admin/login') {
     const token = request.cookies.get(ADMIN_AUTH_COOKIE_NAME)?.value;
@@ -69,5 +91,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/admin/:path*'],
+  matcher: ['/admin/:path*', '/app/:path*'],
 };

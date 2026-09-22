@@ -96,6 +96,43 @@ export const AdminLoginSchema = z.object({
 
 export type AdminLoginInput = z.infer<typeof AdminLoginSchema>;
 
+// --- Guest Authentication (Phase 6.1) ---
+export const GuestRegisterSchema = z.object({
+  name: z.string().min(2, 'Name must be at least 2 characters').max(100),
+  email: z.string().email('Valid email is required').transform((v) => v.trim().toLowerCase()),
+  password: z.string().min(8, 'Password must be at least 8 characters').max(100),
+  confirmPassword: z.string().min(8, 'Password confirmation is required'),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: 'Passwords do not match',
+  path: ['confirmPassword'],
+});
+
+export type GuestRegisterInput = z.infer<typeof GuestRegisterSchema>;
+
+export const GuestLoginSchema = z.object({
+  email: z.string().email('Valid email is required').transform((v) => v.trim().toLowerCase()),
+  password: z.string().min(1, 'Password is required'),
+});
+
+export type GuestLoginInput = z.infer<typeof GuestLoginSchema>;
+
+export const GuestForgotPasswordSchema = z.object({
+  email: z.string().email('Valid email is required').transform((v) => v.trim().toLowerCase()),
+});
+
+export type GuestForgotPasswordInput = z.infer<typeof GuestForgotPasswordSchema>;
+
+export const GuestResetPasswordSchema = z.object({
+  token: z.string().min(1, 'Reset token is required'),
+  password: z.string().min(8, 'Password must be at least 8 characters').max(100),
+  confirmPassword: z.string().min(8, 'Password confirmation is required'),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: 'Passwords do not match',
+  path: ['confirmPassword'],
+});
+
+export type GuestResetPasswordInput = z.infer<typeof GuestResetPasswordSchema>;
+
 export const EventBookingTicketSelectionSchema = z.object({
   eventTicketTypeId: z.string().uuid('Valid ticket type ID is required'),
   quantity: z.number().int().min(1, 'Quantity must be at least 1').max(30, 'Quantity cannot exceed 30'),

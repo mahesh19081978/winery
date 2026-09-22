@@ -33,6 +33,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# development email outbox (file-outbox email provider)
+.email-outbox/
+
 # vercel
 .vercel
 

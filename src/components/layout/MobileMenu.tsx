@@ -1,8 +1,9 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { X, Wine, Calendar, Compass, BookOpen, MapPin, User, Sparkles } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { X, Wine, Calendar, Compass, BookOpen, MapPin, User, Sparkles, LogOut, LogIn } from 'lucide-react';
 import { useConcierge } from '@/context/ConciergeContext';
 
 interface MobileMenuProps {
@@ -12,6 +13,27 @@ interface MobileMenuProps {
 
 export default function MobileMenu({ isOpen, onClose }: MobileMenuProps) {
   const { openConcierge } = useConcierge();
+  const router = useRouter();
+  const [guest, setGuest] = useState<{ name: string } | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    fetch('/api/auth/guest/me', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.success && data.data) setGuest({ name: data.data.name });
+        else setGuest(null);
+      })
+      .catch(() => setGuest(null));
+  }, [isOpen]);
+
+  const handleLogout = async () => {
+    await fetch('/api/auth/guest/logout', { method: 'POST' });
+    setGuest(null);
+    onClose();
+    router.push('/');
+    router.refresh();
+  };
 
   if (!isOpen) return null;
 

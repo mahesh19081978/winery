@@ -2,19 +2,17 @@
 
 import { useState } from 'react';
 import { useGuest } from '@/context/GuestContext';
-import { 
-  User, 
-  CheckCircle2, 
-  Sliders, 
+import {
+  User,
+  CheckCircle2,
+  Sliders,
   Bell,
-  Wine
+  Wine,
+  XCircle
 } from 'lucide-react';
 
-export default function ProfilePage() {
-  const { profile, updateProfile } = useGuest();
-
-  // Local editable form state initialized from profile
-  const [formData, setFormData] = useState({
+function buildFormData(profile: ReturnType<typeof useGuest>['profile']) {
+  return {
     name: profile.name,
     email: profile.email,
     phone: profile.phone,
@@ -25,9 +23,26 @@ export default function ProfilePage() {
     emailAlerts: profile.notifications.email,
     smsReminders: profile.notifications.sms,
     whatsapp: profile.notifications.whatsapp,
-  });
+  };
+}
+
+export default function ProfilePage() {
+  const { profile, updateProfile } = useGuest();
+
+  // Local editable form state initialized from profile
+  const [formData, setFormData] = useState(() => buildFormData(profile));
+  const [prevProfile, setPrevProfile] = useState(profile);
+
+  // Adjust state during render when the authenticated profile arrives (React-endorsed
+  // alternative to setState-in-effect for prop-driven resets).
+  if (prevProfile !== profile) {
+    setPrevProfile(profile);
+    setFormData(buildFormData(profile));
+  }
 
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   // Varietal options
   const allVarietals = [
@@ -50,11 +65,13 @@ export default function ProfilePage() {
     setFormData({ ...formData, favoriteVarietals: updated });
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    updateProfile({
+    setSaving(true);
+    setSaveError(false);
+
+    const ok = await updateProfile({
       name: formData.name,
-      email: formData.email,
       phone: formData.phone,
       preferences: {
         ...profile.preferences,
@@ -70,8 +87,14 @@ export default function ProfilePage() {
       }
     });
 
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 4000);
+    setSaving(false);
+    if (ok) {
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 4000);
+    } else {
+      setSaveError(true);
+      setTimeout(() => setSaveError(false), 6000);
+    }
   };
 
   return (
@@ -88,6 +111,13 @@ export default function ProfilePage() {
         <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm flex items-center gap-3">
           <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
           <span>Your profile and wine preferences have been updated and saved to your cellar account.</span>
+        </div>
+      )}
+
+      {saveError && (
+        <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-800 text-sm flex items-center gap-3">
+          <XCircle className="w-5 h-5 text-red-600 shrink-0" />
+          <span>We could not save your preferences. Please try again in a moment.</span>
         </div>
       )}
 
@@ -127,10 +157,10 @@ export default function ProfilePage() {
               <div className="relative">
                 <input
                   type="email"
-                  required
+                  disabled
                   value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-stone-300 focus:outline-none focus:border-[#8a3243] text-stone-800 text-sm"
+                  title="Your sign-in email cannot be changed here. Contact the estate concierge to update it."
+                  className="w-full px-4 py-2.5 rounded-xl border border-stone-200 bg-stone-100 text-stone-500 text-sm cursor-not-allowed"
                 />
               </div>
             </div>
@@ -297,9 +327,10 @@ export default function ProfilePage() {
         <div className="flex items-center justify-end gap-4 pt-4">
           <button
             type="submit"
-            className="px-8 py-3 rounded-full bg-[#8a3243] text-white text-sm font-medium uppercase tracking-wider hover:bg-[#732937] transition shadow-md"
+            disabled={saving}
+            className="px-8 py-3 rounded-full bg-[#8a3243] text-white text-sm font-medium uppercase tracking-wider hover:bg-[#732937] transition shadow-md disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            Save Palate Preferences
+            {saving ? 'Saving…' : 'Save Palate Preferences'}
           </button>
         </div>
       </form>

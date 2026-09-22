@@ -1,8 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useGuest } from '@/context/GuestContext';
 import {
   Compass,
@@ -28,7 +28,25 @@ const ACCOUNT_NAV = [
 
 export default function GuestAccountLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { profile } = useGuest();
+  const router = useRouter();
+  const { profile, isAuthenticated, isLoading } = useGuest();
+
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      router.replace('/login');
+    }
+  }, [isLoading, isAuthenticated, router]);
+
+  if (isLoading || !isAuthenticated) {
+    return (
+      <div className="w-full min-h-screen flex items-center justify-center bg-[#faf8f5]">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-[#c5a059] border-t-transparent rounded-full animate-spin" />
+          <span className="text-xs uppercase tracking-[0.25em] text-stone-500">Loading your cellar…</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full pt-20 pb-24 bg-[#faf8f5] min-h-screen">

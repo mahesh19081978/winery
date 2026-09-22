@@ -2,14 +2,42 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Menu, User } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
+import { Menu, User, LogOut } from 'lucide-react';
 import MobileMenu from './MobileMenu';
 
 export default function Header() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [guest, setGuest] = useState<{ name: string; email: string } | null>(null);
   const pathname = usePathname();
+  const router = useRouter();
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/auth/guest/me', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.success && data.data) {
+          setGuest({ name: data.data.name, email: data.data.email });
+        } else if (!cancelled) {
+          setGuest(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setGuest(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
+  const handleLogout = async () => {
+    await fetch('/api/auth/guest/logout', { method: 'POST' });
+    setGuest(null);
+    router.push('/');
+    router.refresh();
+  };
 
   useEffect(() => {
     const handleScroll = () => {
@@ -144,18 +172,69 @@ export default function Header() {
 
           {/* Right Action CTAs */}
           <div className="hidden lg:flex items-center space-x-4">
-            <Link
-              href="/app"
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider transition-colors ${
-                isScrolled || !isHome
-                  ? 'text-[#461822] hover:bg-[#f4f0e8]'
-                  : 'text-[#faf8f5] hover:bg-white/10'
-              }`}
-              title="My Wine Journey Account"
-            >
-              <User className="w-4 h-4" />
-              <span>Account</span>
-            </Link>
+            {guest ? (
+              <>
+                <Link
+                  href="/app"
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider transition-colors ${
+                    isScrolled || !isHome
+                      ? 'text-[#461822] hover:bg-[#f4f0e8]'
+                      : 'text-[#faf8f5] hover:bg-white/10'
+                  }`}
+                  title={guest.email}
+                >
+                  <User className="w-4 h-4" />
+                  <span>Account</span>
+                </Link>
+                <button
+                  onClick={handleLogout}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider transition-colors ${
+                    isScrolled || !isHome
+                      ? 'text-[#461822] hover:bg-[#f4f0e8]'
+                      : 'text-[#faf8f5] hover:bg-white/10'
+                  }`}
+                  title="Logout"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Logout</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider transition-colors ${
+                    isScrolled || !isHome
+                      ? 'text-[#461822] hover:bg-[#f4f0e8]'
+                      : 'text-[#faf8f5] hover:bg-white/10'
+                  }`}
+                >
+                  Login
+                </Link>
+                <Link
+                  href="/register"
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider transition-colors border ${
+                    isScrolled || !isHome
+                      ? 'border-[#e6dece] text-[#461822] hover:bg-[#f4f0e8]'
+                      : 'border-white/30 text-[#faf8f5] hover:bg-white/10'
+                  }`}
+                >
+                  Register
+                </Link>
+                <Link
+                  href="/app"
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider transition-colors ${
+                    isScrolled || !isHome
+                      ? 'text-[#461822] hover:bg-[#f4f0e8]'
+                      : 'text-[#faf8f5] hover:bg-white/10'
+                  }`}
+                  title="My Wine Journey Account"
+                >
+                  <User className="w-4 h-4" />
+                  <span>Account</span>
+                </Link>
+              </>
+            )}
 
             <Link
               href="/book"

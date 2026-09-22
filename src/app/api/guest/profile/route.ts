@@ -1,45 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GuestService } from '@/server/services';
+import { GuestService, GuestAuthService } from '@/server/services';
 import { GuestProfileUpdateSchema } from '@/server/validators';
+import { requireGuestSession } from '@/lib/auth/guest';
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const { searchParams } = new URL(request.url);
-    const email = searchParams.get('email');
-
-    if (!email) {
-      return NextResponse.json(
-        { success: false, error: 'Query parameter `email` is required' },
-        { status: 400 }
-      );
+    const session = await requireGuestSession();
+    // Identity is derived exclusively from the server-side session.
+    const profile = await GuestAuthService.getCurrentGuest();
+    if (!profile || profile.email !== session.email) {
+      return NextResponse.json({ success: false, error: 'Unauthenticated' }, { status: 401 });
     }
-
-    const profile = await GuestService.getGuestProfile(email);
     return NextResponse.json({ success: true, data: profile });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Guest profile not found';
-    return NextResponse.json({ success: false, error: message }, { status: 404 });
+  } catch {
+    return NextResponse.json({ success: false, error: 'Unauthenticated' }, { status: 401 });
   }
 }
 
 export async function PATCH(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const email = searchParams.get('email');
-
-    if (!email) {
-      return NextResponse.json(
-        { success: false, error: 'Query parameter `email` is required' },
-        { status: 400 }
-      );
-    }
-
+    const session = await requireGuestSession();
     const body = await request.json();
     const validated = GuestProfileUpdateSchema.parse(body);
 
-    const updated = await GuestService.updateGuestProfile(email, validated);
-    return NextResponse.json({ success: true, data: updated, message: 'Profile updated successfully' });
+    await GuestService.updateGuestProfile(session.email, validated);
+    const profile = await GuestAuthService.getCurrentGuest();
+    if (!profile || profile.email !== session.email) {
+      return NextResponse.json({ success: false, error: 'Unauthenticated' }, { status: 401 });
+    }
+    return NextResponse.json({ success: true, data: profile, message: 'Profile updated successfully' });
   } catch (error: unknown) {
+    if (error instanceof Error && error.message === 'Unauthenticated') {
+      return NextResponse.json({ success: false, error: 'Unauthenticated' }, { status: 401 });
+    }
     if (error && typeof error === 'object' && 'name' in error && error.name === 'ZodError') {
       return NextResponse.json({ success: false, error: 'Validation failed', details: error }, { status: 400 });
     }
