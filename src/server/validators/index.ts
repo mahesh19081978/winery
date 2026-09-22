@@ -95,3 +95,25 @@ export const AdminLoginSchema = z.object({
 });
 
 export type AdminLoginInput = z.infer<typeof AdminLoginSchema>;
+
+export const EventBookingTicketSelectionSchema = z.object({
+  eventTicketTypeId: z.string().uuid('Valid ticket type ID is required'),
+  quantity: z.number().int().min(1, 'Quantity must be at least 1').max(30, 'Quantity cannot exceed 30'),
+});
+
+export const EventBookingCreateSchema = z.object({
+  eventId: z.string().uuid('Valid event ID is required'),
+  eventScheduleId: z.string().uuid('Valid schedule ID is required'),
+  guestName: z.string().min(2, 'Guest name must be at least 2 characters'),
+  guestEmail: z.string().email('Invalid email address'),
+  guestPhone: z.string().optional().default(''),
+  tickets: z
+    .array(EventBookingTicketSelectionSchema)
+    .min(1, 'At least one ticket selection is required')
+    .refine(
+      (arr) => new Set(arr.map((t) => t.eventTicketTypeId)).size === arr.length,
+      { message: 'Duplicate ticket type not allowed' }
+    ),
+});
+
+export type EventBookingCreateInput = z.infer<typeof EventBookingCreateSchema>;

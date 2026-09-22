@@ -4,6 +4,7 @@ import {
   EventRepository,
   AvailabilityRepository,
   BookingRepository,
+  EventBookingRepository,
   FrontDeskRepository,
   GuestRepository,
   TastingRepository,
@@ -11,6 +12,7 @@ import {
 } from '../repositories';
 import {
   BookingCreateInput,
+  EventBookingCreateInput,
   GuestProfileUpdateInput,
   TastingRecordCreateInput,
   ReviewCreateInput,
@@ -18,6 +20,30 @@ import {
 } from '../validators';
 import { prisma } from '@/lib/db';
 import { BookingStatus, Prisma } from '@prisma/client';
+
+export class EventBookingError extends Error {
+  statusCode: number;
+  constructor(message: string, statusCode: number) {
+    super(message);
+    this.name = 'EventBookingError';
+    this.statusCode = statusCode;
+  }
+}
+
+function generateEventBookingNumber(): string {
+  const year = new Date().getFullYear();
+  const randomCode = Math.floor(10000 + Math.random() * 90000);
+  return `EVT-${year}-${randomCode}`;
+}
+
+function isPrismaUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code: string }).code === 'P2002'
+  );
+}
 
 export class WineService {
   static async getAllWines() {
@@ -433,6 +459,198 @@ export class BookingService {
     }
 
     return BookingRepository.cancelBooking(booking.id, reason);
+  }
+}
+
+export class EventBookingService {
+  static async getBookingByNumber(bookingNumber: string) {
+    const booking = await EventBookingRepository.findByBookingNumber(bookingNumber);
+    if (!booking) {
+      throw new EventBookingError(`Event booking ${bookingNumber} not found`, 404);
+    }
+    return booking;
+  }
+
+  static async createBooking(input: EventBookingCreateInput) {
+    // Validate event exists and is bookable
+    const event = await prisma.event.findUnique({
+      where: { id: input.eventId },
+    });
+    if (!event) {
+      throw new EventBookingError(`Event ${input.eventId} not found`, 404);
+    }
+    if (event.status === 'CANCELLED' || event.status === 'COMPLETED' || event.isPast) {
+      throw new EventBookingError(`Event '${event.title}' is not bookable (status: ${event.status})`, 400);
+    }
+
+    // Validate schedule exists and belongs to event
+    const schedule = await prisma.eventSchedule.findUnique({
+      where: { id: input.eventScheduleId },
+    });
+    if (!schedule) {
+      throw new EventBookingError(`Event schedule ${input.eventScheduleId} not found`, 404);
+    }
+    if (schedule.eventId !== input.eventId) {
+      throw new EventBookingError('Event schedule does not belong to the specified event', 400);
+    }
+
+    // Fetch and validate ticket types
+    const ticketTypeIds = input.tickets.map((t) => t.eventTicketTypeId);
+    const ticketTypes = await prisma.eventTicketType.findMany({
+      where: { id: { in: ticketTypeIds } },
+    });
+
+    const ticketTypeMap = new Map(ticketTypes.map((tt) => [tt.id, tt]));
+
+    for (const sel of input.tickets) {
+      const tt = ticketTypeMap.get(sel.eventTicketTypeId);
+      if (!tt) {
+        throw new EventBookingError(`Ticket type ${sel.eventTicketTypeId} not found`, 404);
+      }
+      if (tt.eventId !== input.eventId) {
+        throw new EventBookingError(`Ticket type '${tt.name}' does not belong to this event`, 400);
+      }
+    }
+
+    // Ensure or retrieve GuestProfile (reuse existing User+GuestProfile pattern, avoid duplicates)
+    let guestProfile = await prisma.guestProfile.findFirst({
+      where: { user: { email: input.guestEmail } },
+    });
+
+    if (!guestProfile) {
+      let user = await prisma.user.findUnique({
+        where: { email: input.guestEmail },
+      });
+
+      if (!user) {
+        try {
+          user = await prisma.user.create({
+            data: {
+              email: input.guestEmail,
+              wineryId: event.wineryId,
+              role: 'GUEST',
+            },
+          });
+        } catch (e) {
+          if (isPrismaUniqueViolation(e)) {
+            user = await prisma.user.findUnique({ where: { email: input.guestEmail } });
+            if (!user) throw new EventBookingError('Failed to create guest user', 500);
+          } else {
+            throw e;
+          }
+        }
+      }
+
+      try {
+        guestProfile = await prisma.guestProfile.create({
+          data: {
+            userId: user.id,
+            name: input.guestName,
+            phone: input.guestPhone,
+          },
+        });
+      } catch (e) {
+        if (isPrismaUniqueViolation(e)) {
+          guestProfile = await prisma.guestProfile.findFirst({ where: { userId: user.id } });
+          if (!guestProfile) {
+            // Fallback: find by email again
+            guestProfile = await prisma.guestProfile.findFirst({ where: { user: { email: input.guestEmail } } });
+          }
+          if (!guestProfile) throw new EventBookingError('Failed to create guest profile', 500);
+        } else {
+          throw e;
+        }
+      }
+    }
+
+    // Server-side pricing: quantity x current price per ticket type
+    const ticketsWithPricing: Array<{ eventTicketTypeId: string; quantity: number; unitPrice: Prisma.Decimal }> = [];
+    let totalPriceNum = 0;
+
+    for (const sel of input.tickets) {
+      const tt = ticketTypeMap.get(sel.eventTicketTypeId)!;
+      const unitPriceDecimal = new Prisma.Decimal(tt.price.toString());
+      const unitPriceNum = Number(tt.price);
+      totalPriceNum += unitPriceNum * sel.quantity;
+      ticketsWithPricing.push({
+        eventTicketTypeId: sel.eventTicketTypeId,
+        quantity: sel.quantity,
+        unitPrice: unitPriceDecimal,
+      });
+    }
+
+    const totalPrice = new Prisma.Decimal(totalPriceNum.toFixed(2));
+
+    // Transactional creation with collision-safe booking number
+    const maxRetries = 5;
+    let lastError: unknown = null;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const bookingNumber = generateEventBookingNumber();
+      try {
+        const booking = await EventBookingRepository.createBookingWithTransaction({
+          bookingNumber,
+          eventId: input.eventId,
+          eventScheduleId: input.eventScheduleId,
+          guestProfileId: guestProfile.id,
+          totalPrice,
+          tickets: ticketsWithPricing,
+        });
+        return booking;
+      } catch (error: unknown) {
+        lastError = error;
+        const message = error instanceof Error ? error.message : String(error);
+
+        // Insufficient capacity is a business error - do not retry
+        if (message.includes('Insufficient capacity') || message.includes('does not belong')) {
+          // Map to appropriate status
+          const isNotFound = message.includes('not found');
+          throw new EventBookingError(message, isNotFound ? 404 : 409);
+        }
+
+        // Booking number collision - retry
+        if (isPrismaUniqueViolation(error)) {
+          // Check if it's bookingNumber collision via error meta
+          const meta = (error as { meta?: { target?: string[] } }).meta;
+          if (meta?.target?.includes('bookingNumber') || message.includes('bookingNumber') || attempt < maxRetries - 1) {
+            // If we can identify it's bookingNumber uniqueness, retry; otherwise also retry for generic P2002 on event_booking
+            // Only retry if it's likely bookingNumber - we retry up to maxRetries for any P2002 here since tickets unique is not expected
+            if (attempt < maxRetries - 1) continue;
+          }
+        }
+
+        // For other Prisma/content errors, check if capacity related
+        if (message.includes('Capacity overflow')) {
+          throw new EventBookingError(message, 409);
+        }
+
+        throw error;
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error('Failed to create event booking after retries');
+  }
+
+  static async cancelBooking(bookingNumber: string, reason?: string) {
+    const existing = await EventBookingRepository.findByBookingNumber(bookingNumber);
+    if (!existing) {
+      throw new EventBookingError(`Event booking ${bookingNumber} not found`, 404);
+    }
+
+    // Idempotent: if already cancelled, return
+    if (existing.status === BookingStatus.CANCELLED) {
+      return existing;
+    }
+
+    try {
+      return await EventBookingRepository.cancelBooking(existing.id, reason);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('Cannot cancel') || message.includes('cannot be cancelled')) {
+        throw new EventBookingError(message, 400);
+      }
+      throw error;
+    }
   }
 }
 

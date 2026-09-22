@@ -1302,6 +1302,215 @@ export class ReviewRepository {
     });
   }
 }
+export class EventBookingRepository {
+  static async findByBookingNumber(bookingNumber: string) {
+    return prisma.eventBooking.findUnique({
+      where: { bookingNumber },
+      include: {
+        event: {
+          select: {
+            id: true,
+            wineryId: true,
+            slug: true,
+            title: true,
+            eventDate: true,
+            timeRange: true,
+            venue: true,
+            status: true,
+            availability: true,
+            isPast: true,
+          },
+        },
+        eventSchedule: true,
+        guestProfile: {
+          include: { user: { select: { email: true } } },
+        },
+        tickets: {
+          include: { ticketType: true },
+        },
+        statusHistory: { orderBy: { createdAt: 'asc' } },
+      },
+    });
+  }
+
+  static async createBookingWithTransaction(data: {
+    bookingNumber: string;
+    eventId: string;
+    eventScheduleId: string;
+    guestProfileId: string;
+    totalPrice: Prisma.Decimal;
+    tickets: Array<{ eventTicketTypeId: string; quantity: number; unitPrice: Prisma.Decimal }>;
+  }) {
+    return prisma.$transaction(
+      async (tx) => {
+      // Deterministic lock order to reduce deadlock risk
+      const sortedTickets = [...data.tickets].sort((a, b) =>
+        a.eventTicketTypeId.localeCompare(b.eventTicketTypeId)
+      );
+      const ticketTypeIds = sortedTickets.map((t) => t.eventTicketTypeId);
+
+      // Row-level lock on ticket types (PostgreSQL FOR UPDATE)
+      if (ticketTypeIds.length > 0) {
+        // Prisma does not expose FOR UPDATE directly; use raw query for lock
+        // Use IN clause with ordered ids; lock in deterministic order
+        await tx.$queryRaw`SELECT id FROM "event_ticket_types" WHERE id IN (${Prisma.join(ticketTypeIds)}) ORDER BY id FOR UPDATE`;
+      }
+
+      // Re-fetch ticket types inside transaction to get current soldCount
+      const currentTicketTypes = await tx.eventTicketType.findMany({
+        where: { id: { in: ticketTypeIds } },
+      });
+
+      const typeMap = new Map(currentTicketTypes.map((tt) => [tt.id, tt]));
+
+      // Validate capacity inside locked transaction
+      for (const t of sortedTickets) {
+        const tt = typeMap.get(t.eventTicketTypeId);
+        if (!tt) {
+          throw new Error(`Ticket type ${t.eventTicketTypeId} not found`);
+        }
+        const available = tt.capacity - tt.soldCount;
+        if (available < t.quantity) {
+          throw new Error(
+            `Insufficient capacity for ticket type '${tt.name}'. Available: ${available}, Requested: ${t.quantity}`
+          );
+        }
+        if (tt.eventId !== data.eventId) {
+          throw new Error(`Ticket type '${tt.name}' does not belong to this event`);
+        }
+      }
+
+      // Create booking with tickets and status history atomically
+      const booking = await tx.eventBooking.create({
+        data: {
+          bookingNumber: data.bookingNumber,
+          eventId: data.eventId,
+          eventScheduleId: data.eventScheduleId,
+          guestProfileId: data.guestProfileId,
+          totalPrice: data.totalPrice,
+          status: BookingStatus.CONFIRMED,
+          tickets: {
+            create: sortedTickets.map((t) => ({
+              eventTicketTypeId: t.eventTicketTypeId,
+              quantity: t.quantity,
+              unitPrice: t.unitPrice,
+            })),
+          },
+          statusHistory: {
+            create: [
+              {
+                fromStatus: BookingStatus.PENDING,
+                toStatus: BookingStatus.CONFIRMED,
+                changedBy: 'CUSTOMER_API',
+                notes: 'Event booking confirmed via API transaction',
+              },
+            ],
+          },
+        },
+        include: {
+          event: true,
+          eventSchedule: true,
+          tickets: { include: { ticketType: true } },
+          statusHistory: true,
+        },
+      });
+
+      // Atomically increment soldCount for each ticket type (locked rows ensure safety)
+      for (const t of sortedTickets) {
+        await tx.eventTicketType.update({
+          where: { id: t.eventTicketTypeId },
+          data: { soldCount: { increment: t.quantity } },
+        });
+        // Verify invariant immediately (single fetch per ticket instead of two)
+        const after = await tx.eventTicketType.findUnique({ where: { id: t.eventTicketTypeId } });
+        if (after && after.soldCount > after.capacity) {
+          throw new Error(`Insufficient capacity for ticket type '${after.name}' after increment`);
+        }
+      }
+
+      return booking;
+      },
+      { maxWait: 15000, timeout: 15000 }
+    );
+  }
+
+  static async cancelBooking(bookingId: string, reason?: string) {
+    return prisma.$transaction(
+      async (tx) => {
+      const existing = await tx.eventBooking.findUnique({
+        where: { id: bookingId },
+        include: { tickets: true },
+      });
+
+      if (!existing) throw new Error('Event booking not found');
+
+      // Idempotent: if already cancelled, return without double-releasing
+      if (existing.status === BookingStatus.CANCELLED) {
+        return existing;
+      }
+
+      if (existing.status === BookingStatus.COMPLETED) {
+        throw new Error('Cannot cancel a completed booking');
+      }
+
+      if (existing.status === BookingStatus.CHECKED_IN) {
+        throw new Error('Cannot cancel a checked-in booking');
+      }
+
+      // Only CONFIRMED/PENDING are cancellable (NO_SHOW also not cancellable)
+      if (existing.status !== BookingStatus.CONFIRMED && existing.status !== BookingStatus.PENDING) {
+        throw new Error(`Booking cannot be cancelled from status ${existing.status}`);
+      }
+
+      const fromStatus = existing.status;
+
+      // Lock ticket types in deterministic order before releasing capacity
+      const ticketTypeIds = existing.tickets
+        .filter((t) => t.eventTicketTypeId)
+        .map((t) => t.eventTicketTypeId as string)
+        .sort();
+
+      if (ticketTypeIds.length > 0) {
+        await tx.$queryRaw`SELECT id FROM "event_ticket_types" WHERE id IN (${Prisma.join(ticketTypeIds)}) ORDER BY id FOR UPDATE`;
+      }
+
+      const updated = await tx.eventBooking.update({
+        where: { id: bookingId },
+        data: { status: BookingStatus.CANCELLED },
+        include: { tickets: true, statusHistory: true },
+      });
+
+      await tx.eventBookingStatusHistory.create({
+        data: {
+          eventBookingId: existing.id,
+          fromStatus,
+          toStatus: BookingStatus.CANCELLED,
+          changedBy: 'CUSTOMER_API',
+          notes: reason || 'Event booking cancelled by customer request',
+        },
+      });
+
+      // Release capacity for each ticket line (batch fetch to reduce round-trips)
+      for (const t of existing.tickets) {
+        if (!t.eventTicketTypeId) continue;
+        // Use raw decrement with guard to avoid negative; simpler to fetch then update as before but fewer queries
+        // Fetch current soldCount
+        const tt = await tx.eventTicketType.findUnique({ where: { id: t.eventTicketTypeId } });
+        if (!tt) continue;
+        const newSoldCount = Math.max(0, tt.soldCount - t.quantity);
+        await tx.eventTicketType.update({
+          where: { id: t.eventTicketTypeId },
+          data: { soldCount: newSoldCount },
+        });
+      }
+
+      return updated;
+      },
+      { maxWait: 15000, timeout: 15000 }
+    );
+  }
+}
+
 export class UserRepository {
   static async findByEmail(email: string) {
     return prisma.user.findUnique({
