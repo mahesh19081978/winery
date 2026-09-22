@@ -125,6 +125,13 @@ export class WineRepository {
     });
   }
 
+  static async findBySlugForMutation(slug: string) {
+    return prisma.wine.findFirst({
+      where: { slug },
+      select: { id: true, slug: true, wineryId: true },
+    });
+  }
+
   static async findById(id: string) {
     return prisma.wine.findUnique({
       where: { id },

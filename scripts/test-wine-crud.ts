@@ -65,10 +65,33 @@ async function main() {
       images: [{ url: 'https://example.com/wine.jpg' }],
       foodPairings: [{ dishName: 'Test Dish' }],
     } as WineCreateInput);
-    assert(!!createdWine?.id && createdWine.slug === testSlug, '7. create valid Wine → 201 (id + slug)');
+    assert(
+      !!createdWine?.id &&
+        createdWine.slug === testSlug &&
+        createdWine.images.length === 1 &&
+        createdWine.foodPairings.length === 1,
+      '7. create Wine with images and food pairings → 201',
+    );
   } catch (e) { fail('7. create valid Wine', e); }
 
   if (!createdWine) { console.log('Aborting - wine creation failed'); await cleanup(); process.exit(1); }
+
+  // 7b. create Wine with minimum fields
+  try {
+    const minimalWine = await WineService.createWine({
+      slug: uniqueSlug(),
+      name: 'Minimum Test Wine',
+      category: 'WHITE',
+      description: 'Minimum description long enough for validation requirements',
+      shortDescription: 'Minimum short description long enough',
+      characteristics: [],
+    } as unknown as WineCreateInput);
+    assert(
+      !!minimalWine.id && minimalWine.images.length === 0 && minimalWine.foodPairings.length === 0,
+      '7b. create Wine with minimum fields → 201',
+    );
+    await prisma.wine.delete({ where: { id: minimalWine.id } });
+  } catch (e) { fail('7b. create Wine with minimum fields', e); }
 
   // 8. duplicate slug → 409
   try {
@@ -120,6 +143,23 @@ async function main() {
     assert(newFound, '11c. new slug works');
   } catch (e) { fail('11. slug change', e); }
   const activeSlug = newSlug;
+
+  // 11d. replace images and food pairings atomically
+  try {
+    const updated = await WineService.updateWine(activeSlug, {
+      images: [{ url: 'https://example.com/updated-wine.jpg', altText: 'Updated wine image' }],
+      foodPairings: [{ dishName: 'Updated Test Dish', description: 'Updated pairing description' }],
+    } as unknown as WineCreateInput);
+    const reloaded = await WineService.getWineBySlug(activeSlug);
+    assert(
+      updated.id === createdWine.id &&
+        reloaded.images.length === 1 &&
+        reloaded.images[0].url === 'https://example.com/updated-wine.jpg' &&
+        reloaded.foodPairings.length === 1 &&
+        reloaded.foodPairings[0].dishName === 'Updated Test Dish',
+      '11d. replace Wine images and food pairings → 200',
+    );
+  } catch (e) { fail('11d. replace Wine images and food pairings', e); }
 
   // 12. rating/reviewCount cannot be client-controlled
   try {

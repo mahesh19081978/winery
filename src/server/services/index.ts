@@ -120,45 +120,42 @@ export class WineService {
       characteristics: input.characteristics || [],
     };
 
-    // Handle nested images/foodPairings via transaction
-    const wine = await prisma.$transaction(async (tx) => {
-      const created = await tx.wine.create({ data });
-      if (input.images && input.images.length > 0) {
-        for (let i = 0; i < input.images.length; i++) {
-          const img = input.images[i];
-          await tx.wineImage.create({
-            data: {
-              wineId: created.id,
-              url: img.url,
-              altText: img.altText || null,
-              isPrimary: img.isPrimary ?? i === 0,
-              sortOrder: img.sortOrder ?? i,
-            },
-          });
-        }
-      }
-      if (input.foodPairings && input.foodPairings.length > 0) {
-        for (const fp of input.foodPairings) {
-          await tx.wineFoodPairing.create({
-            data: { wineId: created.id, dishName: fp.dishName, description: fp.description || null },
-          });
-        }
-      }
-      return tx.wine.findUnique({
-        where: { id: created.id },
-        include: { vintages: true, images: true, foodPairings: true },
-      });
+    if (input.images && input.images.length > 0) {
+      data.images = {
+        createMany: {
+          data: input.images.map((image, index) => ({
+            url: image.url,
+            altText: image.altText || null,
+            isPrimary: image.isPrimary ?? index === 0,
+            sortOrder: image.sortOrder ?? index,
+          })),
+        },
+      };
+    }
+
+    if (input.foodPairings && input.foodPairings.length > 0) {
+      data.foodPairings = {
+        createMany: {
+          data: input.foodPairings.map((pairing) => ({
+            dishName: pairing.dishName,
+            description: pairing.description || null,
+          })),
+        },
+      };
+    }
+
+    return prisma.wine.create({
+      data,
+      include: { vintages: true, images: true, foodPairings: true },
     });
-    return wine;
   }
 
   static async updateWine(slug: string, input: WineUpdateInput) {
-    const existing = await WineRepository.findBySlugAdmin(slug);
+    const existing = await WineRepository.findBySlugForMutation(slug);
     if (!existing) throw new EventBookingError(`Wine with slug '${slug}' not found`, 404);
 
     if (input.slug && input.slug !== existing.slug) {
-      const wineryId = existing.wineryId;
-      const dupe = await WineRepository.findBySlugForWinery(wineryId, input.slug);
+      const dupe = await WineRepository.findBySlugForWinery(existing.wineryId, input.slug);
       if (dupe && dupe.id !== existing.id) throw new EventBookingError(`Slug '${input.slug}' already exists`, 409);
     }
 
@@ -175,26 +172,37 @@ export class WineService {
     if (input.featured !== undefined) data.featured = input.featured;
     if (input.characteristics !== undefined) data.characteristics = input.characteristics;
 
-    // Handle nested images/foodPairings replacement if provided
+    if (input.images !== undefined) {
+      data.images = {
+        deleteMany: {},
+        createMany: {
+          data: input.images.map((image, index) => ({
+            url: image.url,
+            altText: image.altText || null,
+            isPrimary: image.isPrimary ?? index === 0,
+            sortOrder: image.sortOrder ?? index,
+          })),
+        },
+      };
+    }
+
+    if (input.foodPairings !== undefined) {
+      data.foodPairings = {
+        deleteMany: {},
+        createMany: {
+          data: input.foodPairings.map((pairing) => ({
+            dishName: pairing.dishName,
+            description: pairing.description || null,
+          })),
+        },
+      };
+    }
+
     if (input.images !== undefined || input.foodPairings !== undefined) {
-      return prisma.$transaction(async (tx) => {
-        await tx.wine.update({ where: { id: existing.id }, data });
-        if (input.images !== undefined) {
-          await tx.wineImage.deleteMany({ where: { wineId: existing.id } });
-          for (let i = 0; i < input.images!.length; i++) {
-            const img = input.images![i];
-            await tx.wineImage.create({
-              data: { wineId: existing.id, url: img.url, altText: img.altText || null, isPrimary: img.isPrimary ?? i === 0, sortOrder: img.sortOrder ?? i },
-            });
-          }
-        }
-        if (input.foodPairings !== undefined) {
-          await tx.wineFoodPairing.deleteMany({ where: { wineId: existing.id } });
-          for (const fp of input.foodPairings!) {
-            await tx.wineFoodPairing.create({ data: { wineId: existing.id, dishName: fp.dishName, description: fp.description || null } });
-          }
-        }
-        return tx.wine.findUnique({ where: { id: existing.id }, include: { vintages: true, images: true, foodPairings: true } });
+      return prisma.wine.update({
+        where: { id: existing.id },
+        data,
+        include: { vintages: true, images: true, foodPairings: true },
       });
     }
 
