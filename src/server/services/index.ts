@@ -2,6 +2,9 @@ import {
   WineRepository,
   ExperienceRepository,
   EventRepository,
+  EventScheduleRepository,
+  EventTicketTypeRepository,
+  EventFAQRepository,
   AvailabilityRepository,
   BookingRepository,
   EventBookingRepository,
@@ -17,6 +20,14 @@ import {
   TastingRecordCreateInput,
   ReviewCreateInput,
   TastingSessionCreateInput,
+  EventCreateInput,
+  EventUpdateInput,
+  EventScheduleCreateInput,
+  EventScheduleUpdateInput,
+  EventTicketTypeCreateInput,
+  EventTicketTypeUpdateInput,
+  EventFAQCreateInput,
+  EventFAQUpdateInput,
 } from '../validators';
 import { prisma } from '@/lib/db';
 import { BookingStatus, Prisma } from '@prisma/client';
@@ -140,6 +151,195 @@ export class EventService {
       throw new Error(`Event with id '${id}' not found`);
     }
     return event;
+  }
+
+  private static async resolveWineryId(): Promise<string> {
+    const winery = await prisma.winery.findFirst({ orderBy: { createdAt: 'asc' }, select: { id: true } });
+    if (!winery) throw new Error('Default winery not found');
+    return winery.id;
+  }
+
+  static async createEvent(input: EventCreateInput) {
+    const wineryId = await this.resolveWineryId();
+    const existing = await EventRepository.findBySlugForWinery(wineryId, input.slug);
+    if (existing) {
+      throw new EventBookingError(`Slug '${input.slug}' already exists`, 409);
+    }
+    const eventDate = new Date(input.eventDate);
+    if (isNaN(eventDate.getTime())) throw new EventBookingError('Invalid eventDate', 400);
+    const data: Prisma.EventCreateInput = {
+      winery: { connect: { id: wineryId } },
+      slug: input.slug,
+      title: input.title,
+      eventDate,
+      timeRange: input.timeRange,
+      venue: input.venue,
+      price: new Prisma.Decimal(input.price.toFixed(2)),
+      currency: input.currency || 'USD',
+      description: input.description,
+      shortDescription: input.shortDescription,
+      availability: input.availability as import('@prisma/client').EventAvailability,
+      availableTickets: input.availableTickets,
+      maxCapacity: input.maxCapacity,
+      entertainment: input.entertainment || null,
+      featuredImage: input.featuredImage,
+      winesServed: input.winesServed || [],
+      culinaryMenu: input.culinaryMenu || [],
+      galleryImages: input.galleryImages || [],
+      isPast: input.isPast ?? false,
+      status: input.status as import('@prisma/client').EventStatus,
+    };
+    return EventRepository.create(data);
+  }
+
+  static async updateEvent(id: string, input: EventUpdateInput) {
+    const existing = await prisma.event.findUnique({ where: { id } });
+    if (!existing) throw new EventBookingError(`Event with id '${id}' not found`, 404);
+    // Slug uniqueness check if changed
+    if (input.slug && input.slug !== existing.slug) {
+      const dupe = await EventRepository.findBySlugForWinery(existing.wineryId, input.slug);
+      if (dupe && dupe.id !== id) {
+        throw new EventBookingError(`Slug '${input.slug}' already exists`, 409);
+      }
+    }
+    const data: Prisma.EventUpdateInput = {};
+    if (input.slug !== undefined) data.slug = input.slug;
+    if (input.title !== undefined) data.title = input.title;
+    if (input.eventDate !== undefined) {
+      const d = new Date(input.eventDate);
+      if (isNaN(d.getTime())) throw new EventBookingError('Invalid eventDate', 400);
+      data.eventDate = d;
+    }
+    if (input.timeRange !== undefined) data.timeRange = input.timeRange;
+    if (input.venue !== undefined) data.venue = input.venue;
+    if (input.price !== undefined) data.price = new Prisma.Decimal(input.price.toFixed(2));
+    if (input.currency !== undefined) data.currency = input.currency;
+    if (input.description !== undefined) data.description = input.description;
+    if (input.shortDescription !== undefined) data.shortDescription = input.shortDescription;
+    if (input.availability !== undefined) data.availability = input.availability as import('@prisma/client').EventAvailability;
+    if (input.availableTickets !== undefined) data.availableTickets = input.availableTickets;
+    if (input.maxCapacity !== undefined) data.maxCapacity = input.maxCapacity;
+    if (input.entertainment !== undefined) data.entertainment = input.entertainment;
+    if (input.featuredImage !== undefined) data.featuredImage = input.featuredImage;
+    if (input.winesServed !== undefined) data.winesServed = input.winesServed;
+    if (input.culinaryMenu !== undefined) data.culinaryMenu = input.culinaryMenu;
+    if (input.galleryImages !== undefined) data.galleryImages = input.galleryImages;
+    if (input.isPast !== undefined) data.isPast = input.isPast;
+    if (input.status !== undefined) data.status = input.status as import('@prisma/client').EventStatus;
+
+    // Cross-field validation for availableTickets/maxCapacity
+    const nextAvailable = input.availableTickets !== undefined ? input.availableTickets : existing.availableTickets;
+    const nextMax = input.maxCapacity !== undefined ? input.maxCapacity : existing.maxCapacity;
+    if (nextAvailable > nextMax) {
+      throw new EventBookingError('availableTickets cannot exceed maxCapacity', 400);
+    }
+
+    return EventRepository.update(id, data);
+  }
+
+  // Schedules
+  static async createSchedule(eventId: string, input: EventScheduleCreateInput) {
+    const event = await prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) throw new EventBookingError(`Event with id '${eventId}' not found`, 404);
+    return EventScheduleRepository.create({
+      event: { connect: { id: eventId } },
+      timeSlot: input.timeSlot,
+      activity: input.activity,
+      sortOrder: input.sortOrder ?? 0,
+    });
+  }
+
+  static async updateSchedule(eventId: string, scheduleId: string, input: EventScheduleUpdateInput) {
+    const schedule = await EventScheduleRepository.findById(scheduleId);
+    if (!schedule || schedule.eventId !== eventId) throw new EventBookingError('Schedule not found for this event', 404);
+    const data: Prisma.EventScheduleUpdateInput = {};
+    if (input.timeSlot !== undefined) data.timeSlot = input.timeSlot;
+    if (input.activity !== undefined) data.activity = input.activity;
+    if (input.sortOrder !== undefined) data.sortOrder = input.sortOrder;
+    return EventScheduleRepository.update(scheduleId, data);
+  }
+
+  static async deleteSchedule(eventId: string, scheduleId: string) {
+    const schedule = await EventScheduleRepository.findById(scheduleId);
+    if (!schedule || schedule.eventId !== eventId) throw new EventBookingError('Schedule not found for this event', 404);
+    const count = await EventScheduleRepository.countBookingsForSchedule(scheduleId);
+    if (count > 0) {
+      throw new EventBookingError(`Cannot delete schedule: ${count} booking(s) reference this schedule`, 409);
+    }
+    return EventScheduleRepository.delete(scheduleId);
+  }
+
+  // Ticket Types
+  static async createTicketType(eventId: string, input: EventTicketTypeCreateInput) {
+    const event = await prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) throw new EventBookingError(`Event with id '${eventId}' not found`, 404);
+    const existing = await prisma.eventTicketType.findUnique({ where: { eventId_name: { eventId, name: input.name } } }).catch(() => null);
+    if (existing) throw new EventBookingError(`Ticket type name '${input.name}' already exists for this event`, 409);
+    return EventTicketTypeRepository.create({
+      event: { connect: { id: eventId } },
+      name: input.name,
+      price: new Prisma.Decimal(input.price.toFixed(2)),
+      capacity: input.capacity,
+    });
+  }
+
+  static async updateTicketType(eventId: string, ticketTypeId: string, input: EventTicketTypeUpdateInput) {
+    const tt = await EventTicketTypeRepository.findById(ticketTypeId);
+    if (!tt || tt.eventId !== eventId) throw new EventBookingError('Ticket type not found for this event', 404);
+    if (input.name && input.name !== tt.name) {
+      const dupe = await prisma.eventTicketType.findUnique({ where: { eventId_name: { eventId, name: input.name } } }).catch(() => null);
+      if (dupe && dupe.id !== ticketTypeId) throw new EventBookingError(`Ticket type name '${input.name}' already exists`, 409);
+    }
+    if (input.capacity !== undefined && input.capacity < tt.soldCount) {
+      throw new EventBookingError(`Capacity cannot be reduced below current soldCount (${tt.soldCount})`, 400);
+    }
+    // Explicitly strip any soldCount if caller somehow injected it (Zod strips but double-guard)
+    const data: Prisma.EventTicketTypeUpdateInput = {};
+    if (input.name !== undefined) data.name = input.name;
+    if (input.price !== undefined) data.price = new Prisma.Decimal(input.price.toFixed(2));
+    if (input.capacity !== undefined) data.capacity = input.capacity;
+    return EventTicketTypeRepository.update(ticketTypeId, data);
+  }
+
+  static async deleteTicketType(eventId: string, ticketTypeId: string) {
+    const tt = await EventTicketTypeRepository.findById(ticketTypeId);
+    if (!tt || tt.eventId !== eventId) throw new EventBookingError('Ticket type not found for this event', 404);
+    const count = await EventTicketTypeRepository.countBookingTicketsForType(ticketTypeId);
+    if (count > 0) {
+      throw new EventBookingError(`Cannot delete ticket type: ${count} booking ticket(s) reference it`, 409);
+    }
+    if (tt.soldCount > 0) {
+      throw new EventBookingError(`Cannot delete ticket type with sold tickets (soldCount=${tt.soldCount})`, 409);
+    }
+    return EventTicketTypeRepository.delete(ticketTypeId);
+  }
+
+  // FAQs
+  static async createFAQ(eventId: string, input: EventFAQCreateInput) {
+    const event = await prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) throw new EventBookingError(`Event with id '${eventId}' not found`, 404);
+    return EventFAQRepository.create({
+      event: { connect: { id: eventId } },
+      question: input.question,
+      answer: input.answer,
+      sortOrder: input.sortOrder ?? 0,
+    });
+  }
+
+  static async updateFAQ(eventId: string, faqId: string, input: EventFAQUpdateInput) {
+    const faq = await EventFAQRepository.findById(faqId);
+    if (!faq || faq.eventId !== eventId) throw new EventBookingError('FAQ not found for this event', 404);
+    const data: Prisma.EventFAQUpdateInput = {};
+    if (input.question !== undefined) data.question = input.question;
+    if (input.answer !== undefined) data.answer = input.answer;
+    if (input.sortOrder !== undefined) data.sortOrder = input.sortOrder;
+    return EventFAQRepository.update(faqId, data);
+  }
+
+  static async deleteFAQ(eventId: string, faqId: string) {
+    const faq = await EventFAQRepository.findById(faqId);
+    if (!faq || faq.eventId !== eventId) throw new EventBookingError('FAQ not found for this event', 404);
+    return EventFAQRepository.delete(faqId);
   }
 }
 

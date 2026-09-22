@@ -12,6 +12,8 @@ import {
   Filter,
   Loader2,
   MapPin,
+  Pencil,
+  Plus,
   Search,
   Ticket,
   X,
@@ -164,9 +166,15 @@ export function EventsListClient() {
             Real event calendar, ticket types, schedules, and booking counts
           </p>
         </div>
-        <div className="flex items-center gap-1.5 rounded-lg border border-stone-200/80 bg-white px-3 py-1.5 shadow-xs">
-          <Ticket className="h-3.5 w-3.5 text-stone-500" />
-          <span className="text-xs font-mono font-medium text-stone-700">{pagination.total} total</span>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 rounded-lg border border-stone-200/80 bg-white px-3 py-1.5 shadow-xs">
+            <Ticket className="h-3.5 w-3.5 text-stone-500" />
+            <span className="text-xs font-mono font-medium text-stone-700">{pagination.total} total</span>
+          </div>
+          <Link href="/admin/events/new" className="inline-flex items-center gap-1.5 rounded-lg bg-[#461822] px-3 py-1.5 text-xs font-medium text-white transition hover:bg-[#6c2432]">
+            <Plus className="h-3.5 w-3.5" />
+            Create Event
+          </Link>
         </div>
       </div>
 
@@ -344,13 +352,22 @@ export function EventsListClient() {
                         <span className="font-semibold text-stone-900">{event._count.eventBookings}</span>
                       </td>
                       <td className="px-5 py-3.5 text-right">
-                        <Link
-                          href={`/admin/events/${event.id}`}
-                          className="inline-flex items-center gap-1.5 rounded-md border border-[#461822]/10 bg-[#461822]/5 px-2.5 py-1 text-[11px] font-medium text-[#6c2432] transition hover:bg-[#461822]/10"
-                        >
-                          <Eye className="h-3 w-3" />
-                          View
-                        </Link>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Link
+                            href={`/admin/events/${event.id}`}
+                            className="inline-flex items-center gap-1.5 rounded-md border border-[#461822]/10 bg-[#461822]/5 px-2.5 py-1 text-[11px] font-medium text-[#6c2432] transition hover:bg-[#461822]/10"
+                          >
+                            <Eye className="h-3 w-3" />
+                            View
+                          </Link>
+                          <Link
+                            href={`/admin/events/${event.id}`}
+                            className="inline-flex items-center gap-1 rounded-md border border-stone-200 bg-white px-2 py-1 text-[11px] font-medium text-stone-600 hover:bg-stone-50"
+                          >
+                            <Pencil className="h-3 w-3" />
+                            Edit
+                          </Link>
+                        </div>
                       </td>
                     </tr>
                   ))}

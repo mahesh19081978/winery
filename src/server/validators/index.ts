@@ -117,3 +117,103 @@ export const EventBookingCreateSchema = z.object({
 });
 
 export type EventBookingCreateInput = z.infer<typeof EventBookingCreateSchema>;
+
+// --- Event Management Admin (Phase 5.11) ---
+const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+export const EventCreateSchema = z.object({
+  slug: z.string().min(2).max(100).regex(slugRegex, 'Slug must be lowercase alphanumeric with hyphens (e.g. my-event)'),
+  title: z.string().min(2, 'Title must be at least 2 characters').max(200),
+  eventDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'eventDate must be YYYY-MM-DD'),
+  timeRange: z.string().min(2, 'Time range is required').max(100),
+  venue: z.string().min(2, 'Venue is required').max(200),
+  price: z.number().min(0, 'Price cannot be negative').max(100000),
+  currency: z.string().min(2).max(10).default('USD').optional(),
+  description: z.string().min(10, 'Description must be at least 10 characters'),
+  shortDescription: z.string().min(10, 'Short description must be at least 10 characters'),
+  availability: z.enum(['AVAILABLE', 'FEW_SEATS_LEFT', 'SOLD_OUT']),
+  availableTickets: z.number().int().min(0, 'Available tickets cannot be negative'),
+  maxCapacity: z.number().int().min(0, 'Max capacity cannot be negative'),
+  entertainment: z.string().max(500).optional().nullable(),
+  featuredImage: z.string().min(1, 'Featured image is required').max(2000),
+  winesServed: z.array(z.string().min(1)).default([]),
+  culinaryMenu: z.array(z.string().min(1)).default([]),
+  galleryImages: z.array(z.string().min(1)).default([]),
+  isPast: z.boolean().default(false).optional(),
+  status: z.enum(['UPCOMING', 'ONGOING', 'COMPLETED', 'CANCELLED']),
+}).refine((data) => data.availableTickets <= data.maxCapacity, {
+  message: 'availableTickets cannot exceed maxCapacity',
+  path: ['availableTickets'],
+});
+
+export const EventUpdateSchema = z.object({
+  slug: z.string().min(2).max(100).regex(slugRegex, 'Slug must be lowercase alphanumeric with hyphens').optional(),
+  title: z.string().min(2).max(200).optional(),
+  eventDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'eventDate must be YYYY-MM-DD').optional(),
+  timeRange: z.string().min(2).max(100).optional(),
+  venue: z.string().min(2).max(200).optional(),
+  price: z.number().min(0).max(100000).optional(),
+  currency: z.string().min(2).max(10).optional(),
+  description: z.string().min(10).optional(),
+  shortDescription: z.string().min(10).optional(),
+  availability: z.enum(['AVAILABLE', 'FEW_SEATS_LEFT', 'SOLD_OUT']).optional(),
+  availableTickets: z.number().int().min(0).optional(),
+  maxCapacity: z.number().int().min(0).optional(),
+  entertainment: z.string().max(500).optional().nullable(),
+  featuredImage: z.string().min(1).max(2000).optional(),
+  winesServed: z.array(z.string().min(1)).optional(),
+  culinaryMenu: z.array(z.string().min(1)).optional(),
+  galleryImages: z.array(z.string().min(1)).optional(),
+  isPast: z.boolean().optional(),
+  status: z.enum(['UPCOMING', 'ONGOING', 'COMPLETED', 'CANCELLED']).optional(),
+}).refine((data) => {
+  if (data.availableTickets !== undefined && data.maxCapacity !== undefined) {
+    return data.availableTickets <= data.maxCapacity;
+  }
+  return true;
+}, {
+  message: 'availableTickets cannot exceed maxCapacity',
+  path: ['availableTickets'],
+});
+
+export type EventCreateInput = z.infer<typeof EventCreateSchema>;
+export type EventUpdateInput = z.infer<typeof EventUpdateSchema>;
+
+export const EventScheduleCreateSchema = z.object({
+  timeSlot: z.string().min(1, 'Time slot is required').max(50),
+  activity: z.string().min(2, 'Activity is required').max(500),
+  sortOrder: z.number().int().min(0).default(0).optional(),
+});
+export const EventScheduleUpdateSchema = z.object({
+  timeSlot: z.string().min(1).max(50).optional(),
+  activity: z.string().min(2).max(500).optional(),
+  sortOrder: z.number().int().min(0).optional(),
+});
+export type EventScheduleCreateInput = z.infer<typeof EventScheduleCreateSchema>;
+export type EventScheduleUpdateInput = z.infer<typeof EventScheduleUpdateSchema>;
+
+export const EventTicketTypeCreateSchema = z.object({
+  name: z.string().min(2, 'Ticket name is required').max(100),
+  price: z.number().min(0, 'Price cannot be negative').max(100000),
+  capacity: z.number().int().min(0, 'Capacity cannot be negative').max(100000),
+});
+export const EventTicketTypeUpdateSchema = z.object({
+  name: z.string().min(2).max(100).optional(),
+  price: z.number().min(0).max(100000).optional(),
+  capacity: z.number().int().min(0).max(100000).optional(),
+});
+export type EventTicketTypeCreateInput = z.infer<typeof EventTicketTypeCreateSchema>;
+export type EventTicketTypeUpdateInput = z.infer<typeof EventTicketTypeUpdateSchema>;
+
+export const EventFAQCreateSchema = z.object({
+  question: z.string().min(5, 'Question must be at least 5 characters').max(500),
+  answer: z.string().min(10, 'Answer must be at least 10 characters'),
+  sortOrder: z.number().int().min(0).default(0).optional(),
+});
+export const EventFAQUpdateSchema = z.object({
+  question: z.string().min(5).max(500).optional(),
+  answer: z.string().min(10).optional(),
+  sortOrder: z.number().int().min(0).optional(),
+});
+export type EventFAQCreateInput = z.infer<typeof EventFAQCreateSchema>;
+export type EventFAQUpdateInput = z.infer<typeof EventFAQUpdateSchema>;

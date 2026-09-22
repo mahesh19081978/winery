@@ -376,6 +376,69 @@ export class EventRepository {
       },
     });
   }
+
+  static async create(data: Prisma.EventCreateInput) {
+    return prisma.event.create({ data });
+  }
+
+  static async update(id: string, data: Prisma.EventUpdateInput) {
+    return prisma.event.update({ where: { id }, data });
+  }
+
+  static async findBySlugForWinery(wineryId: string, slug: string) {
+    return prisma.event.findUnique({ where: { wineryId_slug: { wineryId, slug } } });
+  }
+}
+
+export class EventScheduleRepository {
+  static async create(data: Prisma.EventScheduleCreateInput) {
+    return prisma.eventSchedule.create({ data });
+  }
+  static async update(id: string, data: Prisma.EventScheduleUpdateInput) {
+    return prisma.eventSchedule.update({ where: { id }, data });
+  }
+  static async delete(id: string) {
+    return prisma.eventSchedule.delete({ where: { id } });
+  }
+  static async findById(id: string) {
+    return prisma.eventSchedule.findUnique({ where: { id } });
+  }
+  static async countBookingsForSchedule(scheduleId: string) {
+    return prisma.eventBooking.count({ where: { eventScheduleId: scheduleId } });
+  }
+}
+
+export class EventTicketTypeRepository {
+  static async create(data: Prisma.EventTicketTypeCreateInput) {
+    return prisma.eventTicketType.create({ data });
+  }
+  static async update(id: string, data: Prisma.EventTicketTypeUpdateInput) {
+    return prisma.eventTicketType.update({ where: { id }, data });
+  }
+  static async delete(id: string) {
+    return prisma.eventTicketType.delete({ where: { id } });
+  }
+  static async findById(id: string) {
+    return prisma.eventTicketType.findUnique({ where: { id } });
+  }
+  static async countBookingTicketsForType(ticketTypeId: string) {
+    return prisma.eventBookingTicket.count({ where: { eventTicketTypeId: ticketTypeId } });
+  }
+}
+
+export class EventFAQRepository {
+  static async create(data: Prisma.EventFAQCreateInput) {
+    return prisma.eventFAQ.create({ data });
+  }
+  static async update(id: string, data: Prisma.EventFAQUpdateInput) {
+    return prisma.eventFAQ.update({ where: { id }, data });
+  }
+  static async delete(id: string) {
+    return prisma.eventFAQ.delete({ where: { id } });
+  }
+  static async findById(id: string) {
+    return prisma.eventFAQ.findUnique({ where: { id } });
+  }
 }
 
 export class AvailabilityRepository {
