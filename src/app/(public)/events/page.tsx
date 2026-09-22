@@ -1,15 +1,62 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import EventCard from '@/components/events/EventCard';
-import { mockEvents } from '@/data/events';
+import { Calendar, Loader2 } from 'lucide-react';
+
+interface ApiEvent {
+  id: string;
+  slug: string;
+  title: string;
+  eventDate: string;
+  timeRange: string;
+  venue: string;
+  price: string | number;
+  shortDescription: string;
+  availability: string;
+  status: string;
+  isPast: boolean;
+  featuredImage: string;
+  schedules: { timeSlot: string; activity: string }[];
+  ticketTypes: { id: string; name: string; price: string | number; capacity: number; soldCount: number }[];
+}
+
+function mapAvailability(av: string): 'Available' | 'Few Seats Left' | 'Sold Out' {
+  if (av === 'SOLD_OUT') return 'Sold Out';
+  if (av === 'FEW_SEATS_LEFT') return 'Few Seats Left';
+  return 'Available';
+}
 
 export default function EventsPage() {
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
+  const [events, setEvents] = useState<ApiEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const upcomingEvents = mockEvents.filter((e) => !e.isPast);
-  const pastEvents = mockEvents.filter((e) => e.isPast);
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchEvents() {
+      try {
+        const res = await fetch('/api/events');
+        const result = await res.json();
+        if (!cancelled) {
+          if (!res.ok || !result.success) throw new Error(result.error || 'Failed to load events');
+          setEvents(result.data || []);
+        }
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load events');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    fetchEvents();
+    return () => { cancelled = true; };
+  }, []);
+
+  const upcomingEvents = events.filter((e) => !e.isPast && e.status !== 'COMPLETED' && e.status !== 'CANCELLED');
+  const pastEvents = events.filter((e) => e.isPast || e.status === 'COMPLETED');
 
   return (
     <div className="w-full pt-20">
@@ -66,11 +113,55 @@ export default function EventsPage() {
       {/* Events Grid */}
       <section className="py-16 sm:py-24 bg-[#faf8f5]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {(tab === 'upcoming' ? upcomingEvents : pastEvents).map((event) => (
-              <EventCard key={event.id} event={event} />
-            ))}
-          </div>
+          {loading ? (
+            <div className="py-16 text-center">
+              <Loader2 className="w-8 h-8 text-[#8a3243] animate-spin mx-auto mb-3" />
+              <p className="text-sm text-[#525960]">Loading estate events...</p>
+            </div>
+          ) : error ? (
+            <div className="py-12 text-center bg-white border border-rose-200 rounded-2xl">
+              <p className="text-sm text-rose-700">{error}</p>
+            </div>
+          ) : (tab === 'upcoming' ? upcomingEvents.length === 0 && pastEvents.length === 0 : pastEvents.length === 0 && upcomingEvents.length === 0) ? (
+            <div className="py-12 text-center bg-white border border-[#e6dece] rounded-2xl">
+              <Calendar className="w-8 h-8 text-[#c5a059] mx-auto mb-3" />
+              <p className="text-sm text-[#525960]">No events found. Please check back soon.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {(tab === 'upcoming' ? upcomingEvents : pastEvents).map((event) => {
+                const priceNum = typeof event.price === 'string' ? parseFloat(event.price) : event.price;
+                const mapped = {
+                  id: event.id,
+                  slug: event.slug,
+                  title: event.title,
+                  date: new Date(event.eventDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }),
+                  isoDate: typeof event.eventDate === 'string' ? event.eventDate.split('T')[0] : new Date(event.eventDate).toISOString().split('T')[0],
+                  time: event.timeRange,
+                  venue: event.venue,
+                  price: priceNum,
+                  shortDescription: event.shortDescription,
+                  description: '',
+                  availability: mapAvailability(event.availability),
+                  availableTickets: event.ticketTypes.reduce((sum, tt) => sum + Math.max(0, tt.capacity - tt.soldCount), 0),
+                  schedule: event.schedules,
+                  winesServed: [],
+                  culinaryMenu: [],
+                  entertainment: '',
+                  gallery: [],
+                  faqs: [],
+                  image: event.featuredImage || 'https://images.unsplash.com/photo-1511192336575-5a79af67a629?auto=format&fit=crop&w=800&q=80',
+                  isPast: event.isPast,
+                };
+                return <EventCard key={event.id} event={mapped as unknown as import('@/types').WineryEvent} />;
+              })}
+            </div>
+          )}
+          {!loading && !error && (
+            <div className="mt-8 text-center">
+              <Link href="/events" className="text-xs text-[#525960]">Showing {(tab === 'upcoming' ? upcomingEvents : pastEvents).length} events · Final availability confirmed at checkout</Link>
+            </div>
+          )}
         </div>
       </section>
     </div>
