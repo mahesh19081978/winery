@@ -652,6 +652,32 @@ export class EventBookingService {
       throw error;
     }
   }
+
+  static async listEventBookingsAdmin(filters: {
+    search?: string;
+    status?: string;
+    eventId?: string;
+    eventScheduleId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    return EventBookingRepository.findManyAdmin(filters);
+  }
+
+  static async getEventBookingAdmin(bookingNumber: string) {
+    const booking = await EventBookingRepository.findByBookingNumberAdmin(bookingNumber);
+    if (!booking) {
+      throw new EventBookingError(`Event booking ${bookingNumber} not found`, 404);
+    }
+    return booking;
+  }
+
+  static async cancelBookingAdmin(bookingNumber: string, reason?: string) {
+    // Reuse existing cancellation logic (transactional, capacity release)
+    return EventBookingService.cancelBooking(bookingNumber, reason);
+  }
 }
 
 function getDatePartsForTimeZone(date: Date, timeZone: string) {

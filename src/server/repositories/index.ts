@@ -1303,6 +1303,112 @@ export class ReviewRepository {
   }
 }
 export class EventBookingRepository {
+  static async findManyAdmin(filters: {
+    search?: string;
+    status?: string;
+    eventId?: string;
+    eventScheduleId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const page = filters.page || 1;
+    const pageSize = filters.pageSize || 20;
+    const skip = (page - 1) * pageSize;
+
+    const where: Prisma.EventBookingWhereInput = {};
+
+    if (filters.search) {
+      const term = filters.search.trim();
+      where.OR = [
+        { bookingNumber: { contains: term, mode: 'insensitive' } },
+        { guestProfile: { name: { contains: term, mode: 'insensitive' } } },
+        { guestProfile: { user: { email: { contains: term, mode: 'insensitive' } } } },
+        { event: { title: { contains: term, mode: 'insensitive' } } },
+        { event: { slug: { contains: term, mode: 'insensitive' } } },
+      ];
+    }
+
+    if (filters.status) {
+      where.status = filters.status as BookingStatus;
+    }
+
+    if (filters.eventId) {
+      where.eventId = filters.eventId;
+    }
+
+    if (filters.eventScheduleId) {
+      where.eventScheduleId = filters.eventScheduleId;
+    }
+
+    if (filters.dateFrom || filters.dateTo) {
+      where.createdAt = {};
+      if (filters.dateFrom) where.createdAt.gte = new Date(filters.dateFrom);
+      if (filters.dateTo) where.createdAt.lte = new Date(filters.dateTo);
+    }
+
+    const [bookings, total] = await Promise.all([
+      prisma.eventBooking.findMany({
+        where,
+        include: {
+          event: { select: { id: true, slug: true, title: true, eventDate: true, venue: true, timeRange: true, status: true } },
+          eventSchedule: { select: { id: true, timeSlot: true, activity: true } },
+          guestProfile: { select: { id: true, name: true, phone: true, user: { select: { email: true } } } },
+          tickets: { include: { ticketType: true } },
+          statusHistory: { orderBy: { createdAt: 'asc' } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: pageSize,
+      }),
+      prisma.eventBooking.count({ where }),
+    ]);
+
+    return {
+      bookings,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    };
+  }
+
+  static async findByBookingNumberAdmin(bookingNumber: string) {
+    return prisma.eventBooking.findUnique({
+      where: { bookingNumber },
+      include: {
+        event: {
+          select: {
+            id: true,
+            wineryId: true,
+            slug: true,
+            title: true,
+            eventDate: true,
+            timeRange: true,
+            venue: true,
+            status: true,
+            availability: true,
+            isPast: true,
+            featuredImage: true,
+          },
+        },
+        eventSchedule: true,
+        guestProfile: {
+          include: {
+            user: { select: { id: true, email: true } },
+          },
+        },
+        tickets: {
+          include: { ticketType: true },
+        },
+        statusHistory: { orderBy: { createdAt: 'asc' } },
+      },
+    });
+  }
+
   static async findByBookingNumber(bookingNumber: string) {
     return prisma.eventBooking.findUnique({
       where: { bookingNumber },
