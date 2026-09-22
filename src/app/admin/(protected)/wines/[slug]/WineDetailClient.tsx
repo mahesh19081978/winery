@@ -1,7 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   Tag,
@@ -12,6 +13,13 @@ import {
   BookOpen,
   Layers,
   Utensils,
+  Pencil,
+  Trash2,
+  Plus,
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
+  X,
 } from 'lucide-react';
 import { SectionCard, StatusBadge } from '@/components/admin/UIComponents';
 
@@ -115,7 +123,101 @@ function TasteBar({ label, value }: { label: string; value: number }) {
   );
 }
 
-export function WineDetailClient({ wine }: { wine: WineData }) {
+export function WineDetailClient({ wine: initialWine }: { wine: WineData }) {
+  const [wine, setWine] = useState<WineData>(initialWine);
+  const router = useRouter();
+  const [globalMsg, setGlobalMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch(`/api/admin/wines/${initialWine.slug}`);
+      const j = await res.json();
+      if (res.ok) setWine(j.data);
+    } finally { setRefreshing(false); }
+  };
+
+  const handleDeleteWine = async () => {
+    if (!confirm(`Delete wine "${wine.name}"? This cannot be undone.`)) return;
+    try {
+      const res = await fetch(`/api/admin/wines/${wine.slug}`, { method: 'DELETE' });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || 'Delete failed');
+      router.push('/admin/wines');
+    } catch (err) {
+      setGlobalMsg({ type: 'error', text: err instanceof Error ? err.message : 'Delete failed' });
+    }
+  };
+
+  // Vintage CRUD
+  const [showVintage, setShowVintage] = useState(false);
+  const [editingVintage, setEditingVintage] = useState<VintageData | null>(null);
+  const [vintageForm, setVintageForm] = useState({ vintageYear: '', price: '', currency: 'USD', alcohol: '', oakAging: '', tastingNotes: '', aromaTags: '', body: '5', acidity: '5', sweetness: '2', tannin: '5', isAvailable: true, inventoryCount: '0' });
+  const [vintageLoading, setVintageLoading] = useState(false);
+  const [vintageError, setVintageError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  const openVintageCreate = () => {
+    setEditingVintage(null);
+    setVintageForm({ vintageYear: String(new Date().getFullYear()), price: '', currency: 'USD', alcohol: '', oakAging: '', tastingNotes: '', aromaTags: '', body: '5', acidity: '5', sweetness: '2', tannin: '5', isAvailable: true, inventoryCount: '0' });
+    setVintageError(''); setFieldErrors({}); setShowVintage(true);
+  };
+  const openVintageEdit = (v: VintageData) => {
+    setEditingVintage(v);
+    setVintageForm({ vintageYear: String(v.vintageYear), price: String(v.price), currency: v.currency, alcohol: v.alcohol, oakAging: v.oakAging || '', tastingNotes: v.tastingNotes || '', aromaTags: v.aromaTags.join(', '), body: String(v.body), acidity: String(v.acidity), sweetness: String(v.sweetness), tannin: String(v.tannin), isAvailable: v.isAvailable, inventoryCount: String(v.inventoryCount) });
+    setVintageError(''); setFieldErrors({}); setShowVintage(true);
+  };
+
+  const submitVintage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setVintageLoading(true); setVintageError(''); setFieldErrors({});
+    try {
+      const payload: Record<string, unknown> = {
+        vintageYear: Number(vintageForm.vintageYear),
+        price: Number(vintageForm.price),
+        currency: vintageForm.currency || 'USD',
+        alcohol: vintageForm.alcohol,
+        oakAging: vintageForm.oakAging || null,
+        tastingNotes: vintageForm.tastingNotes || null,
+        aromaTags: vintageForm.aromaTags ? vintageForm.aromaTags.split(',').map(s => s.trim()).filter(Boolean) : [],
+        body: Number(vintageForm.body),
+        acidity: Number(vintageForm.acidity),
+        sweetness: Number(vintageForm.sweetness),
+        tannin: Number(vintageForm.tannin),
+        isAvailable: vintageForm.isAvailable,
+        inventoryCount: Number(vintageForm.inventoryCount),
+      };
+      const url = editingVintage ? `/api/admin/wines/${wine.slug}/vintages/${editingVintage.id}` : `/api/admin/wines/${wine.slug}/vintages`;
+      const method = editingVintage ? 'PATCH' : 'POST';
+      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const j = await res.json();
+      if (!res.ok) {
+        if (j.details && Array.isArray(j.details)) {
+          const fe: Record<string, string> = {};
+          j.details.forEach((d: { path?: string[]; message?: string }) => { const k = d.path?.[0] || 'form'; fe[k] = d.message || 'Invalid'; });
+          setFieldErrors(fe);
+        }
+        throw new Error(j.error || 'Failed');
+      }
+      setShowVintage(false);
+      setGlobalMsg({ type: 'success', text: editingVintage ? 'Vintage updated' : 'Vintage created' });
+      await refresh();
+      setTimeout(() => setGlobalMsg(null), 3000);
+    } catch (err) { setVintageError(err instanceof Error ? err.message : 'Failed'); } finally { setVintageLoading(false); }
+  };
+
+  const deleteVintage = async (v: VintageData) => {
+    if (!confirm(`Delete vintage ${v.vintageYear}? This cannot be undone. If historical tasting records exist, deletion will be blocked (409).`)) return;
+    try {
+      const res = await fetch(`/api/admin/wines/${wine.slug}/vintages/${v.id}`, { method: 'DELETE' });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || 'Delete failed');
+      setGlobalMsg({ type: 'success', text: `Vintage ${v.vintageYear} deleted` });
+      await refresh();
+    } catch (err) { setGlobalMsg({ type: 'error', text: err instanceof Error ? err.message : 'Delete failed' }); }
+  };
+
   const availableVintages = wine.vintages.filter((v) => v.isAvailable);
   const totalInventory = wine.vintages.reduce((sum, v) => sum + v.inventoryCount, 0);
   const avgTastingRating =
@@ -139,6 +241,7 @@ export function WineDetailClient({ wine }: { wine: WineData }) {
               <span className="text-xs uppercase tracking-widest font-mono font-medium text-[#6c2432]">
                 Domaine Élysée • Wine Details
               </span>
+              {refreshing && <Loader2 className="w-3.5 h-3.5 animate-spin text-stone-400" />}
             </div>
             <div className="flex items-center gap-3 mt-1">
               <h1 className="text-2xl sm:text-3xl font-serif text-stone-900 font-medium">
@@ -153,7 +256,23 @@ export function WineDetailClient({ wine }: { wine: WineData }) {
             </div>
           </div>
         </div>
+        <div className="flex items-center gap-2">
+          <Link href={`/admin/wines/${wine.slug}/edit`} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-stone-200 bg-white text-xs font-medium text-stone-700 hover:bg-stone-50">
+            <Pencil className="w-3.5 h-3.5" />Edit
+          </Link>
+          <button onClick={handleDeleteWine} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-rose-50 border border-rose-200 text-xs font-medium text-rose-700 hover:bg-rose-100">
+            <Trash2 className="w-3.5 h-3.5" />Delete
+          </button>
+        </div>
       </div>
+
+      {globalMsg && (
+        <div className={`flex items-center gap-2 rounded-lg border p-3 ${globalMsg.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
+          {globalMsg.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+          <p className="text-xs flex-1">{globalMsg.text}</p>
+          <button onClick={() => setGlobalMsg(null)}><X className="h-3.5 w-3.5" /></button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column: Main Details */}
@@ -340,7 +459,7 @@ export function WineDetailClient({ wine }: { wine: WineData }) {
         {/* Right Column: Vintages & Experiences */}
         <div className="space-y-6">
           {/* Vintages */}
-          <SectionCard title="Vintages" description={`Wine vintages and tasting data (${wine.vintages.length})`}>
+          <SectionCard title="Vintages" description={`Wine vintages and tasting data (${wine.vintages.length})`} action={<button onClick={openVintageCreate} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#461822] text-white text-xs font-medium hover:bg-[#6c2432]"><Plus className="w-3.5 h-3.5" />Add Vintage</button>}>
             {wine.vintages.length === 0 ? (
               <div className="text-center py-6">
                 <Layers className="w-8 h-8 text-stone-300 mx-auto mb-2" />
@@ -358,9 +477,13 @@ export function WineDetailClient({ wine }: { wine: WineData }) {
                           size="sm"
                         />
                       </div>
-                      <span className="text-sm font-serif font-medium text-stone-900">
-                        ${Number(vintage.price).toFixed(2)}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-serif font-medium text-stone-900">
+                          ${Number(vintage.price).toFixed(2)}
+                        </span>
+                        <button onClick={() => openVintageEdit(vintage)} className="p-1 rounded hover:bg-stone-100 text-stone-500"><Pencil className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => deleteVintage(vintage)} className="p-1 rounded hover:bg-rose-50 text-stone-500 hover:text-rose-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-stone-600 mb-2">
@@ -516,6 +639,34 @@ export function WineDetailClient({ wine }: { wine: WineData }) {
           </SectionCard>
         </div>
       </div>
+
+      {/* Vintage Dialog */}
+      {showVintage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl bg-white p-5 shadow-xl">
+            <div className="mb-4 flex items-center justify-between"><h3 className="font-serif font-medium text-stone-900">{editingVintage ? 'Edit Vintage' : 'Add Vintage'}</h3><button onClick={() => setShowVintage(false)}><X className="h-4 w-4" /></button></div>
+            {vintageError && <div className="mb-3 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700"><AlertCircle className="h-3.5 w-3.5" />{vintageError}</div>}
+            <form onSubmit={submitVintage} className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="text-[11px] uppercase font-mono text-stone-600">Vintage Year *</label><input type="number" value={vintageForm.vintageYear} onChange={(e) => setVintageForm(p => ({ ...p, vintageYear: e.target.value }))} className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-xs" placeholder="2024" />{fieldErrors.vintageYear && <p className="mt-1 text-[11px] text-rose-600">{fieldErrors.vintageYear}</p>}</div>
+                <div><label className="text-[11px] uppercase font-mono text-stone-600">Price *</label><input type="number" step="0.01" value={vintageForm.price} onChange={(e) => setVintageForm(p => ({ ...p, price: e.target.value }))} className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-xs" placeholder="95" />{fieldErrors.price && <p className="mt-1 text-[11px] text-rose-600">{fieldErrors.price}</p>}</div>
+                <div><label className="text-[11px] uppercase font-mono text-stone-600">Currency</label><input value={vintageForm.currency} onChange={(e) => setVintageForm(p => ({ ...p, currency: e.target.value }))} className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-xs" placeholder="USD" /></div>
+                <div><label className="text-[11px] uppercase font-mono text-stone-600">Alcohol *</label><input value={vintageForm.alcohol} onChange={(e) => setVintageForm(p => ({ ...p, alcohol: e.target.value }))} className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-xs" placeholder="14.5%" />{fieldErrors.alcohol && <p className="mt-1 text-[11px] text-rose-600">{fieldErrors.alcohol}</p>}</div>
+                <div className="col-span-2"><label className="text-[11px] uppercase font-mono text-stone-600">Oak Aging</label><input value={vintageForm.oakAging} onChange={(e) => setVintageForm(p => ({ ...p, oakAging: e.target.value }))} className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-xs" placeholder="22 months in French oak" /></div>
+                <div><label className="text-[11px] uppercase font-mono text-stone-600">Body (1-10)</label><input type="number" min="1" max="10" value={vintageForm.body} onChange={(e) => setVintageForm(p => ({ ...p, body: e.target.value }))} className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-xs" /></div>
+                <div><label className="text-[11px] uppercase font-mono text-stone-600">Acidity (1-10)</label><input type="number" min="1" max="10" value={vintageForm.acidity} onChange={(e) => setVintageForm(p => ({ ...p, acidity: e.target.value }))} className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-xs" /></div>
+                <div><label className="text-[11px] uppercase font-mono text-stone-600">Sweetness (1-10)</label><input type="number" min="1" max="10" value={vintageForm.sweetness} onChange={(e) => setVintageForm(p => ({ ...p, sweetness: e.target.value }))} className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-xs" /></div>
+                <div><label className="text-[11px] uppercase font-mono text-stone-600">Tannin (1-10)</label><input type="number" min="1" max="10" value={vintageForm.tannin} onChange={(e) => setVintageForm(p => ({ ...p, tannin: e.target.value }))} className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-xs" /></div>
+                <div><label className="text-[11px] uppercase font-mono text-stone-600">Inventory</label><input type="number" min="0" value={vintageForm.inventoryCount} onChange={(e) => setVintageForm(p => ({ ...p, inventoryCount: e.target.value }))} className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-xs" /></div>
+                <div className="flex items-end gap-2 pb-1"><input type="checkbox" checked={vintageForm.isAvailable} onChange={(e) => setVintageForm(p => ({ ...p, isAvailable: e.target.checked }))} className="rounded" /><label className="text-xs text-stone-700">Available</label></div>
+              </div>
+              <div><label className="text-[11px] uppercase font-mono text-stone-600">Tasting Notes</label><textarea value={vintageForm.tastingNotes} onChange={(e) => setVintageForm(p => ({ ...p, tastingNotes: e.target.value }))} rows={2} className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-xs" /></div>
+              <div><label className="text-[11px] uppercase font-mono text-stone-600">Aroma Tags (comma separated)</label><input value={vintageForm.aromaTags} onChange={(e) => setVintageForm(p => ({ ...p, aromaTags: e.target.value }))} className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-xs" placeholder="Blackcurrant, Violet" /></div>
+              <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowVintage(false)} className="rounded-lg border border-stone-200 bg-white px-4 py-2 text-xs">Cancel</button><button type="submit" disabled={vintageLoading} className="inline-flex items-center gap-2 rounded-lg bg-[#461822] px-5 py-2 text-xs text-white disabled:opacity-50">{vintageLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{editingVintage ? 'Update' : 'Create'}</button></div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

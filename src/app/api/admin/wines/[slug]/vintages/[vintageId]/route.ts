@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthService } from '@/lib/auth';
 import { WineService } from '@/server/services';
-import { WineUpdateSchema } from '@/server/validators';
+import { WineVintageUpdateSchema } from '@/server/validators';
+import { prisma } from '@/lib/db';
 
 function authCheck(session: Awaited<ReturnType<typeof AuthService.getSession>>) {
   if (!session) return { status: 401 as const, error: 'Unauthorized' };
@@ -9,82 +10,71 @@ function authCheck(session: Awaited<ReturnType<typeof AuthService.getSession>>) 
   return null;
 }
 
-export async function GET(
-  request: NextRequest,
-  context: { params: Promise<{ slug: string }> }
-) {
-  try {
-    const session = await AuthService.getSession();
-    const auth = authCheck(session);
-    if (auth) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
-
-    const { slug } = await context.params;
-    const wine = await WineService.getWineBySlugAdmin(slug);
-    return NextResponse.json({ success: true, data: wine });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Wine not found';
-    if (message.includes('not found')) return NextResponse.json({ success: false, error: message }, { status: 404 });
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
-  }
+async function resolveWineId(slug: string): Promise<string> {
+  const byId = await prisma.wine.findUnique({ where: { id: slug }, select: { id: true } }).catch(() => null);
+  if (byId) return byId.id;
+  const bySlug = await prisma.wine.findFirst({ where: { slug }, select: { id: true } });
+  if (bySlug) return bySlug.id;
+  throw new Error(`Wine with id '${slug}' not found`);
 }
 
 export async function PATCH(
   request: NextRequest,
-  context: { params: Promise<{ slug: string }> }
+  { params }: { params: Promise<{ slug: string; vintageId: string }> }
 ) {
   try {
     const session = await AuthService.getSession();
     const auth = authCheck(session);
     if (auth) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
 
-    const { slug } = await context.params;
+    const { slug, vintageId } = await params;
+    const wineId = await resolveWineId(slug);
     const body = await request.json();
-    if ('rating' in body) delete body.rating;
-    if ('reviewCount' in body) delete body.reviewCount;
     if ('id' in body) delete body.id;
-    if ('wineryId' in body) delete body.wineryId;
+    if ('wineId' in body) delete body.wineId;
     if ('createdAt' in body) delete body.createdAt;
     if ('updatedAt' in body) delete body.updatedAt;
 
-    const validated = WineUpdateSchema.parse(body);
-    const wine = await WineService.updateWine(slug, validated);
-    return NextResponse.json({ success: true, data: wine });
+    const validated = WineVintageUpdateSchema.parse(body);
+    const vintage = await WineService.updateVintage(wineId, vintageId, validated);
+    return NextResponse.json({ success: true, data: vintage });
   } catch (error: unknown) {
     if (error && typeof error === 'object' && 'name' in error && (error as { name: string }).name === 'ZodError') {
-      const zod = error as { issues?: unknown; errors?: unknown };
-      return NextResponse.json({ success: false, error: 'Validation failed', details: zod.issues || zod.errors }, { status: 400 });
+      const zod = error as { issues?: unknown };
+      return NextResponse.json({ success: false, error: 'Validation failed', details: zod.issues }, { status: 400 });
     }
     if (error && typeof error === 'object' && 'statusCode' in error) {
       const sc = (error as { statusCode: number }).statusCode;
-      const msg = error instanceof Error ? error.message : 'Failed to update wine';
+      const msg = error instanceof Error ? error.message : 'Failed';
       return NextResponse.json({ success: false, error: msg }, { status: sc });
     }
-    const message = error instanceof Error ? error.message : 'Failed to update wine';
+    const message = error instanceof Error ? error.message : 'Failed to update vintage';
     if (message.includes('not found')) return NextResponse.json({ success: false, error: message }, { status: 404 });
-    if (message.includes('already exists')) return NextResponse.json({ success: false, error: message }, { status: 409 });
+    if (message.includes('already exists') || message.includes('Cannot change')) return NextResponse.json({ success: false, error: message }, { status: 409 });
     return NextResponse.json({ success: false, error: message }, { status: 400 });
   }
 }
 
 export async function DELETE(
   _request: NextRequest,
-  context: { params: Promise<{ slug: string }> }
+  { params }: { params: Promise<{ slug: string; vintageId: string }> }
 ) {
   try {
     const session = await AuthService.getSession();
     const auth = authCheck(session);
     if (auth) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
 
-    const { slug } = await context.params;
-    await WineService.deleteWine(slug);
+    const { slug, vintageId } = await params;
+    const wineId = await resolveWineId(slug);
+    await WineService.deleteVintage(wineId, vintageId);
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     if (error && typeof error === 'object' && 'statusCode' in error) {
       const sc = (error as { statusCode: number }).statusCode;
-      const msg = error instanceof Error ? error.message : 'Failed to delete wine';
+      const msg = error instanceof Error ? error.message : 'Failed';
       return NextResponse.json({ success: false, error: msg }, { status: sc });
     }
-    const message = error instanceof Error ? error.message : 'Failed to delete wine';
+    const message = error instanceof Error ? error.message : 'Failed to delete vintage';
     if (message.includes('not found')) return NextResponse.json({ success: false, error: message }, { status: 404 });
     if (message.includes('Cannot delete')) return NextResponse.json({ success: false, error: message }, { status: 409 });
     return NextResponse.json({ success: false, error: message }, { status: 400 });

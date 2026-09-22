@@ -124,6 +124,67 @@ export class WineRepository {
       },
     });
   }
+
+  static async findById(id: string) {
+    return prisma.wine.findUnique({
+      where: { id },
+      include: {
+        vintages: { orderBy: { vintageYear: 'desc' } },
+        images: { orderBy: { sortOrder: 'asc' } },
+        foodPairings: true,
+      },
+    });
+  }
+
+  static async findBySlugForWinery(wineryId: string, slug: string) {
+    return prisma.wine.findUnique({ where: { wineryId_slug: { wineryId, slug } } });
+  }
+
+  static async create(data: Prisma.WineCreateInput) {
+    return prisma.wine.create({ data });
+  }
+
+  static async update(id: string, data: Prisma.WineUpdateInput) {
+    return prisma.wine.update({ where: { id }, data });
+  }
+
+  static async delete(id: string) {
+    return prisma.wine.delete({ where: { id } });
+  }
+
+  static async countExperienceWines(wineId: string) {
+    return prisma.experienceWine.count({ where: { wineId } });
+  }
+
+  static async countTastingRecordsForWine(wineId: string) {
+    return prisma.tastingRecord.count({ where: { wineVintage: { wineId } } });
+  }
+}
+
+export class WineVintageRepository {
+  static async findById(id: string) {
+    return prisma.wineVintage.findUnique({ where: { id } });
+  }
+
+  static async findByWineIdAndYear(wineId: string, vintageYear: number) {
+    return prisma.wineVintage.findUnique({ where: { wineId_vintageYear: { wineId, vintageYear } } });
+  }
+
+  static async create(data: Prisma.WineVintageCreateInput) {
+    return prisma.wineVintage.create({ data });
+  }
+
+  static async update(id: string, data: Prisma.WineVintageUpdateInput) {
+    return prisma.wineVintage.update({ where: { id }, data });
+  }
+
+  static async delete(id: string) {
+    return prisma.wineVintage.delete({ where: { id } });
+  }
+
+  static async countTastingRecords(vintageId: string) {
+    return prisma.tastingRecord.count({ where: { wineVintageId: vintageId } });
+  }
 }
 
 export class ExperienceRepository {

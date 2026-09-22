@@ -13,6 +13,10 @@ import {
   Star,
   ChevronLeft,
   ChevronRight,
+  Plus,
+  Pencil,
+  Trash2,
+  CheckCircle2,
 } from 'lucide-react';
 import { SectionCard, StatusBadge } from '@/components/admin/UIComponents';
 import EmptyState from '@/components/common/EmptyState';
@@ -44,6 +48,7 @@ export function WinesListClient() {
   const [pagination, setPagination] = useState({ page: 1, pageSize: 20, total: 0, totalPages: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
   const [featured, setFeatured] = useState('');
@@ -123,6 +128,20 @@ export function WinesListClient() {
     fetchWines(newPage, search, category, featured);
   };
 
+  const handleDelete = async (slug: string, name: string) => {
+    if (!confirm(`Delete wine "${name}"? This cannot be undone. If it is linked to experiences or has tasting history, deletion will be blocked (409).`)) return;
+    try {
+      const res = await fetch(`/api/admin/wines/${slug}`, { method: 'DELETE' });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || 'Delete failed');
+      setSuccess(`Wine "${name}" deleted`);
+      setTimeout(() => setSuccess(''), 3000);
+      fetchWines(pagination.page, search, category, featured);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed');
+    }
+  };
+
   const hasActiveFilters = search || category || featured;
 
   return (
@@ -148,8 +167,26 @@ export function WinesListClient() {
               {pagination.total} total
             </span>
           </div>
+          <Link href="/admin/wines/new" className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#461822] text-white text-xs font-medium hover:bg-[#6c2432] transition">
+            <Plus className="w-3.5 h-3.5" />
+            Add Wine
+          </Link>
         </div>
       </div>
+
+      {error && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-50 border border-rose-200">
+          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+          <p className="text-xs text-rose-700 flex-1">{error}</p>
+          <button onClick={() => setError('')} className="text-rose-500 hover:text-rose-700"><X className="w-3.5 h-3.5" /></button>
+        </div>
+      )}
+      {success && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-50 border border-emerald-200">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <p className="text-xs text-emerald-700">{success}</p>
+        </div>
+      )}
 
       <SectionCard
         title="All Wines"
@@ -244,13 +281,6 @@ export function WinesListClient() {
           )}
         </div>
 
-        {error && (
-          <div className="mt-4 p-3 rounded-lg bg-rose-50 border border-rose-200 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-            <p className="text-xs text-rose-700">{error}</p>
-          </div>
-        )}
-
         {loading ? (
           <div className="mt-6 flex flex-col items-center justify-center py-16 gap-3">
             <Loader2 className="w-6 h-6 text-[#6c2432] animate-spin" />
@@ -336,13 +366,29 @@ export function WinesListClient() {
                         <StatusBadge status={wine.featured ? 'FEATURED' : 'STANDARD'} />
                       </td>
                       <td className="py-3.5 px-5 text-right whitespace-nowrap">
-                        <Link
-                          href={`/admin/wines/${wine.slug}`}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-[#6c2432] bg-[#461822]/5 border border-[#461822]/10 rounded-md hover:bg-[#461822]/10 transition"
-                        >
-                          <Eye className="w-3 h-3" />
-                          View
-                        </Link>
+                        <div className="flex items-center justify-end gap-1">
+                          <Link
+                            href={`/admin/wines/${wine.slug}`}
+                            className="inline-flex items-center gap-1 p-1.5 text-stone-500 hover:bg-stone-100 rounded"
+                            title="View"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </Link>
+                          <Link
+                            href={`/admin/wines/${wine.slug}/edit`}
+                            className="inline-flex items-center gap-1 p-1.5 text-stone-500 hover:bg-stone-100 rounded"
+                            title="Edit"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </Link>
+                          <button
+                            onClick={() => handleDelete(wine.slug, wine.name)}
+                            className="inline-flex items-center gap-1 p-1.5 text-stone-500 hover:bg-rose-50 hover:text-rose-600 rounded"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -353,14 +399,13 @@ export function WinesListClient() {
             {/* Mobile Cards */}
             <div className="mt-6 space-y-3 md:hidden">
               {wines.map((wine) => (
-                <Link
+                <div
                   key={wine.id}
-                  href={`/admin/wines/${wine.slug}`}
-                  className="block p-4 rounded-xl border border-stone-200/80 bg-white hover:bg-[#faf8f5] transition"
+                  className="block p-4 rounded-xl border border-stone-200/80 bg-white"
                 >
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div>
-                      <h4 className="font-serif font-medium text-stone-900">{wine.name}</h4>
+                      <Link href={`/admin/wines/${wine.slug}`} className="font-serif font-medium text-stone-900 hover:text-[#6c2432]">{wine.name}</Link>
                       <div className="flex items-center gap-2 mt-1">
                         <StatusBadge status={wine.category} />
                         {wine.featured && (
@@ -368,13 +413,17 @@ export function WinesListClient() {
                         )}
                       </div>
                     </div>
+                    <div className="flex items-center gap-1">
+                      <Link href={`/admin/wines/${wine.slug}/edit`} className="p-1.5 text-stone-500 hover:bg-stone-100 rounded"><Pencil className="w-3.5 h-3.5" /></Link>
+                      <button onClick={() => handleDelete(wine.slug, wine.name)} className="p-1.5 text-stone-500 hover:bg-rose-50 hover:text-rose-600 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </div>
                   </div>
                   <div className="flex items-center gap-4 text-xs text-stone-600">
                     <span>{wine.vintages.length} vintages</span>
                     <span>{wine._count.reviews} reviews</span>
                     <span>{wine._count.experienceWines} experiences</span>
                   </div>
-                </Link>
+                </div>
               ))}
             </div>
 

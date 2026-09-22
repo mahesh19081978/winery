@@ -217,3 +217,90 @@ export const EventFAQUpdateSchema = z.object({
 });
 export type EventFAQCreateInput = z.infer<typeof EventFAQCreateSchema>;
 export type EventFAQUpdateInput = z.infer<typeof EventFAQUpdateSchema>;
+
+// --- Wine Management Admin (Phase 5.12) ---
+export const WineCreateSchema = z.object({
+  slug: z.string().min(2).max(100).regex(slugRegex, 'Slug must be lowercase alphanumeric with hyphens (e.g. my-wine)'),
+  name: z.string().min(2, 'Name must be at least 2 characters').max(200),
+  category: z.enum(['RED', 'WHITE', 'ROSE', 'SPARKLING', 'RESERVE', 'DESSERT']),
+  description: z.string().min(10, 'Description must be at least 10 characters'),
+  shortDescription: z.string().min(10, 'Short description must be at least 10 characters'),
+  story: z.string().max(5000).optional().nullable(),
+  vineyardParcel: z.string().max(200).optional().nullable(),
+  servingTemp: z.string().max(100).optional().nullable(),
+  cellarPotential: z.string().max(200).optional().nullable(),
+  featured: z.boolean().default(false).optional(),
+  characteristics: z.array(z.string().min(1)).default([]),
+  images: z.array(z.object({
+    url: z.string().min(1, 'Image URL is required').max(2000),
+    altText: z.string().max(500).optional().nullable(),
+    isPrimary: z.boolean().optional(),
+    sortOrder: z.number().int().min(0).optional(),
+  })).optional().default([]),
+  foodPairings: z.array(z.object({
+    dishName: z.string().min(1, 'Dish name is required').max(200),
+    description: z.string().max(1000).optional().nullable(),
+  })).optional().default([]),
+});
+
+export const WineUpdateSchema = z.object({
+  slug: z.string().min(2).max(100).regex(slugRegex, 'Slug must be lowercase alphanumeric with hyphens').optional(),
+  name: z.string().min(2).max(200).optional(),
+  category: z.enum(['RED', 'WHITE', 'ROSE', 'SPARKLING', 'RESERVE', 'DESSERT']).optional(),
+  description: z.string().min(10).optional(),
+  shortDescription: z.string().min(10).optional(),
+  story: z.string().max(5000).optional().nullable(),
+  vineyardParcel: z.string().max(200).optional().nullable(),
+  servingTemp: z.string().max(100).optional().nullable(),
+  cellarPotential: z.string().max(200).optional().nullable(),
+  featured: z.boolean().optional(),
+  characteristics: z.array(z.string().min(1)).optional(),
+  images: z.array(z.object({
+    url: z.string().min(1).max(2000),
+    altText: z.string().max(500).optional().nullable(),
+    isPrimary: z.boolean().optional(),
+    sortOrder: z.number().int().min(0).optional(),
+  })).optional(),
+  foodPairings: z.array(z.object({
+    dishName: z.string().min(1).max(200),
+    description: z.string().max(1000).optional().nullable(),
+  })).optional(),
+});
+
+export type WineCreateInput = z.infer<typeof WineCreateSchema>;
+export type WineUpdateInput = z.infer<typeof WineUpdateSchema>;
+
+export const WineVintageCreateSchema = z.object({
+  vintageYear: z.number().int().min(1900, 'Vintage year must be >= 1900').max(2100, 'Vintage year must be <= 2100'),
+  price: z.number().min(0, 'Price cannot be negative').max(100000),
+  currency: z.string().min(2).max(10).default('USD').optional(),
+  alcohol: z.string().min(1, 'Alcohol is required').max(20),
+  oakAging: z.string().max(500).optional().nullable(),
+  tastingNotes: z.string().max(5000).optional().nullable(),
+  aromaTags: z.array(z.string().min(1)).default([]),
+  body: z.number().int().min(1).max(10).default(5),
+  acidity: z.number().int().min(1).max(10).default(5),
+  sweetness: z.number().int().min(1).max(10).default(2),
+  tannin: z.number().int().min(1).max(10).default(5),
+  isAvailable: z.boolean().default(true).optional(),
+  inventoryCount: z.number().int().min(0, 'Inventory count cannot be negative').max(1000000).default(0),
+});
+
+export const WineVintageUpdateSchema = z.object({
+  vintageYear: z.number().int().min(1900).max(2100).optional(),
+  price: z.number().min(0).max(100000).optional(),
+  currency: z.string().min(2).max(10).optional(),
+  alcohol: z.string().min(1).max(20).optional(),
+  oakAging: z.string().max(500).optional().nullable(),
+  tastingNotes: z.string().max(5000).optional().nullable(),
+  aromaTags: z.array(z.string().min(1)).optional(),
+  body: z.number().int().min(1).max(10).optional(),
+  acidity: z.number().int().min(1).max(10).optional(),
+  sweetness: z.number().int().min(1).max(10).optional(),
+  tannin: z.number().int().min(1).max(10).optional(),
+  isAvailable: z.boolean().optional(),
+  inventoryCount: z.number().int().min(0).max(1000000).optional(),
+});
+
+export type WineVintageCreateInput = z.infer<typeof WineVintageCreateSchema>;
+export type WineVintageUpdateInput = z.infer<typeof WineVintageUpdateSchema>;

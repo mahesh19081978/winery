@@ -1,5 +1,6 @@
 import {
   WineRepository,
+  WineVintageRepository,
   ExperienceRepository,
   EventRepository,
   EventScheduleRepository,
@@ -28,6 +29,10 @@ import {
   EventTicketTypeUpdateInput,
   EventFAQCreateInput,
   EventFAQUpdateInput,
+  WineCreateInput,
+  WineUpdateInput,
+  WineVintageCreateInput,
+  WineVintageUpdateInput,
 } from '../validators';
 import { prisma } from '@/lib/db';
 import { BookingStatus, Prisma } from '@prisma/client';
@@ -85,6 +90,194 @@ export class WineService {
       throw new Error(`Wine with slug '${slug}' not found`);
     }
     return wine;
+  }
+
+  private static async resolveWineryId(): Promise<string> {
+    const winery = await prisma.winery.findFirst({ orderBy: { createdAt: 'asc' }, select: { id: true } });
+    if (!winery) throw new EventBookingError('Default winery not found', 500);
+    return winery.id;
+  }
+
+  static async createWine(input: WineCreateInput) {
+    const wineryId = await this.resolveWineryId();
+    const existing = await WineRepository.findBySlugForWinery(wineryId, input.slug);
+    if (existing) throw new EventBookingError(`Slug '${input.slug}' already exists`, 409);
+
+    const data: Prisma.WineCreateInput = {
+      winery: { connect: { id: wineryId } },
+      slug: input.slug,
+      name: input.name,
+      category: input.category as import('@prisma/client').WineCategory,
+      description: input.description,
+      shortDescription: input.shortDescription,
+      story: input.story || null,
+      vineyardParcel: input.vineyardParcel || null,
+      servingTemp: input.servingTemp || null,
+      cellarPotential: input.cellarPotential || null,
+      featured: input.featured ?? false,
+      rating: new Prisma.Decimal(0),
+      reviewCount: 0,
+      characteristics: input.characteristics || [],
+    };
+
+    // Handle nested images/foodPairings via transaction
+    const wine = await prisma.$transaction(async (tx) => {
+      const created = await tx.wine.create({ data });
+      if (input.images && input.images.length > 0) {
+        for (let i = 0; i < input.images.length; i++) {
+          const img = input.images[i];
+          await tx.wineImage.create({
+            data: {
+              wineId: created.id,
+              url: img.url,
+              altText: img.altText || null,
+              isPrimary: img.isPrimary ?? i === 0,
+              sortOrder: img.sortOrder ?? i,
+            },
+          });
+        }
+      }
+      if (input.foodPairings && input.foodPairings.length > 0) {
+        for (const fp of input.foodPairings) {
+          await tx.wineFoodPairing.create({
+            data: { wineId: created.id, dishName: fp.dishName, description: fp.description || null },
+          });
+        }
+      }
+      return tx.wine.findUnique({
+        where: { id: created.id },
+        include: { vintages: true, images: true, foodPairings: true },
+      });
+    });
+    return wine;
+  }
+
+  static async updateWine(slug: string, input: WineUpdateInput) {
+    const existing = await WineRepository.findBySlugAdmin(slug);
+    if (!existing) throw new EventBookingError(`Wine with slug '${slug}' not found`, 404);
+
+    if (input.slug && input.slug !== existing.slug) {
+      const wineryId = existing.wineryId;
+      const dupe = await WineRepository.findBySlugForWinery(wineryId, input.slug);
+      if (dupe && dupe.id !== existing.id) throw new EventBookingError(`Slug '${input.slug}' already exists`, 409);
+    }
+
+    const data: Prisma.WineUpdateInput = {};
+    if (input.slug !== undefined) data.slug = input.slug;
+    if (input.name !== undefined) data.name = input.name;
+    if (input.category !== undefined) data.category = input.category as import('@prisma/client').WineCategory;
+    if (input.description !== undefined) data.description = input.description;
+    if (input.shortDescription !== undefined) data.shortDescription = input.shortDescription;
+    if (input.story !== undefined) data.story = input.story;
+    if (input.vineyardParcel !== undefined) data.vineyardParcel = input.vineyardParcel;
+    if (input.servingTemp !== undefined) data.servingTemp = input.servingTemp;
+    if (input.cellarPotential !== undefined) data.cellarPotential = input.cellarPotential;
+    if (input.featured !== undefined) data.featured = input.featured;
+    if (input.characteristics !== undefined) data.characteristics = input.characteristics;
+
+    // Handle nested images/foodPairings replacement if provided
+    if (input.images !== undefined || input.foodPairings !== undefined) {
+      return prisma.$transaction(async (tx) => {
+        await tx.wine.update({ where: { id: existing.id }, data });
+        if (input.images !== undefined) {
+          await tx.wineImage.deleteMany({ where: { wineId: existing.id } });
+          for (let i = 0; i < input.images!.length; i++) {
+            const img = input.images![i];
+            await tx.wineImage.create({
+              data: { wineId: existing.id, url: img.url, altText: img.altText || null, isPrimary: img.isPrimary ?? i === 0, sortOrder: img.sortOrder ?? i },
+            });
+          }
+        }
+        if (input.foodPairings !== undefined) {
+          await tx.wineFoodPairing.deleteMany({ where: { wineId: existing.id } });
+          for (const fp of input.foodPairings!) {
+            await tx.wineFoodPairing.create({ data: { wineId: existing.id, dishName: fp.dishName, description: fp.description || null } });
+          }
+        }
+        return tx.wine.findUnique({ where: { id: existing.id }, include: { vintages: true, images: true, foodPairings: true } });
+      });
+    }
+
+    return WineRepository.update(existing.id, data);
+  }
+
+  static async deleteWine(slug: string) {
+    const existing = await prisma.wine.findFirst({ where: { slug }, select: { id: true, slug: true } });
+    if (!existing) throw new EventBookingError(`Wine with slug '${slug}' not found`, 404);
+
+    const expCount = await WineRepository.countExperienceWines(existing.id);
+    if (expCount > 0) throw new EventBookingError(`Cannot delete this wine because it is used by ${expCount} experience(s).`, 409);
+
+    const tastingCount = await WineRepository.countTastingRecordsForWine(existing.id);
+    if (tastingCount > 0) throw new EventBookingError(`Cannot delete this wine because its vintages have ${tastingCount} historical tasting record(s).`, 409);
+
+    return WineRepository.delete(existing.id);
+  }
+
+  // Vintage CRUD
+  static async createVintage(wineId: string, input: WineVintageCreateInput) {
+    const wine = await WineRepository.findById(wineId);
+    if (!wine) throw new EventBookingError(`Wine with id '${wineId}' not found`, 404);
+
+    const existing = await WineVintageRepository.findByWineIdAndYear(wineId, input.vintageYear);
+    if (existing) throw new EventBookingError(`Vintage year ${input.vintageYear} already exists for this wine`, 409);
+
+    const data: Prisma.WineVintageCreateInput = {
+      wine: { connect: { id: wineId } },
+      vintageYear: input.vintageYear,
+      price: new Prisma.Decimal(input.price.toFixed(2)),
+      currency: input.currency || 'USD',
+      alcohol: input.alcohol,
+      oakAging: input.oakAging || null,
+      tastingNotes: input.tastingNotes || null,
+      aromaTags: input.aromaTags || [],
+      body: input.body ?? 5,
+      acidity: input.acidity ?? 5,
+      sweetness: input.sweetness ?? 2,
+      tannin: input.tannin ?? 5,
+      isAvailable: input.isAvailable ?? true,
+      inventoryCount: input.inventoryCount ?? 0,
+    };
+    return WineVintageRepository.create(data);
+  }
+
+  static async updateVintage(wineId: string, vintageId: string, input: WineVintageUpdateInput) {
+    const vintage = await WineVintageRepository.findById(vintageId);
+    if (!vintage || vintage.wineId !== wineId) throw new EventBookingError('Vintage not found for this wine', 404);
+
+    if (input.vintageYear !== undefined && input.vintageYear !== vintage.vintageYear) {
+      const tastingCount = await WineVintageRepository.countTastingRecords(vintageId);
+      if (tastingCount > 0) throw new EventBookingError(`Cannot change vintage year because it has ${tastingCount} historical tasting record(s).`, 409);
+      const dupe = await WineVintageRepository.findByWineIdAndYear(wineId, input.vintageYear);
+      if (dupe && dupe.id !== vintageId) throw new EventBookingError(`Vintage year ${input.vintageYear} already exists for this wine`, 409);
+    }
+
+    const data: Prisma.WineVintageUpdateInput = {};
+    if (input.vintageYear !== undefined) data.vintageYear = input.vintageYear;
+    if (input.price !== undefined) data.price = new Prisma.Decimal(input.price.toFixed(2));
+    if (input.currency !== undefined) data.currency = input.currency;
+    if (input.alcohol !== undefined) data.alcohol = input.alcohol;
+    if (input.oakAging !== undefined) data.oakAging = input.oakAging;
+    if (input.tastingNotes !== undefined) data.tastingNotes = input.tastingNotes;
+    if (input.aromaTags !== undefined) data.aromaTags = input.aromaTags;
+    if (input.body !== undefined) data.body = input.body;
+    if (input.acidity !== undefined) data.acidity = input.acidity;
+    if (input.sweetness !== undefined) data.sweetness = input.sweetness;
+    if (input.tannin !== undefined) data.tannin = input.tannin;
+    if (input.isAvailable !== undefined) data.isAvailable = input.isAvailable;
+    if (input.inventoryCount !== undefined) data.inventoryCount = input.inventoryCount;
+
+    return WineVintageRepository.update(vintageId, data);
+  }
+
+  static async deleteVintage(wineId: string, vintageId: string) {
+    const vintage = await WineVintageRepository.findById(vintageId);
+    if (!vintage || vintage.wineId !== wineId) throw new EventBookingError('Vintage not found for this wine', 404);
+
+    const count = await WineVintageRepository.countTastingRecords(vintageId);
+    if (count > 0) throw new EventBookingError(`Cannot delete vintage ${vintage.vintageYear} because it has ${count} historical tasting record(s).`, 409);
+
+    return WineVintageRepository.delete(vintageId);
   }
 }
 
