@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { BookingService } from '@/server/services';
 import { BookingCreateSchema } from '@/server/validators';
+import { getGuestSession } from '@/lib/auth/guest';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const validated = BookingCreateSchema.parse(body);
 
-    const booking = await BookingService.createBooking(validated);
+    const guestSession = await getGuestSession();
+    const booking = await BookingService.createBooking(validated, guestSession);
     return NextResponse.json({ success: true, data: booking }, { status: 201 });
   } catch (error: unknown) {
     if (error && typeof error === 'object' && 'name' in error && error.name === 'ZodError') {

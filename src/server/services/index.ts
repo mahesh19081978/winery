@@ -747,7 +747,10 @@ export class BookingService {
     return BookingRepository.updateStatus(booking.id, toStatus, changedBy, notes);
   }
 
-  static async createBooking(input: BookingCreateInput) {
+  static async createBooking(
+    input: BookingCreateInput,
+    guestSession?: import('@/lib/auth/guest').GuestSessionPayload | null
+  ) {
     const experience = await prisma.experience.findFirst({
       where: { slug: input.experienceSlug, isActive: true },
       include: { winery: true },
@@ -786,33 +789,48 @@ export class BookingService {
       }
     }
 
-    // 2. Ensure or retrieve GuestProfile
-    let guestProfile = await prisma.guestProfile.findFirst({
-      where: { user: { email: input.guestEmail } },
-    });
-
-    if (!guestProfile) {
-      let user = await prisma.user.findUnique({
-        where: { email: input.guestEmail },
+    // 2. Resolve GuestProfile ownership:
+    // If an authenticated guest session is present, ALWAYS derive ownership strictly from session.guestProfileId.
+    // Client-supplied email/userId is ignored for ownership identity.
+    let guestProfileId: string;
+    if (guestSession?.guestProfileId) {
+      const authenticatedProfile = await prisma.guestProfile.findUnique({
+        where: { id: guestSession.guestProfileId },
+      });
+      if (!authenticatedProfile) {
+        throw new Error('Authenticated guest profile not found');
+      }
+      guestProfileId = authenticatedProfile.id;
+    } else {
+      // Unauthenticated public flow: lookup or create guest user/profile by input.guestEmail
+      let guestProfile = await prisma.guestProfile.findFirst({
+        where: { user: { email: input.guestEmail } },
       });
 
-      if (!user) {
-        user = await prisma.user.create({
+      if (!guestProfile) {
+        let user = await prisma.user.findUnique({
+          where: { email: input.guestEmail },
+        });
+
+        if (!user) {
+          user = await prisma.user.create({
+            data: {
+              email: input.guestEmail,
+              wineryId: experience.wineryId,
+              role: 'GUEST',
+            },
+          });
+        }
+
+        guestProfile = await prisma.guestProfile.create({
           data: {
-            email: input.guestEmail,
-            wineryId: experience.wineryId,
-            role: 'GUEST',
+            userId: user.id,
+            name: input.guestName,
+            phone: input.guestPhone,
           },
         });
       }
-
-      guestProfile = await prisma.guestProfile.create({
-        data: {
-          userId: user.id,
-          name: input.guestName,
-          phone: input.guestPhone,
-        },
-      });
+      guestProfileId = guestProfile.id;
     }
 
     // 3. Monetary calculations (Strict Decimal, server-calculated)
@@ -834,7 +852,7 @@ export class BookingService {
     return BookingRepository.createBookingWithTransaction({
       bookingNumber,
       wineryId: experience.wineryId,
-      guestProfileId: guestProfile.id,
+      guestProfileId,
       date: bookingDate,
       time: input.time,
       adults: input.adults,

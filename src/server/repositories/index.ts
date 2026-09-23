@@ -624,7 +624,9 @@ export class BookingRepository {
     return prisma.booking.findUnique({
       where: { bookingNumber },
       include: {
-        guestProfile: true,
+        guestProfile: {
+          include: { user: true },
+        },
         items: {
           include: { experience: true },
         },

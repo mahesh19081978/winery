@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, Suspense } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useBooking } from '@/context/BookingContext';
+import { useGuest } from '@/context/GuestContext';
 import { mockExperiences } from '@/data/experiences';
 import BookingStepper from '@/components/booking/BookingStepper';
 import QRCodePlaceholder from '@/components/booking/QRCodePlaceholder';
@@ -16,7 +17,7 @@ import {
   ArrowLeft,
   ShieldCheck,
   AlertCircle,
-  Loader2
+  Loader2,
 } from 'lucide-react';
 
 const STEPS = [
@@ -63,6 +64,27 @@ function BookingContent() {
     calculatePricing,
     getExperienceSlug
   } = useBooking();
+
+  const { profile, isAuthenticated, isLoading: guestLoading } = useGuest();
+
+  // Prefill lead guest contact details from authenticated profile
+  useEffect(() => {
+    if (!guestLoading && isAuthenticated && profile) {
+      const updates: Partial<typeof currentBooking> = {};
+      if (!currentBooking.guestName && profile.name && profile.name !== 'Guest') {
+        updates.guestName = profile.name;
+      }
+      if (!currentBooking.guestEmail && profile.email) {
+        updates.guestEmail = profile.email;
+      }
+      if (!currentBooking.guestPhone && profile.phone) {
+        updates.guestPhone = profile.phone;
+      }
+      if (Object.keys(updates).length > 0) {
+        updateBooking(updates);
+      }
+    }
+  }, [guestLoading, isAuthenticated, profile, currentBooking, updateBooking]);
 
   const [step, setStep] = useState(1);
   const [createdBooking, setCreatedBooking] = useState<ServerBooking | null>(null);
@@ -388,12 +410,24 @@ function BookingContent() {
           {step === 5 && (
             <div className="space-y-6">
               <div>
-                <h2 className="font-serif text-2xl text-[#191c1f] mb-1">
-                  Step 5 — Guest Contact & Preferences
-                </h2>
+                <div className="flex items-center justify-between">
+                  <h2 className="font-serif text-2xl text-[#191c1f] mb-1">
+                    Step 5 — Guest Contact & Preferences
+                  </h2>
+                  {isAuthenticated && (
+                    <span className="hidden sm:inline-flex items-center px-3 py-1 rounded-full text-[11px] font-medium bg-[#8a3243]/10 text-[#8a3243] border border-[#8a3243]/20">
+                      VINORA Guest Member (Auto-Filled)
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs sm:text-sm text-[#525960]">
                   Where should we send your booking confirmation and digital arrival pass?
                 </p>
+                {isAuthenticated && (
+                  <p className="sm:hidden mt-2 text-[11px] text-[#8a3243] font-medium">
+                    VINORA Guest Member — details pre-filled from your profile.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-4">
@@ -634,6 +668,14 @@ function BookingContent() {
                 >
                   View My Booking Ticket
                 </Link>
+                {isAuthenticated && (
+                  <Link
+                    href="/app"
+                    className="w-full sm:w-auto px-6 py-3.5 rounded-full border border-[#8a3243] text-xs font-semibold uppercase tracking-wider text-[#8a3243] hover:bg-[#8a3243] hover:text-white transition-colors text-center"
+                  >
+                    My Wine Journey Account
+                  </Link>
+                )}
                 <Link
                   href="/"
                   className="w-full sm:w-auto px-6 py-3.5 text-xs text-[#525960] hover:text-[#191c1f] transition-colors"
