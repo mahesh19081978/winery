@@ -1202,6 +1202,16 @@ export class GuestService {
       throw new Error(`Guest with email '${email}' not found`);
     }
 
+    if (input.winePreferences?.favoriteWineId) {
+      const wineExists = await prisma.wine.findUnique({
+        where: { id: input.winePreferences.favoriteWineId },
+        select: { id: true },
+      });
+      if (!wineExists) {
+        throw new EventBookingError('Selected favorite wine does not exist', 400);
+      }
+    }
+
     return GuestRepository.updateProfile(profile.id, {
       name: input.name,
       phone: input.phone,
@@ -1608,7 +1618,7 @@ export class GuestAuthService {
     // Verify DB still has GUEST user + profile
     const user = await prisma.user.findUnique({
       where: { id: session.userId },
-      include: { guestProfile: { include: { winePreference: true } } },
+      include: { guestProfile: { include: { winePreference: { include: { favoriteWine: true } } } } },
     });
     if (!user || user.role !== 'GUEST' || !user.guestProfile) return null;
     if (user.email !== session.email) return null;

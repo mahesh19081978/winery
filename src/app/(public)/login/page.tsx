@@ -1,18 +1,30 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import logoFull from '../../../../public/logo.png';
 import { Mail, Lock, ShieldAlert, ArrowRight } from 'lucide-react';
+import { useGuest } from '@/context/GuestContext';
 
-export default function GuestLoginPage() {
+function GuestLoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const { isAuthenticated, isLoading, refreshSession } = useGuest();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const nextUrl = searchParams.get('next') || '/app';
+
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      router.replace(nextUrl);
+    }
+  }, [isLoading, isAuthenticated, router, nextUrl]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,7 +40,8 @@ export default function GuestLoginPage() {
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'Authentication failed');
       }
-      router.push('/app');
+      await refreshSession();
+      router.push(nextUrl);
       router.refresh();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Login failed';
@@ -116,5 +129,19 @@ export default function GuestLoginPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function GuestLoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-[80vh] flex items-center justify-center bg-[#faf8f5]">
+          <div className="w-8 h-8 border-2 border-[#c5a059] border-t-transparent rounded-full animate-spin" />
+        </div>
+      }
+    >
+      <GuestLoginForm />
+    </Suspense>
   );
 }

@@ -16,22 +16,22 @@ export const BookingCreateSchema = z.object({
 export type BookingCreateInput = z.infer<typeof BookingCreateSchema>;
 
 export const GuestProfileUpdateSchema = z.object({
-  name: z.string().min(2).optional(),
-  phone: z.string().optional(),
-  avatar: z.string().url().optional(),
-  dietaryPreferences: z.string().optional(),
-  notes: z.string().optional(),
+  name: z.string().trim().min(2, 'Name must be at least 2 characters').max(100, 'Name must not exceed 100 characters').optional(),
+  phone: z.string().trim().max(30, 'Phone must not exceed 30 characters').optional().nullable(),
+  avatar: z.string().url('Avatar must be a valid URL').optional().nullable(),
+  dietaryPreferences: z.string().max(1000).optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
   notifications: z.object({
     email: z.boolean().optional(),
     sms: z.boolean().optional(),
     whatsapp: z.boolean().optional(),
   }).optional(),
   winePreferences: z.object({
-    favoriteVarietals: z.array(z.string()).optional(),
-    preferredSweetness: z.string().optional(),
-    preferredBody: z.string().optional(),
-    preferredAcidity: z.string().optional(),
-    favoriteWineId: z.string().optional(),
+    favoriteVarietals: z.array(z.string().trim().min(1)).optional(),
+    preferredSweetness: z.string().trim().max(100).optional().nullable(),
+    preferredBody: z.string().trim().max(100).optional().nullable(),
+    preferredAcidity: z.string().trim().max(100).optional().nullable(),
+    favoriteWineId: z.string().uuid('Favorite wine ID must be a valid UUID').optional().nullable(),
   }).optional(),
 });
 

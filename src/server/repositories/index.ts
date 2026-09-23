@@ -1106,24 +1106,24 @@ export class GuestRepository {
 
   static async updateProfile(id: string, data: {
     name?: string;
-    phone?: string;
-    avatar?: string;
-    dietaryPreferences?: string;
-    notes?: string;
+    phone?: string | null;
+    avatar?: string | null;
+    dietaryPreferences?: string | null;
+    notes?: string | null;
     notifications?: { email?: boolean; sms?: boolean; whatsapp?: boolean };
     winePreferences?: {
       favoriteVarietals?: string[];
-      preferredSweetness?: string;
-      preferredBody?: string;
-      preferredAcidity?: string;
-      favoriteWineId?: string;
+      preferredSweetness?: string | null;
+      preferredBody?: string | null;
+      preferredAcidity?: string | null;
+      favoriteWineId?: string | null;
     };
   }) {
     return prisma.$transaction(async (tx) => {
       const updateData: Prisma.GuestProfileUpdateInput = {};
       if (data.name) updateData.name = data.name;
       if (data.phone !== undefined) updateData.phone = data.phone;
-      if (data.avatar) updateData.avatar = data.avatar;
+      if (data.avatar !== undefined) updateData.avatar = data.avatar;
       if (data.dietaryPreferences !== undefined) updateData.dietaryPreferences = data.dietaryPreferences;
       if (data.notes !== undefined) updateData.notes = data.notes;
       if (data.notifications) {

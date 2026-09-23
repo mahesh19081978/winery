@@ -1,21 +1,30 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useGuest } from '@/context/GuestContext';
 import {
   User,
   CheckCircle2,
   Sliders,
   Bell,
-  Wine,
-  XCircle
+  Wine as WineIcon,
+  XCircle,
+  Heart
 } from 'lucide-react';
+
+interface AvailableWine {
+  id: string;
+  name: string;
+  category: string;
+  slug: string;
+}
 
 function buildFormData(profile: ReturnType<typeof useGuest>['profile']) {
   return {
     name: profile.name,
     email: profile.email,
     phone: profile.phone,
+    favoriteWineId: profile.favoriteWineId || '',
     preferredBody: profile.preferences.preferredBody || 'Full & Opulent (7–9)',
     preferredAcidity: profile.preferences.preferredAcidity || 'Vibrant & Crisp (6–8)',
     preferredSweetness: profile.preferences.preferredSweetness || 'Dry (1–3)',
@@ -32,6 +41,31 @@ export default function ProfilePage() {
   // Local editable form state initialized from profile
   const [formData, setFormData] = useState(() => buildFormData(profile));
   const [prevProfile, setPrevProfile] = useState(profile);
+  const [wines, setWines] = useState<AvailableWine[]>([]);
+  const [loadingWines, setLoadingWines] = useState(true);
+
+  // Fetch available real wines from the database
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch('/api/wines');
+        if (res.ok) {
+          const json = await res.json();
+          if (json?.success && Array.isArray(json.data) && active) {
+            setWines(json.data);
+          }
+        }
+      } catch {
+        // Fallback gracefully
+      } finally {
+        if (active) setLoadingWines(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Adjust state during render when the authenticated profile arrives (React-endorsed
   // alternative to setState-in-effect for prop-driven resets).
@@ -41,7 +75,7 @@ export default function ProfilePage() {
   }
 
   const [savedSuccess, setSavedSuccess] = useState(false);
-  const [saveError, setSaveError] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   // Varietal options
@@ -68,11 +102,12 @@ export default function ProfilePage() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    setSaveError(false);
+    setSaveError(null);
 
     const ok = await updateProfile({
       name: formData.name,
       phone: formData.phone,
+      favoriteWineId: formData.favoriteWineId || '',
       preferences: {
         ...profile.preferences,
         preferredSweetness: formData.preferredSweetness,
@@ -92,8 +127,8 @@ export default function ProfilePage() {
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 4000);
     } else {
-      setSaveError(true);
-      setTimeout(() => setSaveError(false), 6000);
+      setSaveError('We could not save your preferences. Please verify all fields and try again.');
+      setTimeout(() => setSaveError(null), 6000);
     }
   };
 
@@ -117,7 +152,7 @@ export default function ProfilePage() {
       {saveError && (
         <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-800 text-sm flex items-center gap-3">
           <XCircle className="w-5 h-5 text-red-600 shrink-0" />
-          <span>We could not save your preferences. Please try again in a moment.</span>
+          <span>{saveError}</span>
         </div>
       )}
 
@@ -249,7 +284,7 @@ export default function ProfilePage() {
         <section className="bg-white rounded-3xl p-8 border border-stone-200/80 shadow-sm space-y-6">
           <div className="flex items-center gap-3 pb-4 border-b border-stone-100">
             <div className="w-10 h-10 rounded-full bg-[#faf8f5] border border-stone-200 flex items-center justify-center text-[#8a3243]">
-              <Wine className="w-5 h-5" />
+              <WineIcon className="w-5 h-5" />
             </div>
             <div>
               <h2 className="font-serif text-xl text-stone-900 font-normal">Favorite Grape Varietals</h2>
@@ -275,6 +310,43 @@ export default function ProfilePage() {
                 </button>
               );
             })}
+          </div>
+        </section>
+
+        {/* Favorite Estate Wine Section */}
+        <section className="bg-white rounded-3xl p-8 border border-stone-200/80 shadow-sm space-y-6">
+          <div className="flex items-center gap-3 pb-4 border-b border-stone-100">
+            <div className="w-10 h-10 rounded-full bg-[#faf8f5] border border-stone-200 flex items-center justify-center text-[#8a3243]">
+              <Heart className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="font-serif text-xl text-stone-900 font-normal">Signature Favorite Wine</h2>
+              <p className="text-xs text-stone-500">Select your benchmark estate wine from our active cellar collection</p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium uppercase tracking-wider text-stone-600 mb-1.5">
+                Preferred Estate Bottle
+              </label>
+              <select
+                value={formData.favoriteWineId}
+                onChange={(e) => setFormData({ ...formData, favoriteWineId: e.target.value })}
+                disabled={loadingWines}
+                className="w-full px-4 py-2.5 rounded-xl border border-stone-300 focus:outline-none focus:border-[#8a3243] text-stone-800 text-sm bg-white disabled:bg-stone-100 disabled:cursor-not-allowed"
+              >
+                <option value="">None selected (explore cellar)</option>
+                {wines.map((wine) => (
+                  <option key={wine.id} value={wine.id}>
+                    {wine.name} ({wine.category})
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-stone-500 mt-1.5">
+                Our sommeliers will prioritize library vintages of this wine during your tasting visits.
+              </p>
+            </div>
           </div>
         </section>
 

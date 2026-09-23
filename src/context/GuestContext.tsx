@@ -235,12 +235,12 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
     if (data.favoriteWineId !== undefined || data.preferences !== undefined) {
       payload.winePreferences = {
         ...(data.preferences ?? {}),
-        ...(data.favoriteWineId !== undefined ? { favoriteWineId: data.favoriteWineId } : {}),
+        ...(data.favoriteWineId !== undefined ? { favoriteWineId: data.favoriteWineId || null } : {}),
       };
     }
 
     try {
-      const res = await fetch('/api/guest/profile', {
+      const res = await fetch('/api/auth/guest/profile', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
