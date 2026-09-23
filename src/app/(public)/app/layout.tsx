@@ -59,7 +59,7 @@ export default function GuestAccountLayout({ children }: { children: React.React
             </div>
             <div>
               <span className="text-[10px] uppercase tracking-[0.25em] text-[#c5a059] block font-semibold">
-                Val de Rêve Guest Member
+                VINORA Guest Member
               </span>
               <h1 className="font-serif text-2xl sm:text-3xl text-[#faf8f5]">
                 {profile.name}

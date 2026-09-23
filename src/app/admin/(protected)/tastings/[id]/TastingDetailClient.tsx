@@ -151,7 +151,7 @@ export function TastingDetailClient({ session }: TastingDetailClientProps) {
           <div>
             <div className="flex items-center gap-2.5">
               <span className="text-xs uppercase tracking-widest font-mono font-medium text-[#6c2432]">
-                Domaine Élysée • Tasting Session
+                VINORA • Tasting Session
               </span>
             </div>
             <div className="flex items-center gap-3 mt-1">

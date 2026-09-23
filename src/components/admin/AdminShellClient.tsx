@@ -38,10 +38,10 @@ export function AdminShellClient({ adminEmail, adminRole, children }: AdminShell
         <footer className="border-t border-stone-200 bg-white/70 py-4 px-6 text-xs text-stone-500 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-[#6c2432]" />
-            <span>Domaine Élysée Staff Administration • Protected Estate Session</span>
+            <span>VINORA Staff Administration • Protected Estate Session</span>
           </div>
           <div className="text-[11px] font-mono text-stone-400">
-            Session active: 8h expiration • Val de Rêve Estate
+            Session active: 8h expiration • Winery &amp; Wine Experience Platform
           </div>
         </footer>
       </div>

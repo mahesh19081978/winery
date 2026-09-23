@@ -5,7 +5,7 @@ import type { Metadata } from 'next';
 import { Leaf, Mountain, ArrowRight } from 'lucide-react';
 
 export const metadata: Metadata = {
-  title: 'Our Heritage & Terroir | Domaine Élysée',
+  title: 'Our Heritage & Terroir | VINORA',
   description: 'Four centuries of viticultural devotion in the Rutherford bench, dedicated to organic and biodynamic winemaking.'
 };
 
@@ -29,7 +29,7 @@ export default function OurStoryPage() {
             Four Centuries of Viticultural Devotion
           </h1>
           <p className="max-w-2xl mx-auto text-base sm:text-lg text-[#e6dece]/90 leading-relaxed font-light">
-            Founded in 1784 by Henri de Rêve, Domaine Élysée remains an unbroken testament to patience, biodiversity, and the profound eloquence of living soil.
+            Founded in 1784 by Henri de Rêve, VINORA remains an unbroken testament to patience, biodiversity, and the profound eloquence of living soil.
           </p>
         </div>
       </section>

@@ -29,9 +29,9 @@ export async function generateStaticParams() {
 export async function generateMetadata({ params }: PageProps) {
   const { slug } = await params;
   const exp = mockExperiences.find((e) => e.slug === slug);
-  if (!exp) return { title: 'Experience Not Found | Domaine Élysée' };
+  if (!exp) return { title: 'Experience Not Found | VINORA' };
   return {
-    title: `${exp.title} | Domaine Élysée Experiences`,
+    title: `${exp.title} | VINORA Experiences`,
     description: exp.shortDescription,
     openGraph: {
       title: exp.title,

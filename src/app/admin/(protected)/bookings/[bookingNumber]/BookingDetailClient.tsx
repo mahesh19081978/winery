@@ -123,7 +123,7 @@ export function BookingDetailClient({ booking }: BookingDetailClientProps) {
           <div>
             <div className="flex items-center gap-2.5">
               <span className="text-xs uppercase tracking-widest font-mono font-medium text-[#6c2432]">
-                Domaine Élysée • Booking Details
+                VINORA • Booking Details
               </span>
             </div>
             <div className="flex items-center gap-3 mt-1">

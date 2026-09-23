@@ -3,6 +3,8 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
+import logoFull from '../../../../public/logo.png';
 import { Mail, Lock, User, ShieldAlert, ArrowRight } from 'lucide-react';
 
 export default function GuestRegisterPage() {
@@ -42,8 +44,17 @@ export default function GuestRegisterPage() {
     <div className="min-h-[80vh] flex items-center justify-center px-4 py-16 bg-[#faf8f5]">
       <div className="w-full max-w-md bg-white border border-stone-200 rounded-3xl p-8 shadow-sm">
         <div className="text-center mb-8">
+          <Image
+            src={logoFull}
+            alt="VINORA — Winery & Wine Experience Platform by CIS"
+            width={88}
+            height={88}
+            priority
+            unoptimized
+            className="w-20 h-20 object-contain mx-auto mb-4"
+          />
           <h1 className="font-serif text-3xl text-stone-900 font-light">Create Account</h1>
-          <p className="text-sm text-stone-500 mt-2">Join Domaine Élysée — your cellar journey begins</p>
+          <p className="text-sm text-stone-500 mt-2">Join VINORA — your cellar journey begins</p>
         </div>
 
         {error && (

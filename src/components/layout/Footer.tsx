@@ -1,6 +1,8 @@
 import React from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { MapPin, Phone, Mail, Clock, ShieldCheck, Award } from 'lucide-react';
+import logoFull from '../../../public/logo.png';
 
 export default function Footer() {
   return (
@@ -10,16 +12,19 @@ export default function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10 pb-12 border-b border-white/10">
           {/* Col 1 & 2: Estate Story */}
           <div className="lg:col-span-2 space-y-4">
-            <div>
-              <span className="font-serif text-2xl font-bold tracking-[0.15em] text-[#faf8f5] block">
-                DOMAINE ÉLYSÉE
-              </span>
-              <span className="text-xs uppercase tracking-[0.3em] text-[#c5a059] block mt-0.5">
-                Val de Rêve Estate · Fondé en 1784
-              </span>
+            <div className="inline-flex items-center justify-center rounded-2xl bg-[#faf8f5] p-3 shadow-sm">
+              <Image
+                src={logoFull}
+                alt="VINORA — Winery & Wine Experience Platform by CIS"
+                width={144}
+                height={144}
+                priority
+                unoptimized
+                className="w-32 h-32 sm:w-36 sm:h-36 object-contain"
+              />
             </div>
             <p className="text-sm text-[#e6dece]/80 leading-relaxed max-w-sm">
-              Nestled along the sun-drenched terraced slopes of the southern valley, Domaine Élysée produces world-class organic estate wines honoring four generations of biodynamic stewardship and artisanal winemaking.
+              Nestled along the sun-drenched terraced slopes of the southern valley, VINORA produces world-class organic estate wines honoring four generations of biodynamic stewardship and artisanal winemaking.
             </p>
             <div className="pt-2 flex items-center gap-4 text-xs text-[#c5a059]">
               <span className="flex items-center gap-1.5">
@@ -137,7 +142,7 @@ export default function Footer() {
 
         {/* Lower Copyright & Legal */}
         <div className="pt-8 flex flex-col sm:flex-row items-center justify-between text-xs text-[#e6dece]/60 gap-4">
-          <p>© {new Date().getFullYear()} Domaine Élysée — Val de Rêve Estate. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} VINORA — Winery & Wine Experience Platform by CIS. All rights reserved.</p>
           <div className="flex items-center space-x-6">
             <span>Please savor responsibly. Minimum legal age required for alcohol consumption.</span>
           </div>

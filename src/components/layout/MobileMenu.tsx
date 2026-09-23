@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { X, Wine, Calendar, Compass, BookOpen, MapPin, User, Sparkles, LogOut, LogIn } from 'lucide-react';
+import Image from 'next/image';
+import { X, Wine, Calendar, Compass, BookOpen, MapPin, User, Sparkles } from 'lucide-react';
 import { useConcierge } from '@/context/ConciergeContext';
+import logoFull from '../../../public/logo.png';
 
 interface MobileMenuProps {
   isOpen: boolean;
@@ -13,32 +14,11 @@ interface MobileMenuProps {
 
 export default function MobileMenu({ isOpen, onClose }: MobileMenuProps) {
   const { openConcierge } = useConcierge();
-  const router = useRouter();
-  const [guest, setGuest] = useState<{ name: string } | null>(null);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    fetch('/api/auth/guest/me', { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data?.success && data.data) setGuest({ name: data.data.name });
-        else setGuest(null);
-      })
-      .catch(() => setGuest(null));
-  }, [isOpen]);
-
-  const handleLogout = async () => {
-    await fetch('/api/auth/guest/logout', { method: 'POST' });
-    setGuest(null);
-    onClose();
-    router.push('/');
-    router.refresh();
-  };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 lg:hidden">
+    <div className="fixed inset-0 z-50 xl:hidden">
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-[#1e0c10]/70 backdrop-blur-sm transition-opacity"
@@ -50,14 +30,17 @@ export default function MobileMenu({ isOpen, onClose }: MobileMenuProps) {
         <div>
           {/* Header */}
           <div className="flex items-center justify-between pb-6 border-b border-[#e6dece]">
-            <div>
-              <span className="font-serif text-xl font-bold tracking-wider text-[#2d1117] block">
-                DOMAINE ÉLYSÉE
-              </span>
-              <span className="text-[10px] tracking-[0.25em] text-[#8a3243] uppercase">
-                Val de Rêve Estate
-              </span>
-            </div>
+            <Link href="/" onClick={onClose} className="block shrink-0">
+              <Image
+                src={logoFull}
+                alt="VINORA — Winery & Wine Experience Platform by CIS"
+                width={112}
+                height={112}
+                priority
+                unoptimized
+                className="w-24 h-24 object-contain"
+              />
+            </Link>
             <button
               onClick={onClose}
               className="p-2 text-[#461822] hover:text-[#1e0c10] focus:outline-none"

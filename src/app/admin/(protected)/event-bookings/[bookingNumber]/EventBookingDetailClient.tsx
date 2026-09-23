@@ -100,7 +100,7 @@ export function EventBookingDetailClient({ bookingNumber }: { bookingNumber: str
         <div className="flex items-center gap-3">
           <Link href="/admin/event-bookings" className="p-2 rounded-lg text-stone-500 hover:text-stone-700 hover:bg-stone-100 transition"><ArrowLeft className="w-4 h-4" /></Link>
           <div>
-            <div className="flex items-center gap-2.5"><span className="text-xs uppercase tracking-widest font-mono font-medium text-[#6c2432]">Domaine Élysée • Event Booking Details</span></div>
+            <div className="flex items-center gap-2.5"><span className="text-xs uppercase tracking-widest font-mono font-medium text-[#6c2432]">VINORA • Event Booking Details</span></div>
             <div className="flex items-center gap-3 mt-1">
               <h1 className="text-2xl sm:text-3xl font-serif text-stone-900 font-medium">{booking.bookingNumber}</h1>
               <StatusBadge status={booking.status} size="md" />

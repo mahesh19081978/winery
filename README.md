@@ -1,4 +1,4 @@
-# Winery Booking Software — Domaine Élysée / Val de Rêve Estate
+# Winery Booking Software — VINORA (Winery & Wine Experience Platform by CIS)
 
 Customer-facing luxury winery and vineyard experience platform built with Next.js App Router, React 19, TypeScript, and Tailwind CSS.
 

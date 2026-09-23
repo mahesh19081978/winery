@@ -108,7 +108,7 @@ export function EventBookingsListClient() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-stone-200/60">
         <div>
           <div className="flex items-center gap-2.5">
-            <span className="text-xs uppercase tracking-widest font-mono font-medium text-[#6c2432]">Domaine Élysée • Estate Operations</span>
+            <span className="text-xs uppercase tracking-widest font-mono font-medium text-[#6c2432]">VINORA • Estate Operations</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-serif text-stone-900 font-medium mt-1">Event Bookings</h1>
           <p className="text-xs sm:text-sm text-stone-500 mt-0.5">Manage event reservations, guest details, and cancellations</p>

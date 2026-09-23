@@ -24,7 +24,7 @@ export default function HomePage() {
       <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
         <Image
           src="https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?auto=format&fit=crop&w=2000&q=90"
-          alt="Sunlit terraces and vineyards of Domaine Élysée"
+          alt="Sunlit terraces and vineyards of VINORA"
           fill
           priority
           className="object-cover object-center scale-105 animate-in fade-in duration-1000"
@@ -35,7 +35,7 @@ export default function HomePage() {
         <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-white py-32 sm:py-40">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-xs uppercase tracking-[0.25em] text-[#c5a059] mb-6 animate-in slide-in-from-bottom-4 duration-700">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Val de Rêve Estate · Fondé en 1784</span>
+            <span>VINORA · Fondé en 1784</span>
           </div>
 
           <h1 className="font-serif text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-normal tracking-tight text-[#faf8f5] mb-6 leading-[1.08]">
@@ -104,7 +104,7 @@ export default function HomePage() {
                 Where ancient limestone meets the cooling mountain breeze.
               </h2>
               <p className="text-base text-[#525960] leading-relaxed">
-                Domaine Élysée rests upon the steep southern terraces of the Val de Rêve valley. Protected by the jagged ridgeline from northern frosts and blessed with morning valley mists, each vine struggles deep into mineral-rich chalk soils, producing grapes of unyielding concentration and tension.
+                VINORA rests upon the steep southern terraces of the Val de Rêve valley. Protected by the jagged ridgeline from northern frosts and blessed with morning valley mists, each vine struggles deep into mineral-rich chalk soils, producing grapes of unyielding concentration and tension.
               </p>
               <p className="text-base text-[#525960] leading-relaxed">
                 Today, Julien and Élisabeth de Rêve maintain a radical commitment to biodynamics: zero synthetic inputs, lunar-cycle harvesting, indigenous fermentations, and subterranean oak aging in the 18th-century chalk caves.
@@ -260,7 +260,7 @@ export default function HomePage() {
       <section className="py-24 sm:py-32 bg-[#faf8f5]">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <SectionHeading
-            subtitle="The Domaine Ritual"
+            subtitle="The VINORA Ritual"
             title="Our Philosophy of Savoring"
             description="We believe wine tasting is not an examination, but an unhurried communion with nature, climate, and the passage of time."
           />
@@ -381,7 +381,7 @@ export default function HomePage() {
               <div className="relative z-10 bg-[#faf8f5]/95 backdrop-blur-md p-6 rounded-2xl border border-[#c5a059]/40 max-w-xs shadow-lg">
                 <MapPin className="w-6 h-6 text-[#8a3243] mx-auto mb-2" />
                 <h5 className="font-serif text-base font-semibold text-[#191c1f]">
-                  Val de Rêve Estate Map
+                  VINORA Estate Map
                 </h5>
                 <p className="text-xs text-[#525960] mt-1 mb-3">
                   Complimentary EV charging & private valet parking available on arrival.

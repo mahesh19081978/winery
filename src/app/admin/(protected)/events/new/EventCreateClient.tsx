@@ -105,7 +105,7 @@ export function EventCreateClient() {
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <div>
-          <span className="text-xs uppercase tracking-widest font-mono font-medium text-[#6c2432]">Domaine Élysée · Create Event</span>
+          <span className="text-xs uppercase tracking-widest font-mono font-medium text-[#6c2432]">VINORA · Create Event</span>
           <h1 className="font-serif text-2xl font-medium text-stone-900">New Event</h1>
         </div>
       </div>

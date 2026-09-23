@@ -263,7 +263,7 @@ export function EventDetailClient({ event: initial }: { event: EventData }) {
         <div className="flex items-center gap-3">
           <Link href="/admin/events" className="rounded-lg p-2 text-stone-500 transition hover:bg-stone-100 hover:text-stone-700"><ArrowLeft className="h-4 w-4" /></Link>
           <div>
-            <span className="text-xs uppercase tracking-widest font-mono font-medium text-[#6c2432]">Domaine Élysée · Event Details</span>
+            <span className="text-xs uppercase tracking-widest font-mono font-medium text-[#6c2432]">VINORA · Event Details</span>
             <div className="mt-1 flex flex-wrap items-center gap-3">
               <h1 className="font-serif text-2xl font-medium text-stone-900 sm:text-3xl">{event.title}</h1>
               <StatusBadge status={event.status} size="md" />

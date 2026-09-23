@@ -15,8 +15,8 @@ import {
 } from 'lucide-react';
 
 export const metadata: Metadata = {
-  title: 'Plan Your Visit | Domaine Élysée Val de Rêve Estate',
-  description: 'Hours, directions, valet parking, and hospitality guidelines for visiting Domaine Élysée.'
+  title: 'Plan Your Visit | VINORA',
+  description: 'Hours, directions, valet parking, and hospitality guidelines for visiting VINORA.'
 };
 
 const VISIT_FAQS = [
@@ -34,7 +34,7 @@ const VISIT_FAQS = [
   },
   {
     question: 'How do we reach the estate by public transit or airport?',
-    answer: 'Domaine Élysée is located 45 minutes by car from the International Airport. Private car service and helicopter transfers to our certified landing pad can be coordinated directly with our estate concierge.'
+    answer: 'VINORA is located 45 minutes by car from the International Airport. Private car service and helicopter transfers to our certified landing pad can be coordinated directly with our estate concierge.'
   }
 ];
 
@@ -55,7 +55,7 @@ export default function VisitPage() {
             Estate Hospitality
           </span>
           <h1 className="font-serif text-4xl sm:text-6xl font-normal text-[#faf8f5] mb-4">
-            Visit Domaine Élysée
+            Visit VINORA
           </h1>
           <p className="max-w-2xl mx-auto text-sm sm:text-base text-[#e6dece]/85 leading-relaxed font-light">
             An oasis of calm and artisanal viticulture. Here is everything you need to know to prepare for an unhurried day in the valley.
@@ -168,7 +168,7 @@ export default function VisitPage() {
                 <div className="absolute inset-0 bg-[#1e0c10]/40 flex items-center justify-center p-6 text-center text-white">
                   <div className="bg-[#faf8f5] text-[#191c1f] p-6 rounded-2xl border border-[#c5a059] max-w-xs shadow-2xl">
                     <MapPin className="w-8 h-8 text-[#8a3243] mx-auto mb-2" />
-                    <h4 className="font-serif text-base font-bold">Domaine Élysée</h4>
+                    <h4 className="font-serif text-base font-bold">VINORA</h4>
                     <p className="text-xs text-[#525960] my-1">
                       4800 Terrasses du Rêve, Coteaux de l&apos;Est
                     </p>

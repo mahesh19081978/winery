@@ -73,7 +73,7 @@ export function WineCreateClient() {
       <div className="flex items-center gap-3 border-b border-stone-200/60 pb-2">
         <Link href="/admin/wines" className="rounded-lg p-2 text-stone-500 hover:bg-stone-100 hover:text-stone-700"><ArrowLeft className="h-4 w-4" /></Link>
         <div>
-          <span className="text-xs uppercase tracking-widest font-mono font-medium text-[#6c2432]">Domaine Élysée · Create Wine</span>
+          <span className="text-xs uppercase tracking-widest font-mono font-medium text-[#6c2432]">VINORA · Create Wine</span>
           <h1 className="font-serif text-2xl font-medium text-stone-900">New Wine</h1>
         </div>
       </div>

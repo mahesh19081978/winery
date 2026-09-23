@@ -153,7 +153,7 @@ function BookingContent() {
           Reserve Your Visit
         </span>
         <h1 className="font-serif text-3xl sm:text-5xl font-normal text-[#191c1f]">
-          Experience Domaine Élysée
+          Experience VINORA
         </h1>
       </div>
 

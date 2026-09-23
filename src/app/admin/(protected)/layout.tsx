@@ -4,7 +4,7 @@ import { AuthService } from '@/lib/auth';
 import { AdminShellClient } from '@/components/admin/AdminShellClient';
 
 export const metadata = {
-  title: 'Domaine Élysée | Estate Management Portal',
+  title: 'VINORA | Estate Management Portal',
 };
 
 export default async function ProtectedAdminLayout({

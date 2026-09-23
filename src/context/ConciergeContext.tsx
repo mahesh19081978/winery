@@ -28,7 +28,7 @@ const initialMessages: ChatMessage[] = [
   {
     id: 'msg-1',
     sender: 'concierge',
-    text: 'Bonjour and welcome to Domaine Élysée. I am your personal Wine & Estate Concierge. How may I assist your journey through our terroir today?',
+    text: 'Bonjour and welcome to VINORA. I am your personal Wine & Estate Concierge. How may I assist your journey through our terroir today?',
     time: 'Just now',
     suggestions: [
       'What wine should I try?',

@@ -155,7 +155,7 @@ export function AvailabilityClient() {
         <div>
           <div className="flex items-center gap-2.5">
             <span className="text-xs uppercase tracking-widest font-mono font-medium text-[#6c2432]">
-              Domaine Élysée • Estate Operations
+              VINORA • Estate Operations
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-serif text-stone-900 font-medium mt-1">

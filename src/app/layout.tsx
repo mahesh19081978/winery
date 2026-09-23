@@ -20,13 +20,12 @@ const jakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Domaine Élysée | Val de Rêve Estate Winery & Vineyard Experiences",
-  description: "Discover handcrafted biodynamic wines, cellar tastings, vineyard picnics, and sunset dining at Domaine Élysée Val de Rêve Estate.",
+  title: "VINORA | Winery & Wine Experience Platform",
+  description: "Discover handcrafted biodynamic wines, cellar tastings, vineyard picnics, and sunset dining at VINORA.",
   openGraph: {
-    title: "Domaine Élysée | Val de Rêve Estate",
-    description: "Discover handcrafted biodynamic wines, cellar tastings, vineyard picnics, and sunset dining at Domaine Élysée Val de Rêve Estate.",
-    url: "https://domaine-elysee.com",
-    siteName: "Domaine Élysée",
+    title: "VINORA | Winery & Wine Experience Platform",
+    description: "Discover handcrafted biodynamic wines, cellar tastings, vineyard picnics, and sunset dining at VINORA.",
+    siteName: "VINORA",
     locale: "en_US",
     type: "website"
   }

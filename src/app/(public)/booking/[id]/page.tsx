@@ -185,7 +185,7 @@ export default function BookingDetailPage() {
           <div className="bg-[#2d1117] text-[#faf8f5] p-6 sm:p-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
               <span className="text-[10px] uppercase tracking-[0.25em] text-[#c5a059] block font-semibold mb-1">
-                Digital Guest Pass · Val de Rêve Estate
+                Digital Guest Pass · VINORA
               </span>
               <h1 className="font-serif text-2xl sm:text-3xl text-[#faf8f5] font-normal">
                 {experienceTitle}

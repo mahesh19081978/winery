@@ -64,7 +64,7 @@ export default function TastingDetailPage({ params }: { params: Promise<{ id: st
         <div className="space-y-3 flex-1 text-center md:text-left">
           <div className="flex flex-wrap items-center justify-center md:justify-start gap-2">
             <span className="text-xs uppercase tracking-widest text-[#8a3243] font-semibold">
-              {wine?.vineyardParcel || 'Val de Rêve Estate'}
+              {wine?.vineyardParcel || 'VINORA Estate'}
             </span>
             <span className="text-stone-300">·</span>
             <span className="text-xs text-stone-500 font-mono">Vintage {record.vintage}</span>

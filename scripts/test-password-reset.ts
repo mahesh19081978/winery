@@ -239,7 +239,7 @@ async function main() {
   const mail1 = await readLatestOutboxMail(EMAIL_A);
   assert(!!mail1, 'Reset email written to dev outbox');
   assert(
-    !!mail1 && mail1.html.includes('Domaine Élysée') && mail1.subject.includes('Reset'),
+    !!mail1 && mail1.html.includes('VINORA') && mail1.subject.includes('Reset'),
     'Reset email carries winery branding and subject'
   );
   assert(

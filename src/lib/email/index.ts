@@ -4,7 +4,7 @@ import type { EmailProvider } from './types';
 
 export type { EmailMessage, EmailProvider } from './types';
 
-const DEFAULT_FROM = 'Domaine Élysée <onboarding@resend.dev>';
+const DEFAULT_FROM = 'VINORA <onboarding@resend.dev>';
 
 let provider: EmailProvider | null = null;
 
@@ -30,7 +30,7 @@ export function getEmailProvider(): EmailProvider {
 }
 
 export async function sendPasswordResetEmail(to: string, resetUrl: string, expiryMinutes: number): Promise<void> {
-  const subject = 'Reset your Domaine Élysée password';
+  const subject = 'Reset your VINORA password';
   const expiryText =
     expiryMinutes % 60 === 0 ? `${expiryMinutes / 60} hour${expiryMinutes > 60 ? 's' : ''}` : `${expiryMinutes} minutes`;
 
@@ -41,7 +41,7 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string, expir
       <div style="background:#ffffff;border:1px solid #e7e5e4;border-radius:16px;padding:32px;">
         <h1 style="font-size:22px;font-weight:400;color:#1c1917;margin:0 0 16px;">Password Reset Request</h1>
         <p style="font-size:15px;color:#57534e;line-height:1.6;margin:0 0 16px;">
-          We received a request to reset the password for your Domaine Élysée guest account.
+          We received a request to reset the password for your VINORA guest account.
           Click the button below to choose a new password.
         </p>
         <div style="text-align:center;margin:24px 0;">
@@ -56,7 +56,7 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string, expir
         </p>
       </div>
       <p style="font-size:11px;color:#a8a29e;text-align:center;margin:16px 0 0;">
-        Domaine Élysée — Guest Account Services
+        VINORA — Guest Account Services
       </p>
     </div>
   </body>
@@ -65,7 +65,7 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string, expir
   const text = [
     'Password Reset Request',
     '',
-    'We received a request to reset the password for your Domaine Élysée guest account.',
+    'We received a request to reset the password for your VINORA guest account.',
     `Reset your password: ${resetUrl}`,
     `This link expires in ${expiryText}.`,
     'If you did not request a password reset, you can safely ignore this email. Your password will remain unchanged.',

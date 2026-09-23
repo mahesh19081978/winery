@@ -119,7 +119,7 @@ export default function EventBookingDetailPage() {
         <div className="bg-white border border-[#e6dece] rounded-3xl overflow-hidden shadow-xl">
           <div className="bg-[#2d1117] text-[#faf8f5] p-6 sm:p-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
-              <span className="text-[10px] uppercase tracking-[0.25em] text-[#c5a059] block font-semibold mb-1">Digital Pass · Val de Rêve Estate</span>
+              <span className="text-[10px] uppercase tracking-[0.25em] text-[#c5a059] block font-semibold mb-1">Digital Pass · VINORA</span>
               <h2 className="font-serif text-2xl sm:text-3xl text-[#faf8f5] font-normal">{booking.event.title}</h2>
               <p className="text-xs text-[#e6dece]/80 mt-1">{formatDate(booking.event.eventDate)} · {booking.event.timeRange}</p>
             </div>

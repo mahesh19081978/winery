@@ -239,7 +239,7 @@ export function WineDetailClient({ wine: initialWine }: { wine: WineData }) {
           <div>
             <div className="flex items-center gap-2.5">
               <span className="text-xs uppercase tracking-widest font-mono font-medium text-[#6c2432]">
-                Domaine Élysée • Wine Details
+                VINORA • Wine Details
               </span>
               {refreshing && <Loader2 className="w-3.5 h-3.5 animate-spin text-stone-400" />}
             </div>

@@ -717,7 +717,7 @@ export function FrontDeskClient() {
         <div>
           <div className="flex items-center gap-2.5">
             <span className="text-xs uppercase tracking-widest font-mono font-medium text-[#6c2432]">
-              Domaine Élysée · Front Desk
+              VINORA · Front Desk
             </span>
           </div>
           <h1 className="mt-1 font-serif text-2xl font-medium text-stone-900 sm:text-3xl">

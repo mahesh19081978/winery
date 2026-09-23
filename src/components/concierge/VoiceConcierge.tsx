@@ -60,7 +60,7 @@ export default function VoiceConcierge() {
             <span>AI Voice Sommelier</span>
           </div>
           <h3 className="font-serif text-2xl font-normal tracking-wide text-[#faf8f5]">
-            Domaine Élysée Concierge
+            VINORA Concierge
           </h3>
           <p className="text-xs text-[#e6dece]/70 uppercase tracking-widest mt-1">
             {voiceState === 'listening' && 'Listening to your voice...'}

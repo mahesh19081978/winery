@@ -159,7 +159,7 @@ export function EventsListClient() {
       <div className="flex flex-col gap-4 border-b border-stone-200/60 pb-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <span className="text-xs uppercase tracking-widest font-mono font-medium text-[#6c2432]">
-            Domaine Élysée · Estate Operations
+            VINORA · Estate Operations
           </span>
           <h1 className="mt-1 font-serif text-2xl font-medium text-stone-900 sm:text-3xl">Events</h1>
           <p className="mt-0.5 text-xs text-stone-500 sm:text-sm">

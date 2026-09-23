@@ -2,7 +2,9 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Lock, Mail, ShieldAlert, ArrowRight, Wine } from 'lucide-react';
+import Image from 'next/image';
+import logoMark from '../../../../public/logo-mark.png';
+import { Lock, Mail, ShieldAlert, ArrowRight } from 'lucide-react';
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -44,11 +46,19 @@ export default function AdminLoginPage() {
       <div className="w-full max-w-md bg-stone-900 border border-stone-800 rounded-2xl p-8 shadow-2xl">
         {/* Header Branding */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-amber-900/20 text-amber-500 mb-4 border border-amber-800/40">
-            <Wine className="w-7 h-7" />
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-amber-900/20 mb-4 border border-amber-800/40 overflow-hidden">
+            <Image
+              src={logoMark}
+              alt="VINORA"
+              width={48}
+              height={48}
+              priority
+              unoptimized
+              className="w-11 h-11 object-contain"
+            />
           </div>
           <h1 className="text-2xl font-serif font-medium tracking-wide text-stone-100">
-            Domaine Élysée
+            VINORA
           </h1>
           <p className="text-sm font-sans text-stone-400 mt-1 uppercase tracking-widest text-xs">
             Staff & Estate Management
@@ -76,7 +86,7 @@ export default function AdminLoginPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="sommelier@domaine-elysee.com"
+                placeholder="sommelier@vinora.com"
                 className="w-full pl-11 pr-4 py-3 bg-stone-950 border border-stone-800 rounded-xl text-stone-100 placeholder-stone-400 focus:outline-none focus:border-amber-600 focus:ring-1 focus:ring-amber-600 transition"
               />
             </div>

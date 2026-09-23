@@ -31,7 +31,7 @@ export async function generateMetadata({ params }: PageProps) {
     const wine = await WineService.getWineBySlug(slug);
     const pub = toPublicWine(wine as unknown as Parameters<typeof toPublicWine>[0]);
     return {
-      title: `${pub.name} (${pub.vintage}) | Domaine Élysée`,
+      title: `${pub.name} (${pub.vintage}) | VINORA`,
       description: pub.shortDescription,
       openGraph: {
         title: `${pub.name} · Vintage ${pub.vintage}`,
@@ -40,7 +40,7 @@ export async function generateMetadata({ params }: PageProps) {
       },
     };
   } catch {
-    return { title: 'Wine Not Found | Domaine Élysée' };
+    return { title: 'Wine Not Found | VINORA' };
   }
 }
 

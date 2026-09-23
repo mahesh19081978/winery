@@ -2,7 +2,9 @@
 
 import React from 'react';
 import Link from 'next/link';
+import NextImage from 'next/image';
 import { usePathname } from 'next/navigation';
+import logoMark from '../../../public/logo-mark.png';
 import {
   Wine,
   LayoutDashboard,
@@ -131,12 +133,19 @@ export function AdminSidebar({ isOpen, onClose }: AdminSidebarProps) {
         {/* Brand Header */}
         <div className="h-16 px-6 flex items-center justify-between border-b border-[#461822]/80 bg-[#1e0c10]/40">
           <Link href="/admin" className="flex items-center gap-3 group">
-            <div className="w-9 h-9 rounded-lg bg-[#461822] border border-[#aa853e]/40 flex items-center justify-center text-[#d6b774] shadow-xs group-hover:scale-105 transition-transform">
-              <Wine className="w-5 h-5" />
-            </div>
+            <span className="w-9 h-9 shrink-0 rounded-lg bg-[#faf8f5] border border-[#aa853e]/40 flex items-center justify-center overflow-hidden shadow-xs group-hover:scale-105 transition-transform">
+              <NextImage
+                src={logoMark}
+                alt="VINORA"
+                width={36}
+                height={36}
+                unoptimized
+                className="w-8 h-8 object-contain"
+              />
+            </span>
             <div>
               <span className="font-serif tracking-wide text-white text-base font-semibold block leading-tight">
-                Domaine Élysée
+                VINORA
               </span>
               <span className="text-[10px] tracking-widest text-[#d6b774] uppercase font-mono font-medium">
                 Estate Operations
@@ -220,7 +229,7 @@ export function AdminSidebar({ isOpen, onClose }: AdminSidebarProps) {
         {/* Footer info in sidebar */}
         <div className="p-4 border-t border-[#461822] bg-[#1e0c10]/30 text-xs text-stone-400 flex items-center justify-between">
           <div>
-            <span className="text-white block font-serif text-xs font-medium">Val de Rêve Estate</span>
+            <span className="text-white block font-serif text-xs font-medium">Winery &amp; Wine Experience Platform</span>
             <span className="text-[10px] text-stone-400">Next.js 16 • PostgreSQL</span>
           </div>
           <span className="text-[10px] px-2 py-0.5 rounded bg-[#461822] text-[#d6b774] border border-[#aa853e]/30">
