@@ -84,7 +84,7 @@ const NAVIGATION_SECTIONS: NavSection[] = [
   {
     title: 'ENGAGEMENT',
     items: [
-      { name: 'Reviews', href: '/admin/reviews', icon: Star, isImplemented: false },
+      { name: 'Reviews', href: '/admin/reviews', icon: Star, isImplemented: true },
       { name: 'Gallery', href: '/admin/gallery', icon: Image, isImplemented: false },
     ],
   },

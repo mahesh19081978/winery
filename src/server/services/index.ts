@@ -34,9 +34,11 @@ import {
   WineUpdateInput,
   WineVintageCreateInput,
   WineVintageUpdateInput,
+  GuestReviewCreateInput,
+  GuestReviewListQuery,
 } from '../validators';
 import { prisma } from '@/lib/db';
-import { BookingStatus, Prisma } from '@prisma/client';
+import { BookingStatus, ReviewStatus, Prisma } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 
 export class EventBookingError extends Error {
@@ -1683,6 +1685,511 @@ export class ReviewService {
     });
   }
 }
+export interface GuestReviewItem {
+  id: string;
+  rating: number;
+  title: string;
+  comment: string;
+  category: string;
+  targetName: string;
+  status: string;
+  verified: boolean;
+  createdAt: string;
+  updatedAt: string;
+  booking: { bookingNumber: string; date: string; status: string } | null;
+  experience: { id: string; title: string; slug: string } | null;
+  wine: { id: string; name: string; slug: string } | null;
+  event: { id: string; title: string; slug: string } | null;
+  eventBookingNumber: string | null;
+}
+
+export interface EligibleReviewTarget {
+  bookingId: string;
+  bookingNumber: string;
+  visitDate: string;
+  time: string;
+  status: string;
+  experience: { id: string; title: string; slug: string } | null;
+  wines: { id: string; name: string; slug: string }[];
+  targetName: string;
+  alreadyReviewed: boolean;
+  review: { id: string; status: string } | null;
+}
+
+export interface EligibleEventReviewTarget {
+  eventBookingId: string;
+  eventBookingNumber: string;
+  eventDate: string;
+  timeRange: string;
+  status: string;
+  event: { id: string; title: string; slug: string };
+  targetName: string;
+  alreadyReviewed: boolean;
+  review: { id: string; status: string } | null;
+}
+
+type GuestReviewRow = {
+  id: string;
+  rating: number;
+  title: string;
+  comment: string;
+  category: string | import('@prisma/client').ReviewCategory;
+  targetName: string;
+  status: string | import('@prisma/client').ReviewStatus;
+  verified: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  booking: { bookingNumber: string; date: Date; status: string | import('@prisma/client').BookingStatus } | null;
+  experience: { id: string; title: string; slug: string } | null;
+  wine: { id: string; name: string; slug: string } | null;
+  event?: { id: string; title: string; slug: string } | null;
+  eventBookingNumber?: string | null;
+};
+
+function toGuestReviewItem(row: GuestReviewRow): GuestReviewItem {
+  return {
+    id: row.id,
+    rating: row.rating,
+    title: row.title,
+    comment: row.comment,
+    category: String(row.category),
+    targetName: row.targetName,
+    status: String(row.status),
+    verified: row.verified,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    booking: row.booking
+      ? {
+          bookingNumber: row.booking.bookingNumber,
+          date: row.booking.date.toISOString(),
+          status: String(row.booking.status),
+        }
+      : null,
+    experience: row.experience,
+    wine: row.wine,
+    event: row.event ?? null,
+    eventBookingNumber: row.eventBookingNumber ?? null,
+  };
+}
+
+export class GuestReviewService {
+  static async listForGuest(guestProfileId: string, query: GuestReviewListQuery) {
+    const page = Math.max(query.page || 1, 1);
+    const pageSize = Math.min(Math.max(query.pageSize || 20, 1), 50);
+
+    const { reviews, pagination } = await ReviewRepository.findPageForGuest(guestProfileId, {
+      page,
+      pageSize,
+      status: query.status as ReviewStatus | undefined,
+      search: query.search,
+    });
+
+    const eventRefs = reviews
+      .flatMap((r) => (r.event ? [{ guestProfileId, eventId: r.event.id }] : []));
+    const eventBookingNumbers = eventRefs.length
+      ? await ReviewRepository.findEventBookingNumbersForReviews(eventRefs)
+      : new Map<string, string>();
+
+    return {
+      items: reviews.map((row) => {
+        const item = toGuestReviewItem(row);
+        item.eventBookingNumber = row.event
+          ? eventBookingNumbers.get(`${guestProfileId}:${row.event.id}`) ?? null
+          : null;
+        return item;
+      }),
+      pagination,
+    };
+  }
+
+  static async getForGuest(guestProfileId: string, reviewId: string): Promise<GuestReviewItem> {
+    const review = await ReviewRepository.findByIdForGuest(reviewId, guestProfileId);
+    if (!review) {
+      throw new EventBookingError('Review not found', 404);
+    }
+    let eventBookingNumber: string | null = null;
+    const event = (review as { event?: { id: string } | null }).event;
+    if (event) {
+      const map = await ReviewRepository.findEventBookingNumbersForReviews([
+        { guestProfileId, eventId: event.id },
+      ]);
+      eventBookingNumber = map.get(`${guestProfileId}:${event.id}`) ?? null;
+    }
+    return { ...toGuestReviewItem(review as GuestReviewRow), eventBookingNumber };
+  }
+
+  static async listEligibleForGuest(
+    guestProfileId: string,
+    params: { page?: number; pageSize?: number } = {}
+  ): Promise<{
+    items: EligibleReviewTarget[];
+    events: EligibleEventReviewTarget[];
+    pagination: { page: number; pageSize: number; total: number; totalPages: number };
+  }> {
+    const page = Math.max(params.page || 1, 1);
+    const pageSize = Math.min(Math.max(params.pageSize || 20, 1), 50);
+
+    const [{ bookings, pagination }, eventResult] = await Promise.all([
+      ReviewRepository.findEligibleBookingsForGuest(guestProfileId, { page, pageSize }),
+      ReviewRepository.findEligibleEventBookingsForGuest(guestProfileId, { page: 1, pageSize: 50 }),
+    ]);
+
+    const wineIdsByBooking = await ReviewRepository.findAllowedWineIdsForVisits(
+      bookings.map((booking) => ({
+        id: booking.id,
+        experienceIds: booking.items
+          .map((item) => item.experienceId)
+          .filter((id): id is string => Boolean(id)),
+      }))
+    );
+
+    const wineIds = [...new Set([...wineIdsByBooking.values()].flatMap((set) => [...set]))];
+    const wines = wineIds.length
+      ? await prisma.wine.findMany({
+          where: { id: { in: wineIds } },
+          select: { id: true, name: true, slug: true },
+        })
+      : [];
+    const wineById = new Map(wines.map((w) => [w.id, w]));
+
+    const items: EligibleReviewTarget[] = bookings.map((booking) => {
+      const experienceItem =
+        booking.items.find((item) => item.experienceId && item.experience) ?? null;
+      const targetName =
+        experienceItem?.experience?.title ??
+        experienceItem?.title ??
+        `Estate Visit ${booking.bookingNumber}`;
+      const existingReview = booking.reviews[0] ?? null;
+      const allowedWineIds = wineIdsByBooking.get(booking.id) ?? new Set<string>();
+
+      return {
+        bookingId: booking.id,
+        bookingNumber: booking.bookingNumber,
+        visitDate: booking.date.toISOString(),
+        time: booking.time,
+        status: String(booking.status),
+        experience: experienceItem?.experience ?? null,
+        wines: [...allowedWineIds]
+          .map((id) => wineById.get(id))
+          .filter((w): w is { id: string; name: string; slug: string } => Boolean(w)),
+        targetName,
+        alreadyReviewed: existingReview !== null,
+        review: existingReview
+          ? { id: existingReview.id, status: String(existingReview.status) }
+          : null,
+      };
+    });
+
+    const events: EligibleEventReviewTarget[] = eventResult.bookings.map((booking) => {
+      const existingReview = booking.event.reviews[0] ?? null;
+      return {
+        eventBookingId: booking.id,
+        eventBookingNumber: booking.bookingNumber,
+        eventDate: booking.event.eventDate.toISOString(),
+        timeRange: booking.event.timeRange,
+        status: String(booking.status),
+        event: {
+          id: booking.event.id,
+          title: booking.event.title,
+          slug: booking.event.slug,
+        },
+        targetName: booking.event.title,
+        alreadyReviewed: existingReview !== null,
+        review: existingReview
+          ? { id: existingReview.id, status: String(existingReview.status) }
+          : null,
+      };
+    });
+
+    return { items, events, pagination };
+  }
+
+  static async createForGuest(
+    session: import('@/lib/auth/guest').GuestSessionPayload,
+    input: GuestReviewCreateInput
+  ): Promise<GuestReviewItem> {
+    if (input.eventBookingNumber) {
+      return GuestReviewService.createEventReviewForGuest(session, {
+        ...input,
+        eventBookingNumber: input.eventBookingNumber,
+      });
+    }
+    if (!input.bookingNumber) {
+      // Unreachable after schema superRefine; fail closed anyway.
+      throw new EventBookingError('Provide exactly one of bookingNumber or eventBookingNumber', 400);
+    }
+    return GuestReviewService.createVisitReviewForGuest(session, {
+      ...input,
+      bookingNumber: input.bookingNumber,
+    });
+  }
+
+  private static async createVisitReviewForGuest(
+    session: import('@/lib/auth/guest').GuestSessionPayload,
+    input: GuestReviewCreateInput & { bookingNumber: string }
+  ): Promise<GuestReviewItem> {
+    const booking = await prisma.booking.findUnique({
+      where: { bookingNumber: input.bookingNumber },
+      select: {
+        id: true,
+        bookingNumber: true,
+        wineryId: true,
+        guestProfileId: true,
+        status: true,
+        items: {
+          select: {
+            experienceId: true,
+            title: true,
+            experience: { select: { id: true, title: true, slug: true } },
+          },
+        },
+      },
+    });
+
+    // Ownership: return the same 404 whether the booking is missing or belongs
+    // to another guest, so existence cannot be probed across guest profiles.
+    // guestProfileId comes exclusively from the authenticated session — client-
+    // supplied guestProfileId / userId / email are never read.
+    if (!booking || booking.guestProfileId !== session.guestProfileId) {
+      throw new EventBookingError('Booking not found', 404);
+    }
+
+    // Eligibility: only visits completed through the Front Desk lifecycle
+    // (PENDING → CONFIRMED → CHECKED_IN → COMPLETED) can be reviewed.
+    if (booking.status !== BookingStatus.COMPLETED) {
+      throw new EventBookingError('Only completed visits can be reviewed', 403);
+    }
+
+    const experienceItem = booking.items.find((item) => item.experienceId) ?? null;
+    const experienceId = experienceItem?.experienceId ?? undefined;
+    const targetName =
+      experienceItem?.experience?.title ??
+      experienceItem?.title ??
+      `Estate Visit ${booking.bookingNumber}`;
+
+    // Optional wine target: derive the allowed set from this visit only.
+    let wineId: string | undefined;
+    if (input.wineId) {
+      const experienceIds = booking.items
+        .map((item) => item.experienceId)
+        .filter((id): id is string => Boolean(id));
+      const allowed = await ReviewRepository.findAllowedWineIdsForVisit(booking.id, experienceIds);
+      if (!allowed.has(input.wineId)) {
+        throw new EventBookingError(
+          'Wine is not part of this completed visit and cannot be reviewed',
+          403
+        );
+      }
+      wineId = input.wineId;
+    }
+
+    try {
+      return await ReviewRepository.createGuestReview({
+        wineryId: booking.wineryId,
+        guestProfileId: session.guestProfileId,
+        bookingId: booking.id,
+        authorName: session.name,
+        rating: input.rating,
+        title: input.title,
+        comment: input.comment,
+        category: input.category,
+        targetName,
+        experienceId,
+        wineId,
+      }).then(toGuestReviewItem);
+    } catch (error) {
+      // Existing DB unique key (wineryId, authorName, title) can also collide.
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new EventBookingError(
+          'You have already submitted a review with this title. Please use a different title.',
+          409
+        );
+      }
+      throw error;
+    }
+  }
+
+  private static async createEventReviewForGuest(
+    session: import('@/lib/auth/guest').GuestSessionPayload,
+    input: GuestReviewCreateInput & { eventBookingNumber: string }
+  ): Promise<GuestReviewItem> {
+    const eventBooking = await prisma.eventBooking.findUnique({
+      where: { bookingNumber: input.eventBookingNumber },
+      select: {
+        id: true,
+        bookingNumber: true,
+        guestProfileId: true,
+        status: true,
+        eventId: true,
+        event: {
+          select: {
+            id: true,
+            wineryId: true,
+            title: true,
+            slug: true,
+            eventDate: true,
+            status: true,
+            isPast: true,
+          },
+        },
+      },
+    });
+
+    // Ownership: same 404 for missing vs foreign event booking.
+    if (!eventBooking || eventBooking.guestProfileId !== session.guestProfileId) {
+      throw new EventBookingError('Event booking not found', 404);
+    }
+
+    // Attendance eligibility: never-cancelled/no-show bookings only.
+    if (
+      eventBooking.status === BookingStatus.PENDING ||
+      eventBooking.status === BookingStatus.CANCELLED ||
+      eventBooking.status === BookingStatus.NO_SHOW
+    ) {
+      throw new EventBookingError('Only attended event bookings can be reviewed', 403);
+    }
+
+    // The event itself must have concluded and not be cancelled.
+    if (eventBooking.event.status === 'CANCELLED') {
+      throw new EventBookingError('Cancelled events cannot be reviewed', 403);
+    }
+    const startOfToday = new Date();
+    startOfToday.setUTCHours(0, 0, 0, 0);
+    const concluded =
+      eventBooking.event.isPast ||
+      eventBooking.event.status === 'COMPLETED' ||
+      eventBooking.event.eventDate < startOfToday;
+    if (!concluded) {
+      throw new EventBookingError('This event has not yet concluded', 403);
+    }
+
+    try {
+      return await ReviewRepository.createGuestEventReview({
+        wineryId: eventBooking.event.wineryId,
+        guestProfileId: session.guestProfileId,
+        eventId: eventBooking.event.id,
+        authorName: session.name,
+        rating: input.rating,
+        title: input.title,
+        comment: input.comment,
+        category: input.category,
+        targetName: eventBooking.event.title,
+      }).then((row) => {
+        const item = toGuestReviewItem(row);
+        item.event = {
+          id: eventBooking.event.id,
+          title: eventBooking.event.title,
+          slug: eventBooking.event.slug,
+        };
+        item.eventBookingNumber = eventBooking.bookingNumber;
+        return item;
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new EventBookingError(
+          'You have already submitted a review with this title. Please use a different title.',
+          409
+        );
+      }
+      throw error;
+    }
+  }
+}
+
+// Admin read-only visibility for submitted guest reviews (Phase 6.7 follow-up).
+// No approval/rejection workflow — status is displayed as stored.
+export interface AdminReviewItem {
+  id: string;
+  authorName: string;
+  guestName: string | null;
+  guestEmail: string | null;
+  rating: number;
+  title: string;
+  comment: string;
+  category: string;
+  targetName: string;
+  status: string;
+  verified: boolean;
+  createdAt: string;
+  updatedAt: string;
+  booking: { bookingNumber: string; date: string; status: string } | null;
+  eventBookingNumber: string | null;
+  experience: { id: string; title: string; slug: string } | null;
+  wine: { id: string; name: string; slug: string } | null;
+  event: { id: string; title: string; slug: string; eventDate: string } | null;
+}
+
+export class AdminReviewService {
+  static async list(query: {
+    page?: number;
+    pageSize?: number;
+    status?: string;
+    category?: string;
+    search?: string;
+  }): Promise<{
+    items: AdminReviewItem[];
+    pagination: { page: number; pageSize: number; total: number; totalPages: number };
+  }> {
+    const page = Math.max(query.page || 1, 1);
+    const pageSize = Math.min(Math.max(query.pageSize || 20, 1), 50);
+
+    const { reviews, pagination } = await ReviewRepository.findPageForAdmin({
+      page,
+      pageSize,
+      status: query.status as ReviewStatus | undefined,
+      category: query.category,
+      search: query.search,
+    });
+
+    const eventBookingNumbers = await ReviewRepository.findEventBookingNumbersForReviews(
+      reviews.map((r) => ({
+        guestProfileId: r.guestProfile?.id ?? null,
+        eventId: r.event?.id ?? null,
+      }))
+    );
+
+    const items: AdminReviewItem[] = reviews.map((r) => ({
+      id: r.id,
+      authorName: r.authorName,
+      guestName: r.guestProfile?.name ?? null,
+      guestEmail: r.guestProfile?.user?.email ?? null,
+      rating: r.rating,
+      title: r.title,
+      comment: r.comment,
+      category: String(r.category),
+      targetName: r.targetName,
+      status: String(r.status),
+      verified: r.verified,
+      createdAt: r.createdAt.toISOString(),
+      updatedAt: r.updatedAt.toISOString(),
+      booking: r.booking
+        ? {
+            bookingNumber: r.booking.bookingNumber,
+            date: r.booking.date.toISOString(),
+            status: String(r.booking.status),
+          }
+        : null,
+      eventBookingNumber:
+        r.guestProfile && r.event
+          ? eventBookingNumbers.get(`${r.guestProfile.id}:${r.event.id}`) ?? null
+          : null,
+      experience: r.experience,
+      wine: r.wine,
+      event: r.event
+        ? { ...r.event, eventDate: r.event.eventDate.toISOString() }
+        : null,
+    }));
+
+    return { items, pagination };
+  }
+}
+
 export class AdminAuthService {
   static async login(input: import('../validators').AdminLoginInput) {
     const user = await import('../repositories').then(m => m.UserRepository.findByEmail(input.email));

@@ -82,6 +82,52 @@ export const ReviewCreateSchema = z.object({
 
 export type ReviewCreateInput = z.infer<typeof ReviewCreateSchema>;
 
+// --- Guest Reviews (Phase 6.7) ---
+// Only guest-authored content fields. Identity (guestProfileId), moderation
+// (status), and relational/author fields are NEVER accepted from the client;
+// the server derives them from the authenticated session and database.
+// bookingNumber targets a completed estate visit; eventBookingNumber targets a
+// concluded event the guest attended. Exactly one must be provided. wineId is
+// an optional visit-wine target that the server validates against wines the
+// guest actually tasted on that visit — never trusted as an arbitrary Wine ID.
+export const GuestReviewCreateSchema = z
+  .object({
+    bookingNumber: z.string().trim().min(1).optional(),
+    eventBookingNumber: z.string().trim().min(1).optional(),
+    wineId: z.string().trim().min(1).optional(),
+    rating: z.number().int().min(1, 'Rating must be between 1 and 5').max(5, 'Rating must be between 1 and 5'),
+    title: z.string().trim().min(3, 'Title must be at least 3 characters').max(191, 'Title must not exceed 191 characters'),
+    comment: z.string().trim().min(10, 'Review comment must be at least 10 characters').max(5000, 'Review comment must not exceed 5000 characters'),
+    category: z.enum(['WINE_TASTING', 'VINEYARD_TOUR', 'EVENTS', 'FOOD']),
+  })
+  .superRefine((data, ctx) => {
+    const hasVisit = Boolean(data.bookingNumber);
+    const hasEvent = Boolean(data.eventBookingNumber);
+    if (hasVisit === hasEvent) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Provide exactly one of bookingNumber or eventBookingNumber',
+      });
+    }
+    if (hasEvent && data.wineId) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'wineId is only valid when reviewing a visit booking',
+      });
+    }
+  });
+
+export type GuestReviewCreateInput = z.infer<typeof GuestReviewCreateSchema>;
+
+export const GuestReviewListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(20),
+  status: z.enum(['PENDING', 'APPROVED', 'REJECTED']).optional(),
+  search: z.string().trim().max(200).optional(),
+});
+
+export type GuestReviewListQuery = z.infer<typeof GuestReviewListQuerySchema>;
+
 export const BookingStatusUpdateSchema = z.object({
   status: z.enum(['PENDING', 'CONFIRMED', 'CHECKED_IN', 'COMPLETED', 'CANCELLED', 'NO_SHOW']),
   notes: z.string().optional().default(''),

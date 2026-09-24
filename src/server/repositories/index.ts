@@ -1579,6 +1579,492 @@ export class ReviewRepository {
       },
     });
   }
+
+  // Fields returned to the authenticated guest for their own reviews.
+  // Deliberately excludes wineryId, guestProfileId, authorName, helpfulCount,
+  // and any User/GuestProfile relation (no passwordHash / auth data).
+  static readonly guestReviewSelect = {
+    id: true,
+    rating: true,
+    title: true,
+    comment: true,
+    category: true,
+    targetName: true,
+    status: true,
+    verified: true,
+    createdAt: true,
+    updatedAt: true,
+    booking: {
+      select: {
+        bookingNumber: true,
+        date: true,
+        status: true,
+      },
+    },
+    experience: {
+      select: { id: true, title: true, slug: true },
+    },
+    wine: {
+      select: { id: true, name: true, slug: true },
+    },
+    event: {
+      select: { id: true, title: true, slug: true },
+    },
+  } satisfies Prisma.ReviewSelect;
+
+  static async findPageForGuest(
+    guestProfileId: string,
+    filters: { page?: number; pageSize?: number; status?: ReviewStatus; search?: string } = {}
+  ) {
+    const page = filters.page || 1;
+    const pageSize = filters.pageSize || 20;
+    const skip = (page - 1) * pageSize;
+
+    // Ownership, status, search, and pagination are all applied database-side.
+    const where: Prisma.ReviewWhereInput = { guestProfileId };
+    if (filters.status) where.status = filters.status;
+
+    const search = filters.search?.trim();
+    if (search) {
+      where.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { comment: { contains: search, mode: 'insensitive' } },
+        { targetName: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [reviews, total] = await Promise.all([
+      prisma.review.findMany({
+        where,
+        select: ReviewRepository.guestReviewSelect,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip,
+        take: pageSize,
+      }),
+      prisma.review.count({ where }),
+    ]);
+
+    return {
+      reviews,
+      pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+    };
+  }
+
+  static async findByIdForGuest(id: string, guestProfileId: string) {
+    return prisma.review.findFirst({
+      where: { id, guestProfileId },
+      select: ReviewRepository.guestReviewSelect,
+    });
+  }
+
+  static async findGuestReviewForBooking(guestProfileId: string, bookingId: string) {
+    return prisma.review.findFirst({
+      where: { guestProfileId, bookingId },
+      select: { id: true, status: true },
+    });
+  }
+
+  // Completed visits owned by the guest, with this guest's existing review
+  // attached so the caller can derive "already reviewed" without N+1 queries.
+  static async findEligibleBookingsForGuest(
+    guestProfileId: string,
+    filters: { page?: number; pageSize?: number } = {}
+  ) {
+    const page = filters.page || 1;
+    const pageSize = filters.pageSize || 20;
+    const skip = (page - 1) * pageSize;
+
+    const where: Prisma.BookingWhereInput = {
+      guestProfileId,
+      status: BookingStatus.COMPLETED,
+    };
+
+    const [bookings, total] = await Promise.all([
+      prisma.booking.findMany({
+        where,
+        select: {
+          id: true,
+          bookingNumber: true,
+          date: true,
+          time: true,
+          status: true,
+          items: {
+            select: {
+              itemType: true,
+              title: true,
+              experienceId: true,
+              experience: { select: { id: true, title: true, slug: true } },
+            },
+          },
+          reviews: {
+            where: { guestProfileId },
+            select: { id: true, status: true },
+          },
+        },
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        skip,
+        take: pageSize,
+      }),
+      prisma.booking.count({ where }),
+    ]);
+
+    return {
+      bookings,
+      pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+    };
+  }
+
+  // Transactional duplicate check: one review per (guest, booking).
+  // The schema's only unique key is (wineryId, authorName, title), which cannot
+  // express per-visit uniqueness (title is guest-controlled), so this server-side
+  // check guards duplicates without a schema migration.
+  // LIMITATION (documented, intentionally not fixed here): the check-then-insert
+  // inside the transaction is not backed by a unique constraint on
+  // (guestProfileId, bookingId), so two truly simultaneous submits can still race.
+  // Closing that gap requires a schema migration and is out of scope for 6.7 follow-up.
+  static async createGuestReview(data: {
+    wineryId: string;
+    guestProfileId: string;
+    bookingId: string;
+    authorName: string;
+    rating: number;
+    title: string;
+    comment: string;
+    category: 'WINE_TASTING' | 'VINEYARD_TOUR' | 'EVENTS' | 'FOOD';
+    targetName: string;
+    experienceId?: string;
+    wineId?: string;
+  }) {
+    return prisma.$transaction(async (tx) => {
+      const existing = await tx.review.findFirst({
+        where: { guestProfileId: data.guestProfileId, bookingId: data.bookingId },
+        select: { id: true },
+      });
+      if (existing) {
+        const err = new Error('You have already reviewed this visit') as Error & { statusCode?: number };
+        err.statusCode = 409;
+        throw err;
+      }
+
+      return tx.review.create({
+        data: {
+          wineryId: data.wineryId,
+          authorName: data.authorName,
+          guestProfileId: data.guestProfileId,
+          bookingId: data.bookingId,
+          rating: data.rating,
+          title: data.title,
+          comment: data.comment,
+          category: data.category,
+          targetName: data.targetName,
+          experienceId: data.experienceId,
+          wineId: data.wineId,
+          status: ReviewStatus.PENDING, // Customer reviews require moderation
+        },
+        select: ReviewRepository.guestReviewSelect,
+      });
+    });
+  }
+
+  // Wines the guest actually encountered on a completed visit:
+  //   1. wines included in the booked experience(s) (ExperienceWine), and
+  //   2. wines in tasting records attached to the visit's tasting sessions.
+  // This set is the ONLY source of truth for an optional Review.wineId target —
+  // the client may choose among these, never name an arbitrary Wine ID.
+  static async findAllowedWineIdsForVisit(bookingId: string, experienceIds: string[]) {
+    const ids = [...new Set(experienceIds.filter(Boolean))];
+    const [experienceWines, tastingRecords] = await Promise.all([
+      ids.length
+        ? prisma.experienceWine.findMany({
+            where: { experienceId: { in: ids } },
+            select: { wineId: true },
+          })
+        : Promise.resolve([]),
+      prisma.tastingRecord.findMany({
+        where: { tastingSession: { bookingId } },
+        select: { wineVintage: { select: { wineId: true } } },
+      }),
+    ]);
+
+    const allowed = new Set<string>();
+    for (const row of experienceWines) allowed.add(row.wineId);
+    for (const row of tastingRecords) allowed.add(row.wineVintage.wineId);
+    return allowed;
+  }
+
+  // Batch variant used by the eligible-visits list (avoids N+1).
+  static async findAllowedWineIdsForVisits(bookings: Array<{ id: string; experienceIds: string[] }>) {
+    const allExperienceIds = [
+      ...new Set(bookings.flatMap((b) => b.experienceIds.filter(Boolean))),
+    ];
+    const bookingIds = bookings.map((b) => b.id);
+
+    const [experienceWines, tastingRecords] = await Promise.all([
+      allExperienceIds.length
+        ? prisma.experienceWine.findMany({
+            where: { experienceId: { in: allExperienceIds } },
+            select: { experienceId: true, wineId: true },
+          })
+        : Promise.resolve([]),
+      bookingIds.length
+        ? prisma.tastingRecord.findMany({
+            where: { tastingSession: { bookingId: { in: bookingIds } } },
+            select: {
+              tastingSession: { select: { bookingId: true } },
+              wineVintage: { select: { wineId: true } },
+            },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const wineIdsByExperience = new Map<string, Set<string>>();
+    for (const row of experienceWines) {
+      const set = wineIdsByExperience.get(row.experienceId) ?? new Set<string>();
+      set.add(row.wineId);
+      wineIdsByExperience.set(row.experienceId, set);
+    }
+
+    const wineIdsByBooking = new Map<string, Set<string>>();
+    for (const booking of bookings) {
+      const set = new Set<string>();
+      for (const experienceId of booking.experienceIds) {
+        for (const wineId of wineIdsByExperience.get(experienceId) ?? []) set.add(wineId);
+      }
+      wineIdsByBooking.set(booking.id, set);
+    }
+    for (const row of tastingRecords) {
+      const bookingId = row.tastingSession?.bookingId;
+      if (!bookingId) continue;
+      const set = wineIdsByBooking.get(bookingId) ?? new Set<string>();
+      set.add(row.wineVintage.wineId);
+      wineIdsByBooking.set(bookingId, set);
+    }
+
+    return wineIdsByBooking;
+  }
+
+  // Concluded, non-cancelled event bookings owned by the guest, with any existing
+  // review by this guest on that event attached (alreadyReviewed derivation).
+  // Eligibility mirrors createGuestEventReview: booking must not be
+  // PENDING/CANCELLED/NO_SHOW, the event must not be CANCELLED, and the event
+  // must have concluded (isPast / COMPLETED / eventDate before today).
+  static async findEligibleEventBookingsForGuest(
+    guestProfileId: string,
+    filters: { page?: number; pageSize?: number } = {}
+  ) {
+    const page = filters.page || 1;
+    const pageSize = filters.pageSize || 20;
+    const skip = (page - 1) * pageSize;
+    const startOfToday = new Date();
+    startOfToday.setUTCHours(0, 0, 0, 0);
+
+    const where: Prisma.EventBookingWhereInput = {
+      guestProfileId,
+      status: { in: [BookingStatus.CONFIRMED, BookingStatus.CHECKED_IN, BookingStatus.COMPLETED] },
+      event: {
+        status: { not: 'CANCELLED' as import('@prisma/client').EventStatus },
+        OR: [
+          { isPast: true },
+          { status: 'COMPLETED' as import('@prisma/client').EventStatus },
+          { eventDate: { lt: startOfToday } },
+        ],
+      },
+    };
+
+    const [bookings, total] = await Promise.all([
+      prisma.eventBooking.findMany({
+        where,
+        select: {
+          id: true,
+          bookingNumber: true,
+          status: true,
+          event: {
+            select: {
+              id: true,
+              slug: true,
+              title: true,
+              eventDate: true,
+              timeRange: true,
+              status: true,
+              isPast: true,
+              reviews: {
+                where: { guestProfileId },
+                select: { id: true, status: true },
+              },
+            },
+          },
+        },
+        orderBy: [{ event: { eventDate: 'desc' } }, { createdAt: 'desc' }],
+        skip,
+        take: pageSize,
+      }),
+      prisma.eventBooking.count({ where }),
+    ]);
+
+    return {
+      bookings,
+      pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+    };
+  }
+
+  // One review per (guest, event). Same non-unique check-then-insert limitation
+  // as createGuestReview (documented; no migration in this follow-up).
+  static async createGuestEventReview(data: {
+    wineryId: string;
+    guestProfileId: string;
+    eventId: string;
+    authorName: string;
+    rating: number;
+    title: string;
+    comment: string;
+    category: 'WINE_TASTING' | 'VINEYARD_TOUR' | 'EVENTS' | 'FOOD';
+    targetName: string;
+  }) {
+    return prisma.$transaction(async (tx) => {
+      const existing = await tx.review.findFirst({
+        where: { guestProfileId: data.guestProfileId, eventId: data.eventId },
+        select: { id: true },
+      });
+      if (existing) {
+        const err = new Error('You have already reviewed this event') as Error & { statusCode?: number };
+        err.statusCode = 409;
+        throw err;
+      }
+
+      return tx.review.create({
+        data: {
+          wineryId: data.wineryId,
+          authorName: data.authorName,
+          guestProfileId: data.guestProfileId,
+          eventId: data.eventId,
+          rating: data.rating,
+          title: data.title,
+          comment: data.comment,
+          category: data.category,
+          targetName: data.targetName,
+          status: ReviewStatus.PENDING, // Customer reviews require moderation
+        },
+        select: ReviewRepository.guestReviewSelect,
+      });
+    });
+  }
+
+  // Fields returned to authorized staff on /api/admin/reviews (read-only).
+  // No passwordHash / session data; guest identity limited to profile name/email.
+  static readonly adminReviewSelect = {
+    id: true,
+    authorName: true,
+    rating: true,
+    title: true,
+    comment: true,
+    category: true,
+    targetName: true,
+    status: true,
+    verified: true,
+    createdAt: true,
+    updatedAt: true,
+    guestProfile: {
+      select: {
+        id: true,
+        name: true,
+        user: { select: { email: true } },
+      },
+    },
+    booking: {
+      select: { bookingNumber: true, date: true, status: true },
+    },
+    experience: {
+      select: { id: true, title: true, slug: true },
+    },
+    wine: {
+      select: { id: true, name: true, slug: true },
+    },
+    event: {
+      select: { id: true, title: true, slug: true, eventDate: true },
+    },
+  } satisfies Prisma.ReviewSelect;
+
+  static async findPageForAdmin(
+    filters: {
+      page?: number;
+      pageSize?: number;
+      status?: ReviewStatus;
+      category?: string;
+      search?: string;
+    } = {}
+  ) {
+    const page = filters.page || 1;
+    const pageSize = filters.pageSize || 20;
+    const skip = (page - 1) * pageSize;
+
+    const where: Prisma.ReviewWhereInput = {};
+    if (filters.status) where.status = filters.status;
+    if (filters.category) where.category = filters.category as import('@prisma/client').ReviewCategory;
+
+    const search = filters.search?.trim();
+    if (search) {
+      where.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { comment: { contains: search, mode: 'insensitive' } },
+        { targetName: { contains: search, mode: 'insensitive' } },
+        { authorName: { contains: search, mode: 'insensitive' } },
+        { booking: { bookingNumber: { contains: search, mode: 'insensitive' } } },
+        { guestProfile: { name: { contains: search, mode: 'insensitive' } } },
+      ];
+    }
+
+    const [reviews, total] = await Promise.all([
+      prisma.review.findMany({
+        where,
+        select: ReviewRepository.adminReviewSelect,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip,
+        take: pageSize,
+      }),
+      prisma.review.count({ where }),
+    ]);
+
+    return {
+      reviews,
+      pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+    };
+  }
+
+  // Event reviews have no EventBooking FK on Review; derive the guest's event
+  // booking reference for display via (guestProfileId, eventId). Prefer an
+  // active (non-cancelled) booking when the guest has multiple rows.
+  static async findEventBookingNumbersForReviews(
+    refs: Array<{ guestProfileId: string | null; eventId: string | null }>
+  ) {
+    const keys = refs.filter(
+      (r): r is { guestProfileId: string; eventId: string } => Boolean(r.guestProfileId && r.eventId)
+    );
+    if (keys.length === 0) return new Map<string, string>();
+
+    const rows = await prisma.eventBooking.findMany({
+      where: { OR: keys.map((k) => ({ guestProfileId: k.guestProfileId, eventId: k.eventId })) },
+      select: {
+        bookingNumber: true,
+        guestProfileId: true,
+        eventId: true,
+        status: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const map = new Map<string, { bookingNumber: string; active: boolean }>();
+    for (const row of rows) {
+      const key = `${row.guestProfileId}:${row.eventId}`;
+      const active =
+        row.status !== BookingStatus.CANCELLED && row.status !== BookingStatus.NO_SHOW;
+      const existing = map.get(key);
+      if (!existing || (!existing.active && active)) {
+        map.set(key, { bookingNumber: row.bookingNumber, active });
+      }
+    }
+    return new Map([...map.entries()].map(([key, value]) => [key, value.bookingNumber]));
+  }
 }
 export class EventBookingRepository {
   static async findManyAdmin(filters: {
