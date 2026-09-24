@@ -10,6 +10,49 @@ const VALID_BOOKING_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   [BookingStatus.NO_SHOW]: [],
 };
 
+export type GuestBookingTimelineFilter = 'upcoming' | 'past' | 'cancelled';
+
+const ACTIVE_BOOKING_STATUSES: BookingStatus[] = [
+  BookingStatus.PENDING,
+  BookingStatus.CONFIRMED,
+  BookingStatus.CHECKED_IN,
+];
+const PAST_BOOKING_STATUSES: BookingStatus[] = [BookingStatus.COMPLETED, BookingStatus.NO_SHOW];
+
+function startOfTodayUtc(): Date {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+}
+
+function experienceTimelineWhere(filter: GuestBookingTimelineFilter): Prisma.BookingWhereInput {
+  const today = startOfTodayUtc();
+  if (filter === 'upcoming') {
+    return { date: { gte: today }, status: { in: ACTIVE_BOOKING_STATUSES } };
+  }
+  if (filter === 'cancelled') {
+    return { status: BookingStatus.CANCELLED };
+  }
+  return {
+    status: { not: BookingStatus.CANCELLED },
+    OR: [{ date: { lt: today } }, { status: { in: PAST_BOOKING_STATUSES } }],
+  };
+}
+
+function eventTimelineWhere(filter: GuestBookingTimelineFilter): Prisma.EventBookingWhereInput {
+  const today = startOfTodayUtc();
+  if (filter === 'upcoming') {
+    return { event: { eventDate: { gte: today } }, status: { in: ACTIVE_BOOKING_STATUSES } };
+  }
+  if (filter === 'cancelled') {
+    return { status: BookingStatus.CANCELLED };
+  }
+  return {
+    status: { not: BookingStatus.CANCELLED },
+    OR: [{ event: { eventDate: { lt: today } } }, { status: { in: PAST_BOOKING_STATUSES } }],
+  };
+}
+
 export class WineRepository {
   static async findAll() {
     return prisma.wine.findMany({
@@ -701,6 +744,42 @@ export class BookingRepository {
         total,
         totalPages: Math.ceil(total / pageSize),
       },
+    };
+  }
+
+  static async findByGuestProfileId(
+    guestProfileId: string,
+    filters: { page?: number; pageSize?: number; filter?: GuestBookingTimelineFilter } = {}
+  ) {
+    const page = filters.page || 1;
+    const pageSize = filters.pageSize || 20;
+    const skip = (page - 1) * pageSize;
+
+    const where: Prisma.BookingWhereInput = {
+      guestProfileId,
+      ...(filters.filter ? experienceTimelineWhere(filters.filter) : {}),
+    };
+
+    const [bookings, total] = await Promise.all([
+      prisma.booking.findMany({
+        where,
+        include: {
+          items: {
+            include: {
+              experience: { select: { id: true, title: true, slug: true } },
+            },
+          },
+        },
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        skip,
+        take: pageSize,
+      }),
+      prisma.booking.count({ where }),
+    ]);
+
+    return {
+      bookings,
+      pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
     };
   }
 
@@ -1574,6 +1653,46 @@ export class EventBookingRepository {
         statusHistory: { orderBy: { createdAt: 'asc' } },
       },
     });
+  }
+
+  static async findByGuestProfileId(
+    guestProfileId: string,
+    filters: { page?: number; pageSize?: number; filter?: GuestBookingTimelineFilter } = {}
+  ) {
+    const page = filters.page || 1;
+    const pageSize = filters.pageSize || 20;
+    const skip = (page - 1) * pageSize;
+
+    const where: Prisma.EventBookingWhereInput = {
+      guestProfileId,
+      ...(filters.filter ? eventTimelineWhere(filters.filter) : {}),
+    };
+
+    const [bookings, total] = await Promise.all([
+      prisma.eventBooking.findMany({
+        where,
+        include: {
+          event: {
+            select: { id: true, slug: true, title: true, eventDate: true, timeRange: true, venue: true, status: true, isPast: true, currency: true },
+          },
+          eventSchedule: { select: { id: true, timeSlot: true, activity: true } },
+          tickets: {
+            include: {
+              ticketType: { select: { id: true, name: true, price: true } },
+            },
+          },
+        },
+        orderBy: [{ event: { eventDate: 'desc' } }, { createdAt: 'desc' }],
+        skip,
+        take: pageSize,
+      }),
+      prisma.eventBooking.count({ where }),
+    ]);
+
+    return {
+      bookings,
+      pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+    };
   }
 
   static async createBookingWithTransaction(data: {

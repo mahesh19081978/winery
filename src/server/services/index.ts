@@ -13,6 +13,7 @@ import {
   GuestRepository,
   TastingRepository,
   ReviewRepository,
+  GuestBookingTimelineFilter,
 } from '../repositories';
 import {
   BookingCreateInput,
@@ -733,6 +734,13 @@ export class BookingService {
     return BookingRepository.findMany(filters);
   }
 
+  static async listBookingsForGuest(
+    guestProfileId: string,
+    filters: { page?: number; pageSize?: number; filter?: GuestBookingTimelineFilter } = {}
+  ) {
+    return BookingRepository.findByGuestProfileId(guestProfileId, filters);
+  }
+
   static async updateBookingStatus(
     bookingNumber: string,
     toStatus: import('@prisma/client').BookingStatus,
@@ -889,6 +897,13 @@ export class EventBookingService {
       throw new EventBookingError(`Event booking ${bookingNumber} not found`, 404);
     }
     return booking;
+  }
+
+  static async listBookingsForGuest(
+    guestProfileId: string,
+    filters: { page?: number; pageSize?: number; filter?: GuestBookingTimelineFilter } = {}
+  ) {
+    return EventBookingRepository.findByGuestProfileId(guestProfileId, filters);
   }
 
   static async createBooking(
@@ -1115,6 +1130,158 @@ export class EventBookingService {
   static async cancelBookingAdmin(bookingNumber: string, reason?: string) {
     // Reuse existing cancellation logic (transactional, capacity release)
     return EventBookingService.cancelBooking(bookingNumber, reason);
+  }
+}
+
+export interface GuestExperienceBookingSummary {
+  type: 'experience';
+  bookingNumber: string;
+  experienceName: string;
+  status: BookingStatus;
+  scheduledDate: string;
+  time: string;
+  adults: number;
+  children: number;
+  totalGuests: number;
+  subtotal: string;
+  taxAmount: string;
+  totalPrice: string;
+  currency: string;
+  createdAt: string;
+  detailHref: string;
+}
+
+export interface GuestEventBookingSummary {
+  type: 'event';
+  bookingNumber: string;
+  eventTitle: string;
+  eventSlug: string;
+  status: BookingStatus;
+  scheduledDate: string;
+  timeRange: string;
+  venue: string;
+  schedule: { timeSlot: string; activity: string };
+  tickets: Array<{ name: string; quantity: number; unitPrice: string }>;
+  totalTickets: number;
+  totalPrice: string;
+  currency: string;
+  createdAt: string;
+  detailHref: string;
+}
+
+export type GuestBookingSummary = GuestExperienceBookingSummary | GuestEventBookingSummary;
+
+function toExperienceBookingSummary(
+  booking: Awaited<ReturnType<typeof BookingRepository.findByGuestProfileId>>['bookings'][number]
+): GuestExperienceBookingSummary {
+  const experienceItem =
+    booking.items.find((item) => item.itemType === 'EXPERIENCE') ?? booking.items[0] ?? null;
+  return {
+    type: 'experience',
+    bookingNumber: booking.bookingNumber,
+    experienceName: experienceItem?.experience?.title ?? experienceItem?.title ?? 'Experience',
+    status: booking.status,
+    scheduledDate: booking.date.toISOString(),
+    time: booking.time,
+    adults: booking.adults,
+    children: booking.children,
+    totalGuests: booking.totalGuests,
+    subtotal: booking.subtotal.toString(),
+    taxAmount: booking.taxAmount.toString(),
+    totalPrice: booking.totalPrice.toString(),
+    currency: booking.currency,
+    createdAt: booking.createdAt.toISOString(),
+    detailHref: `/booking/${booking.bookingNumber}`,
+  };
+}
+
+function toEventBookingSummary(
+  booking: Awaited<ReturnType<typeof EventBookingRepository.findByGuestProfileId>>['bookings'][number]
+): GuestEventBookingSummary {
+  return {
+    type: 'event',
+    bookingNumber: booking.bookingNumber,
+    eventTitle: booking.event.title,
+    eventSlug: booking.event.slug,
+    status: booking.status,
+    scheduledDate: booking.event.eventDate.toISOString(),
+    timeRange: booking.event.timeRange,
+    venue: booking.event.venue,
+    schedule: {
+      timeSlot: booking.eventSchedule.timeSlot,
+      activity: booking.eventSchedule.activity,
+    },
+    tickets: booking.tickets.map((ticket) => ({
+      name: ticket.ticketType?.name ?? 'Ticket',
+      quantity: ticket.quantity,
+      unitPrice: ticket.unitPrice.toString(),
+    })),
+    totalTickets: booking.tickets.reduce((sum, ticket) => sum + ticket.quantity, 0),
+    totalPrice: booking.totalPrice.toString(),
+    currency: booking.event.currency,
+    createdAt: booking.createdAt.toISOString(),
+    detailHref: `/event-booking/${booking.bookingNumber}`,
+  };
+}
+
+function compareBookingSummaries(a: GuestBookingSummary, b: GuestBookingSummary): number {
+  const scheduledDiff =
+    new Date(b.scheduledDate).getTime() - new Date(a.scheduledDate).getTime();
+  if (scheduledDiff !== 0) return scheduledDiff;
+  return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+}
+
+export class GuestBookingService {
+  static async listForGuest(
+    guestProfileId: string,
+    params: {
+      type?: 'all' | 'experience' | 'event';
+      filter?: GuestBookingTimelineFilter;
+      page?: number;
+      pageSize?: number;
+    } = {}
+  ): Promise<{ items: GuestBookingSummary[]; pagination: { page: number; pageSize: number; total: number; totalPages: number } }> {
+    const type = params.type ?? 'all';
+    const filter = params.filter;
+    const page = Math.max(params.page || 1, 1);
+    const pageSize = Math.min(Math.max(params.pageSize || 20, 1), 50);
+
+    if (type === 'experience') {
+      const { bookings, pagination } = await BookingService.listBookingsForGuest(guestProfileId, {
+        page,
+        pageSize,
+        filter,
+      });
+      return { items: bookings.map(toExperienceBookingSummary), pagination };
+    }
+
+    if (type === 'event') {
+      const { bookings, pagination } = await EventBookingService.listBookingsForGuest(guestProfileId, {
+        page,
+        pageSize,
+        filter,
+      });
+      return { items: bookings.map(toEventBookingSummary), pagination };
+    }
+
+    const take = page * pageSize;
+    const [experiencePage, eventPage] = await Promise.all([
+      BookingService.listBookingsForGuest(guestProfileId, { page: 1, pageSize: take, filter }),
+      EventBookingService.listBookingsForGuest(guestProfileId, { page: 1, pageSize: take, filter }),
+    ]);
+
+    const merged = [
+      ...experiencePage.bookings.map(toExperienceBookingSummary),
+      ...eventPage.bookings.map(toEventBookingSummary),
+    ].sort(compareBookingSummaries);
+
+    const items = merged.slice((page - 1) * pageSize, page * pageSize);
+    const total = experiencePage.pagination.total + eventPage.pagination.total;
+
+    return {
+      items,
+      pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+    };
   }
 }
 
