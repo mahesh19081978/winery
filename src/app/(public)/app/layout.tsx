@@ -12,18 +12,20 @@ import {
   Sparkles,
   MessageSquare,
   User,
-  ArrowLeft
+  ArrowLeft,
+  Sliders,
 } from 'lucide-react';
 
 const ACCOUNT_NAV = [
   { label: 'Overview', href: '/app', icon: Compass },
-  { label: 'Bookings', href: '/app/bookings', icon: Calendar },
+  { label: 'My Bookings', href: '/app/bookings', icon: Calendar },
   { label: 'My Wine Journey', href: '/app/journey', icon: BookOpen },
   { label: 'My Tastings', href: '/app/tastings', icon: Wine },
   { label: 'My Wines', href: '/app/wines', icon: Sparkles },
   { label: 'Events', href: '/app/events', icon: Calendar },
-  { label: 'Reviews', href: '/app/reviews', icon: MessageSquare },
-  { label: 'Profile & Taste', href: '/app/profile', icon: User }
+  { label: 'My Reviews', href: '/app/reviews', icon: MessageSquare },
+  { label: 'My Wine Profile', href: '/app/wine-profile', icon: Sliders },
+  { label: 'Profile', href: '/app/profile', icon: User },
 ];
 
 export default function GuestAccountLayout({ children }: { children: React.ReactNode }) {
@@ -85,7 +87,7 @@ export default function GuestAccountLayout({ children }: { children: React.React
               const Icon = item.icon;
               const isActive =
                 pathname === item.href ||
-                (item.href !== '/app' && pathname.startsWith(item.href));
+                (item.href !== '/app' && pathname.startsWith(item.href + '/'));
 
               return (
                 <Link

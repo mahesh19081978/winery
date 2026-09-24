@@ -1,34 +1,23 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import Link from 'next/link';
 import { useGuest } from '@/context/GuestContext';
 import {
   User,
   CheckCircle2,
-  Sliders,
   Bell,
-  Wine as WineIcon,
   XCircle,
-  Heart
+  Wine,
+  ArrowRight,
+  ShieldCheck,
 } from 'lucide-react';
-
-interface AvailableWine {
-  id: string;
-  name: string;
-  category: string;
-  slug: string;
-}
 
 function buildFormData(profile: ReturnType<typeof useGuest>['profile']) {
   return {
     name: profile.name,
     email: profile.email,
     phone: profile.phone,
-    favoriteWineId: profile.favoriteWineId || '',
-    preferredBody: profile.preferences.preferredBody || 'Full & Opulent (7–9)',
-    preferredAcidity: profile.preferences.preferredAcidity || 'Vibrant & Crisp (6–8)',
-    preferredSweetness: profile.preferences.preferredSweetness || 'Dry (1–3)',
-    favoriteVarietals: profile.preferences.favoriteVarietals || ['Cabernet Sauvignon', 'Syrah'],
     emailAlerts: profile.notifications.email,
     smsReminders: profile.notifications.sms,
     whatsapp: profile.notifications.whatsapp,
@@ -41,31 +30,6 @@ export default function ProfilePage() {
   // Local editable form state initialized from profile
   const [formData, setFormData] = useState(() => buildFormData(profile));
   const [prevProfile, setPrevProfile] = useState(profile);
-  const [wines, setWines] = useState<AvailableWine[]>([]);
-  const [loadingWines, setLoadingWines] = useState(true);
-
-  // Fetch available real wines from the database
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const res = await fetch('/api/wines');
-        if (res.ok) {
-          const json = await res.json();
-          if (json?.success && Array.isArray(json.data) && active) {
-            setWines(json.data);
-          }
-        }
-      } catch {
-        // Fallback gracefully
-      } finally {
-        if (active) setLoadingWines(false);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, []);
 
   // Adjust state during render when the authenticated profile arrives (React-endorsed
   // alternative to setState-in-effect for prop-driven resets).
@@ -78,27 +42,6 @@ export default function ProfilePage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Varietal options
-  const allVarietals = [
-    'Cabernet Sauvignon',
-    'Cabernet Franc',
-    'Merlot',
-    'Pinot Noir',
-    'Syrah',
-    'Chardonnay',
-    'Sauvignon Blanc',
-    'Champagne / Sparkling',
-    'Rosé'
-  ];
-
-  const handleVarietalToggle = (varietal: string) => {
-    const exists = formData.favoriteVarietals.includes(varietal);
-    const updated = exists 
-      ? formData.favoriteVarietals.filter((v: string) => v !== varietal)
-      : [...formData.favoriteVarietals, varietal];
-    setFormData({ ...formData, favoriteVarietals: updated });
-  };
-
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -107,19 +50,11 @@ export default function ProfilePage() {
     const ok = await updateProfile({
       name: formData.name,
       phone: formData.phone,
-      favoriteWineId: formData.favoriteWineId || '',
-      preferences: {
-        ...profile.preferences,
-        preferredSweetness: formData.preferredSweetness,
-        preferredAcidity: formData.preferredAcidity,
-        preferredBody: formData.preferredBody,
-        favoriteVarietals: formData.favoriteVarietals,
-      },
       notifications: {
         email: formData.emailAlerts,
         sms: formData.smsReminders,
-        whatsapp: formData.whatsapp
-      }
+        whatsapp: formData.whatsapp,
+      },
     });
 
     setSaving(false);
@@ -127,30 +62,52 @@ export default function ProfilePage() {
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 4000);
     } else {
-      setSaveError('We could not save your preferences. Please verify all fields and try again.');
+      setSaveError('We could not save your profile changes. Please verify all fields and try again.');
       setTimeout(() => setSaveError(null), 6000);
     }
   };
 
   return (
-    <div className="space-y-10 max-w-4xl">
+    <div className="space-y-10 max-w-4xl pb-16">
       {/* Header */}
       <div>
-        <h1 className="font-serif text-3xl md:text-4xl text-stone-900 font-light">Palate Profile & Account</h1>
+        <h1 className="font-serif text-3xl md:text-4xl text-stone-900 font-light">Account & Profile</h1>
         <p className="text-stone-500 text-sm mt-1">
-          Customize your sensory preferences so our cellar master and AI concierge can tailor your tasting flights
+          Manage your personal contact details, estate reservation passes, and communication preferences.
         </p>
       </div>
 
+      {/* Wine Profile Link Card */}
+      <div className="p-6 rounded-3xl bg-gradient-to-r from-[#faf8f5] to-amber-50/40 border border-[#e6dece] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full bg-[#8a3243]/10 border border-[#8a3243]/20 flex items-center justify-center text-[#8a3243] shrink-0">
+            <Wine className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="font-serif text-lg font-medium text-stone-900">Wine Palate & Taste Preferences</h3>
+            <p className="text-xs text-stone-500">
+              Calibrate your preferred sweetness, body, acidity, favorite varietals, and signature estate bottle.
+            </p>
+          </div>
+        </div>
+        <Link
+          href="/app/wine-profile"
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#8a3243] text-white text-xs font-semibold uppercase tracking-wider hover:bg-[#732937] transition shrink-0 shadow-sm"
+        >
+          <span>My Wine Profile</span>
+          <ArrowRight className="w-3.5 h-3.5" />
+        </Link>
+      </div>
+
       {savedSuccess && (
-        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm flex items-center gap-3">
+        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm flex items-center gap-3 animate-in fade-in">
           <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-          <span>Your profile and wine preferences have been updated and saved to your cellar account.</span>
+          <span>Your personal profile and communication settings have been saved.</span>
         </div>
       )}
 
       {saveError && (
-        <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-800 text-sm flex items-center gap-3">
+        <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-800 text-sm flex items-center gap-3 animate-in fade-in">
           <XCircle className="w-5 h-5 text-red-600 shrink-0" />
           <span>{saveError}</span>
         </div>
@@ -165,7 +122,7 @@ export default function ProfilePage() {
             </div>
             <div>
               <h2 className="font-serif text-xl text-stone-900 font-normal">Personal Information</h2>
-              <p className="text-xs text-stone-500">Used for your tasting reservations and digital passes</p>
+              <p className="text-xs text-stone-500">Used for your tasting reservations and digital estate passes</p>
             </div>
           </div>
 
@@ -198,6 +155,10 @@ export default function ProfilePage() {
                   className="w-full px-4 py-2.5 rounded-xl border border-stone-200 bg-stone-100 text-stone-500 text-sm cursor-not-allowed"
                 />
               </div>
+              <p className="text-[11px] text-stone-400 mt-1 flex items-center gap-1">
+                <ShieldCheck className="w-3 h-3 text-stone-400" />
+                <span>Primary account email (read-only)</span>
+              </p>
             </div>
 
             <div>
@@ -213,139 +174,6 @@ export default function ProfilePage() {
                   className="w-full px-4 py-2.5 rounded-xl border border-stone-300 focus:outline-none focus:border-[#8a3243] text-stone-800 text-sm"
                 />
               </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Palate Calibration */}
-        <section className="bg-white rounded-3xl p-8 border border-stone-200/80 shadow-sm space-y-6">
-          <div className="flex items-center gap-3 pb-4 border-b border-stone-100">
-            <div className="w-10 h-10 rounded-full bg-[#faf8f5] border border-stone-200 flex items-center justify-center text-[#8a3243]">
-              <Sliders className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="font-serif text-xl text-stone-900 font-normal">Palate Calibration</h2>
-              <p className="text-xs text-stone-500">Fine-tune your sensory thresholds</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div>
-              <label className="block text-xs font-medium uppercase tracking-wider text-stone-600 mb-1.5">
-                Sweetness Preference
-              </label>
-              <select
-                value={formData.preferredSweetness}
-                onChange={(e) => setFormData({ ...formData, preferredSweetness: e.target.value })}
-                className="w-full px-4 py-2.5 rounded-xl border border-stone-300 focus:outline-none focus:border-[#8a3243] text-stone-800 text-sm bg-white"
-              >
-                <option value="Bone Dry (1–2)">Bone Dry (1–2)</option>
-                <option value="Dry (1–3)">Dry (1–3)</option>
-                <option value="Off-Dry (4–6)">Off-Dry (4–6)</option>
-                <option value="Sweet / Dessert (7–10)">Sweet / Dessert (7–10)</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium uppercase tracking-wider text-stone-600 mb-1.5">
-                Acidity & Crispness
-              </label>
-              <select
-                value={formData.preferredAcidity}
-                onChange={(e) => setFormData({ ...formData, preferredAcidity: e.target.value })}
-                className="w-full px-4 py-2.5 rounded-xl border border-stone-300 focus:outline-none focus:border-[#8a3243] text-stone-800 text-sm bg-white"
-              >
-                <option value="Soft & Mellow (3–5)">Soft & Mellow (3–5)</option>
-                <option value="Balanced (5–7)">Balanced (5–7)</option>
-                <option value="Vibrant & Crisp (6–8)">Vibrant & Crisp (6–8)</option>
-                <option value="Electric & Chalky (8–10)">Electric & Chalky (8–10)</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium uppercase tracking-wider text-stone-600 mb-1.5">
-                Body & Weight
-              </label>
-              <select
-                value={formData.preferredBody}
-                onChange={(e) => setFormData({ ...formData, preferredBody: e.target.value })}
-                className="w-full px-4 py-2.5 rounded-xl border border-stone-300 focus:outline-none focus:border-[#8a3243] text-stone-800 text-sm bg-white"
-              >
-                <option value="Light & Delicate (2–4)">Light & Delicate (2–4)</option>
-                <option value="Medium-Bodied (4–6)">Medium-Bodied (4–6)</option>
-                <option value="Full & Opulent (7–9)">Full & Opulent (7–9)</option>
-                <option value="Monumental Reserve (9–10)">Monumental Reserve (9–10)</option>
-              </select>
-            </div>
-          </div>
-        </section>
-
-        {/* Varietal Preferences */}
-        <section className="bg-white rounded-3xl p-8 border border-stone-200/80 shadow-sm space-y-6">
-          <div className="flex items-center gap-3 pb-4 border-b border-stone-100">
-            <div className="w-10 h-10 rounded-full bg-[#faf8f5] border border-stone-200 flex items-center justify-center text-[#8a3243]">
-              <WineIcon className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="font-serif text-xl text-stone-900 font-normal">Favorite Grape Varietals</h2>
-              <p className="text-xs text-stone-500">Tap to include or exclude varietals from your tailored tasting menu</p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2.5">
-            {allVarietals.map((varietal) => {
-              const selected = formData.favoriteVarietals.includes(varietal);
-              return (
-                <button
-                  type="button"
-                  key={varietal}
-                  onClick={() => handleVarietalToggle(varietal)}
-                  className={`px-4 py-2 rounded-full text-xs font-medium transition ${
-                    selected
-                      ? 'bg-[#8a3243] text-white shadow-sm'
-                      : 'bg-[#faf8f5] border border-stone-200 text-stone-700 hover:border-stone-400'
-                  }`}
-                >
-                  {varietal} {selected && '✓'}
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* Favorite Estate Wine Section */}
-        <section className="bg-white rounded-3xl p-8 border border-stone-200/80 shadow-sm space-y-6">
-          <div className="flex items-center gap-3 pb-4 border-b border-stone-100">
-            <div className="w-10 h-10 rounded-full bg-[#faf8f5] border border-stone-200 flex items-center justify-center text-[#8a3243]">
-              <Heart className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="font-serif text-xl text-stone-900 font-normal">Signature Favorite Wine</h2>
-              <p className="text-xs text-stone-500">Select your benchmark estate wine from our active cellar collection</p>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium uppercase tracking-wider text-stone-600 mb-1.5">
-                Preferred Estate Bottle
-              </label>
-              <select
-                value={formData.favoriteWineId}
-                onChange={(e) => setFormData({ ...formData, favoriteWineId: e.target.value })}
-                disabled={loadingWines}
-                className="w-full px-4 py-2.5 rounded-xl border border-stone-300 focus:outline-none focus:border-[#8a3243] text-stone-800 text-sm bg-white disabled:bg-stone-100 disabled:cursor-not-allowed"
-              >
-                <option value="">None selected (explore cellar)</option>
-                {wines.map((wine) => (
-                  <option key={wine.id} value={wine.id}>
-                    {wine.name} ({wine.category})
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-stone-500 mt-1.5">
-                Our sommeliers will prioritize library vintages of this wine during your tasting visits.
-              </p>
             </div>
           </div>
         </section>
@@ -400,9 +228,9 @@ export default function ProfilePage() {
           <button
             type="submit"
             disabled={saving}
-            className="px-8 py-3 rounded-full bg-[#8a3243] text-white text-sm font-medium uppercase tracking-wider hover:bg-[#732937] transition shadow-md disabled:opacity-60 disabled:cursor-not-allowed"
+            className="px-8 py-3 rounded-full bg-[#8a3243] text-white text-xs font-semibold uppercase tracking-wider hover:bg-[#732937] transition shadow-md disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
           >
-            {saving ? 'Saving…' : 'Save Palate Preferences'}
+            {saving ? 'Saving…' : 'Save Profile Settings'}
           </button>
         </div>
       </form>

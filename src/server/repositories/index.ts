@@ -1248,6 +1248,66 @@ export class GuestRepository {
   }
 }
 
+export class GuestWinePreferenceRepository {
+  static async findByGuestProfileId(guestProfileId: string) {
+    return prisma.guestWinePreference.findUnique({
+      where: { guestProfileId },
+      include: {
+        favoriteWine: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            category: true,
+            wineryId: true,
+          },
+        },
+      },
+    });
+  }
+
+  static async upsertPreferences(
+    guestProfileId: string,
+    data: {
+      favoriteVarietals?: string[];
+      preferredSweetness?: string | null;
+      preferredBody?: string | null;
+      preferredAcidity?: string | null;
+      favoriteWineId?: string | null;
+    }
+  ) {
+    return prisma.guestWinePreference.upsert({
+      where: { guestProfileId },
+      update: {
+        ...(data.favoriteVarietals !== undefined ? { favoriteVarietals: data.favoriteVarietals } : {}),
+        ...(data.preferredSweetness !== undefined ? { preferredSweetness: data.preferredSweetness } : {}),
+        ...(data.preferredBody !== undefined ? { preferredBody: data.preferredBody } : {}),
+        ...(data.preferredAcidity !== undefined ? { preferredAcidity: data.preferredAcidity } : {}),
+        ...(data.favoriteWineId !== undefined ? { favoriteWineId: data.favoriteWineId } : {}),
+      },
+      create: {
+        guestProfileId,
+        favoriteVarietals: data.favoriteVarietals ?? [],
+        preferredSweetness: data.preferredSweetness ?? null,
+        preferredBody: data.preferredBody ?? null,
+        preferredAcidity: data.preferredAcidity ?? null,
+        favoriteWineId: data.favoriteWineId ?? null,
+      },
+      include: {
+        favoriteWine: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            category: true,
+            wineryId: true,
+          },
+        },
+      },
+    });
+  }
+}
+
 export class TastingRepository {
   static async findByGuestEmail(email: string) {
     return prisma.tastingRecord.findMany({

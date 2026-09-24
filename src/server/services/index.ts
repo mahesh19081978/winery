@@ -11,6 +11,7 @@ import {
   EventBookingRepository,
   FrontDeskRepository,
   GuestRepository,
+  GuestWinePreferenceRepository,
   TastingRepository,
   ReviewRepository,
   GuestBookingTimelineFilter,
@@ -19,6 +20,7 @@ import {
   BookingCreateInput,
   EventBookingCreateInput,
   GuestProfileUpdateInput,
+  GuestWineProfileUpdateInput,
   TastingRecordCreateInput,
   ReviewCreateInput,
   TastingSessionCreateInput,
@@ -1492,10 +1494,36 @@ export class GuestService {
     if (input.winePreferences?.favoriteWineId) {
       const wineExists = await prisma.wine.findUnique({
         where: { id: input.winePreferences.favoriteWineId },
-        select: { id: true },
+        select: { id: true, wineryId: true },
       });
       if (!wineExists) {
         throw new EventBookingError('Selected favorite wine does not exist', 400);
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { email },
+        select: { wineryId: true },
+      });
+      let guestWineryId = user?.wineryId;
+      if (!guestWineryId) {
+        const firstBooking = await prisma.booking.findFirst({
+          where: { guestProfileId: profile.id },
+          select: { wineryId: true },
+        });
+        if (firstBooking) {
+          guestWineryId = firstBooking.wineryId;
+        }
+      }
+      if (!guestWineryId) {
+        const defaultWinery = await prisma.winery.findFirst({
+          orderBy: { createdAt: 'asc' },
+          select: { id: true },
+        });
+        guestWineryId = defaultWinery?.id ?? null;
+      }
+
+      if (guestWineryId && wineExists.wineryId !== guestWineryId) {
+        throw new EventBookingError('Selected wine does not belong to the winery', 403);
       }
     }
 
@@ -1508,6 +1536,108 @@ export class GuestService {
       notifications: input.notifications,
       winePreferences: input.winePreferences,
     });
+  }
+}
+
+export class GuestWineProfileService {
+  static async getWineProfile(guestProfileId: string) {
+    const guest = await prisma.guestProfile.findUnique({
+      where: { id: guestProfileId },
+      select: {
+        id: true,
+        user: { select: { id: true, email: true, wineryId: true } },
+      },
+    });
+    if (!guest) {
+      throw new EventBookingError('Guest not found', 404);
+    }
+
+    const pref = await GuestWinePreferenceRepository.findByGuestProfileId(guestProfileId);
+
+    return {
+      preferences: {
+        favoriteVarietals: pref?.favoriteVarietals ?? [],
+        preferredSweetness: pref?.preferredSweetness ?? null,
+        preferredBody: pref?.preferredBody ?? null,
+        preferredAcidity: pref?.preferredAcidity ?? null,
+        favoriteWineId: pref?.favoriteWineId ?? null,
+        favoriteWine: pref?.favoriteWine ? {
+          id: pref.favoriteWine.id,
+          name: pref.favoriteWine.name,
+          slug: pref.favoriteWine.slug,
+          category: pref.favoriteWine.category,
+        } : null,
+      },
+    };
+  }
+
+  static async updateWineProfile(guestProfileId: string, input: GuestWineProfileUpdateInput) {
+    const guest = await prisma.guestProfile.findUnique({
+      where: { id: guestProfileId },
+      select: {
+        id: true,
+        user: { select: { id: true, email: true, wineryId: true } },
+      },
+    });
+    if (!guest) {
+      throw new EventBookingError('Guest not found', 404);
+    }
+
+    if (input.favoriteWineId) {
+      const wine = await prisma.wine.findUnique({
+        where: { id: input.favoriteWineId },
+        select: { id: true, wineryId: true, name: true, slug: true, category: true },
+      });
+      if (!wine) {
+        throw new EventBookingError('Selected favorite wine does not exist', 400);
+      }
+
+      let guestWineryId = guest.user.wineryId;
+      if (!guestWineryId) {
+        const firstBooking = await prisma.booking.findFirst({
+          where: { guestProfileId },
+          select: { wineryId: true },
+        });
+        if (firstBooking) {
+          guestWineryId = firstBooking.wineryId;
+        }
+      }
+      if (!guestWineryId) {
+        const defaultWinery = await prisma.winery.findFirst({
+          orderBy: { createdAt: 'asc' },
+          select: { id: true },
+        });
+        guestWineryId = defaultWinery?.id ?? null;
+      }
+
+      if (guestWineryId && wine.wineryId !== guestWineryId) {
+        throw new EventBookingError('Selected wine does not belong to the winery', 403);
+      }
+    }
+
+    const updated = await GuestWinePreferenceRepository.upsertPreferences(guestProfileId, {
+      favoriteVarietals: input.favoriteVarietals,
+      preferredSweetness: input.preferredSweetness,
+      preferredBody: input.preferredBody,
+      preferredAcidity: input.preferredAcidity,
+      favoriteWineId: input.favoriteWineId,
+    });
+
+    return {
+      preferences: {
+        favoriteVarietals: updated.favoriteVarietals,
+        preferredSweetness: updated.preferredSweetness,
+        preferredBody: updated.preferredBody,
+        preferredAcidity: updated.preferredAcidity,
+        favoriteWineId: updated.favoriteWineId,
+        favoriteWine: updated.favoriteWine ? {
+          id: updated.favoriteWine.id,
+          name: updated.favoriteWine.name,
+          slug: updated.favoriteWine.slug,
+          category: updated.favoriteWine.category,
+        } : null,
+      },
+    };
   }
 }
 

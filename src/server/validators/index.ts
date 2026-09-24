@@ -15,6 +15,49 @@ export const BookingCreateSchema = z.object({
 
 export type BookingCreateInput = z.infer<typeof BookingCreateSchema>;
 
+export const ALLOWED_VARIETALS = [
+  'Cabernet Sauvignon',
+  'Cabernet Franc',
+  'Merlot',
+  'Pinot Noir',
+  'Syrah',
+  'Chardonnay',
+  'Sauvignon Blanc',
+  'Champagne / Sparkling',
+  'Rosé',
+] as const;
+
+export const ALLOWED_SWEETNESS = [
+  'Bone Dry (1–2)',
+  'Dry (1–3)',
+  'Off-Dry (4–6)',
+  'Sweet / Dessert (7–10)',
+] as const;
+
+export const ALLOWED_BODY = [
+  'Light & Delicate (2–4)',
+  'Medium-Bodied (4–6)',
+  'Full & Opulent (7–9)',
+  'Monumental Reserve (9–10)',
+] as const;
+
+export const ALLOWED_ACIDITY = [
+  'Soft & Mellow (3–5)',
+  'Balanced (5–7)',
+  'Vibrant & Crisp (6–8)',
+  'Electric & Chalky (8–10)',
+] as const;
+
+export const GuestWineProfileUpdateSchema = z.object({
+  favoriteVarietals: z.array(z.enum(ALLOWED_VARIETALS)).optional(),
+  preferredSweetness: z.enum(ALLOWED_SWEETNESS).nullable().optional().or(z.literal('').transform(() => null)),
+  preferredBody: z.enum(ALLOWED_BODY).nullable().optional().or(z.literal('').transform(() => null)),
+  preferredAcidity: z.enum(ALLOWED_ACIDITY).nullable().optional().or(z.literal('').transform(() => null)),
+  favoriteWineId: z.string().uuid('Favorite wine ID must be a valid UUID').nullable().optional().or(z.literal('').transform(() => null)),
+});
+
+export type GuestWineProfileUpdateInput = z.infer<typeof GuestWineProfileUpdateSchema>;
+
 export const GuestProfileUpdateSchema = z.object({
   name: z.string().trim().min(2, 'Name must be at least 2 characters').max(100, 'Name must not exceed 100 characters').optional(),
   phone: z.string().trim().max(30, 'Phone must not exceed 30 characters').optional().nullable(),
