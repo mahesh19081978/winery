@@ -2009,10 +2009,11 @@ export class ReviewRepository {
     });
   }
 
-  // Fields returned to authorized staff on /api/admin/reviews (read-only).
+  // Fields returned to authorized staff on /api/admin/reviews.
   // No passwordHash / session data; guest identity limited to profile name/email.
   static readonly adminReviewSelect = {
     id: true,
+    wineryId: true,
     authorName: true,
     rating: true,
     title: true,
@@ -2044,6 +2045,21 @@ export class ReviewRepository {
     },
   } satisfies Prisma.ReviewSelect;
 
+  static async findByIdForAdmin(id: string) {
+    return prisma.review.findUnique({
+      where: { id },
+      select: ReviewRepository.adminReviewSelect,
+    });
+  }
+
+  static async updateStatus(id: string, status: ReviewStatus) {
+    return prisma.review.update({
+      where: { id },
+      data: { status },
+      select: ReviewRepository.adminReviewSelect,
+    });
+  }
+
   static async findPageForAdmin(
     filters: {
       page?: number;
@@ -2051,6 +2067,7 @@ export class ReviewRepository {
       status?: ReviewStatus;
       category?: string;
       search?: string;
+      wineryId?: string;
     } = {}
   ) {
     const page = filters.page || 1;
@@ -2060,6 +2077,7 @@ export class ReviewRepository {
     const where: Prisma.ReviewWhereInput = {};
     if (filters.status) where.status = filters.status;
     if (filters.category) where.category = filters.category as import('@prisma/client').ReviewCategory;
+    if (filters.wineryId) where.wineryId = filters.wineryId;
 
     const search = filters.search?.trim();
     if (search) {

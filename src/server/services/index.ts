@@ -38,6 +38,7 @@ import {
   WineVintageUpdateInput,
   GuestReviewCreateInput,
   GuestReviewListQuery,
+  AdminReviewModerationInput,
 } from '../validators';
 import { prisma } from '@/lib/db';
 import { BookingStatus, ReviewStatus, Prisma } from '@prisma/client';
@@ -2262,6 +2263,7 @@ export class AdminReviewService {
     status?: string;
     category?: string;
     search?: string;
+    wineryId?: string;
   }): Promise<{
     items: AdminReviewItem[];
     pagination: { page: number; pageSize: number; total: number; totalPages: number };
@@ -2275,6 +2277,7 @@ export class AdminReviewService {
       status: query.status as ReviewStatus | undefined,
       category: query.category,
       search: query.search,
+      wineryId: query.wineryId,
     });
 
     const eventBookingNumbers = await ReviewRepository.findEventBookingNumbersForReviews(
@@ -2317,6 +2320,103 @@ export class AdminReviewService {
     }));
 
     return { items, pagination };
+  }
+
+  static async getById(
+    id: string,
+    session?: { wineryId?: string | null }
+  ): Promise<AdminReviewItem> {
+    const review = await ReviewRepository.findByIdForAdmin(id);
+    if (!review) {
+      const err = new Error('Review not found') as Error & { statusCode?: number };
+      err.statusCode = 404;
+      throw err;
+    }
+
+    if (session?.wineryId && review.wineryId !== session.wineryId) {
+      const err = new Error('Unauthorized: cannot access review for another winery') as Error & { statusCode?: number };
+      err.statusCode = 403;
+      throw err;
+    }
+
+    let eventBookingNumber: string | null = null;
+    if (review.guestProfile && review.event) {
+      const map = await ReviewRepository.findEventBookingNumbersForReviews([
+        { guestProfileId: review.guestProfile.id, eventId: review.event.id },
+      ]);
+      eventBookingNumber = map.get(`${review.guestProfile.id}:${review.event.id}`) ?? null;
+    }
+
+    return {
+      id: review.id,
+      authorName: review.authorName,
+      guestName: review.guestProfile?.name ?? null,
+      guestEmail: review.guestProfile?.user?.email ?? null,
+      rating: review.rating,
+      title: review.title,
+      comment: review.comment,
+      category: String(review.category),
+      targetName: review.targetName,
+      status: String(review.status),
+      verified: review.verified,
+      createdAt: review.createdAt.toISOString(),
+      updatedAt: review.updatedAt.toISOString(),
+      booking: review.booking
+        ? {
+            bookingNumber: review.booking.bookingNumber,
+            date: review.booking.date.toISOString(),
+            status: String(review.booking.status),
+          }
+        : null,
+      eventBookingNumber,
+      experience: review.experience,
+      wine: review.wine,
+      event: review.event
+        ? { ...review.event, eventDate: review.event.eventDate.toISOString() }
+        : null,
+    };
+  }
+
+  static async moderateReview(
+    id: string,
+    input: AdminReviewModerationInput,
+    session: { wineryId?: string | null }
+  ): Promise<AdminReviewItem> {
+    const review = await ReviewRepository.findByIdForAdmin(id);
+    if (!review) {
+      const err = new Error('Review not found') as Error & { statusCode?: number };
+      err.statusCode = 404;
+      throw err;
+    }
+
+    if (session.wineryId && review.wineryId !== session.wineryId) {
+      const err = new Error('Unauthorized: cannot moderate review for another winery') as Error & { statusCode?: number };
+      err.statusCode = 403;
+      throw err;
+    }
+
+    const currentStatus = review.status;
+    const targetStatus = input.action === 'APPROVE' ? ReviewStatus.APPROVED : ReviewStatus.REJECTED;
+
+    // Idempotent: if already in the target status, return cleanly
+    if (currentStatus === targetStatus) {
+      return this.getById(id, session);
+    }
+
+    // Invalid state transition: re-moderation blocked once already APPROVED or REJECTED
+    if (currentStatus === ReviewStatus.APPROVED) {
+      const err = new Error('Review has already been approved and cannot be rejected') as Error & { statusCode?: number };
+      err.statusCode = 409;
+      throw err;
+    }
+    if (currentStatus === ReviewStatus.REJECTED) {
+      const err = new Error('Review has already been rejected and cannot be approved') as Error & { statusCode?: number };
+      err.statusCode = 409;
+      throw err;
+    }
+
+    await ReviewRepository.updateStatus(id, targetStatus);
+    return this.getById(id, session);
   }
 }
 

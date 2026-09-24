@@ -171,6 +171,14 @@ export const GuestReviewListQuerySchema = z.object({
 
 export type GuestReviewListQuery = z.infer<typeof GuestReviewListQuerySchema>;
 
+// --- Admin Review Moderation (Phase 6.9) ---
+export const AdminReviewModerationSchema = z.object({
+  action: z.enum(['APPROVE', 'REJECT'], { message: 'Invalid action. Must be APPROVE or REJECT' }),
+  reason: z.string().trim().max(1000).optional(),
+});
+
+export type AdminReviewModerationInput = z.infer<typeof AdminReviewModerationSchema>;
+
 export const BookingStatusUpdateSchema = z.object({
   status: z.enum(['PENDING', 'CONFIRMED', 'CHECKED_IN', 'COMPLETED', 'CANCELLED', 'NO_SHOW']),
   notes: z.string().optional().default(''),

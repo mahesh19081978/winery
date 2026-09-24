@@ -7,8 +7,11 @@ import { AdminReviewService } from '@/server/services';
 export async function GET(request: NextRequest) {
   try {
     const session = await AuthService.getSession();
-    if (!session || !AuthService.isStaffRole(session.role)) {
+    if (!session) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+    if (!AuthService.isStaffRole(session.role)) {
+      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
     }
 
     const { searchParams } = new URL(request.url);
@@ -45,6 +48,7 @@ export async function GET(request: NextRequest) {
       category,
       page,
       pageSize: Math.min(pageSize, 50),
+      wineryId: session.wineryId || undefined,
     });
 
     return NextResponse.json({ success: true, data: result });
