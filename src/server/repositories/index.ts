@@ -1470,6 +1470,68 @@ export class TastingRepository {
       },
     });
   }
+
+  static async findJourneyForGuest(
+    guestProfileId: string,
+    filters: { page?: number; pageSize?: number; search?: string } = {}
+  ) {
+    const page = filters.page || 1;
+    const pageSize = filters.pageSize || 20;
+    const skip = (page - 1) * pageSize;
+
+    const where: Prisma.TastingRecordWhereInput = { guestProfileId };
+
+    const search = filters.search?.trim();
+    if (search) {
+      where.OR = [
+        { wineNameSnapshot: { contains: search, mode: 'insensitive' } },
+        { notes: { contains: search, mode: 'insensitive' } },
+        { experienceName: { contains: search, mode: 'insensitive' } },
+        { wineVintage: { wine: { name: { contains: search, mode: 'insensitive' } } } },
+        { wineVintage: { wine: { slug: { contains: search, mode: 'insensitive' } } } },
+      ];
+    }
+
+    const [records, total] = await Promise.all([
+      prisma.tastingRecord.findMany({
+        where,
+        select: {
+          id: true,
+          tastedAt: true,
+          notes: true,
+          rating: true,
+          wouldDrinkAgain: true,
+          experienceName: true,
+          tasteCharacteristics: true,
+          tastingSession: {
+            select: {
+              id: true,
+              sessionDate: true,
+              location: true,
+              notes: true,
+              booking: { select: { bookingNumber: true, date: true } },
+            },
+          },
+          wineVintage: {
+            select: {
+              id: true,
+              vintageYear: true,
+              wine: { select: { id: true, name: true, slug: true, category: true } },
+            },
+          },
+        },
+        orderBy: [{ tastedAt: 'desc' }, { id: 'desc' }],
+        skip,
+        take: pageSize,
+      }),
+      prisma.tastingRecord.count({ where }),
+    ]);
+
+    return {
+      records,
+      pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+    };
+  }
 }
 
 export class ReviewRepository {

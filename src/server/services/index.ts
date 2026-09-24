@@ -1285,6 +1285,88 @@ export class GuestBookingService {
   }
 }
 
+export interface JourneyTastingItem {
+  id: string;
+  tastingDate: string;
+  rating: string;
+  wouldDrinkAgain: string;
+  notes: string;
+  tasteCharacteristics: string[];
+  experienceName: string | null;
+  wine: {
+    id: string;
+    name: string;
+    slug: string;
+    category: string;
+  };
+  wineVintageId: string;
+  vintageYear: number;
+  session: {
+    id: string;
+    sessionDate: string;
+    location: string | null;
+    notes: string | null;
+  } | null;
+  booking: {
+    bookingNumber: string;
+    date: string;
+  } | null;
+}
+
+export class GuestJourneyService {
+  static async listForGuest(
+    guestProfileId: string,
+    params: { page?: number; pageSize?: number; search?: string } = {}
+  ): Promise<{
+    items: JourneyTastingItem[];
+    pagination: { page: number; pageSize: number; total: number; totalPages: number };
+  }> {
+    const page = Math.max(params.page || 1, 1);
+    const pageSize = Math.min(Math.max(params.pageSize || 20, 1), 50);
+    const search = params.search?.trim() ? params.search.trim() : undefined;
+
+    const { records, pagination } = await TastingRepository.findJourneyForGuest(guestProfileId, {
+      page,
+      pageSize,
+      search,
+    });
+
+    const items: JourneyTastingItem[] = records.map((record) => ({
+      id: record.id,
+      tastingDate: record.tastedAt.toISOString(),
+      rating: record.rating.toString(),
+      wouldDrinkAgain: record.wouldDrinkAgain,
+      notes: record.notes,
+      tasteCharacteristics: record.tasteCharacteristics,
+      experienceName: record.experienceName ?? null,
+      wine: {
+        id: record.wineVintage.wine.id,
+        name: record.wineVintage.wine.name,
+        slug: record.wineVintage.wine.slug,
+        category: record.wineVintage.wine.category,
+      },
+      wineVintageId: record.wineVintage.id,
+      vintageYear: record.wineVintage.vintageYear,
+      session: record.tastingSession
+        ? {
+            id: record.tastingSession.id,
+            sessionDate: record.tastingSession.sessionDate.toISOString(),
+            location: record.tastingSession.location ?? null,
+            notes: record.tastingSession.notes ?? null,
+          }
+        : null,
+      booking: record.tastingSession?.booking
+        ? {
+            bookingNumber: record.tastingSession.booking.bookingNumber,
+            date: record.tastingSession.booking.date.toISOString(),
+          }
+        : null,
+    }));
+
+    return { items, pagination };
+  }
+}
+
 function getDatePartsForTimeZone(date: Date, timeZone: string) {
   const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone,

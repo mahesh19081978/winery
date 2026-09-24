@@ -16,9 +16,9 @@ import {
 } from 'lucide-react';
 
 const ACCOUNT_NAV = [
-  { label: 'My Wine Journey', href: '/app', icon: Compass },
+  { label: 'Overview', href: '/app', icon: Compass },
   { label: 'Bookings', href: '/app/bookings', icon: Calendar },
-  { label: 'Tasting Journal', href: '/app/journey', icon: BookOpen },
+  { label: 'My Wine Journey', href: '/app/journey', icon: BookOpen },
   { label: 'My Tastings', href: '/app/tastings', icon: Wine },
   { label: 'My Wines', href: '/app/wines', icon: Sparkles },
   { label: 'Events', href: '/app/events', icon: Calendar },
