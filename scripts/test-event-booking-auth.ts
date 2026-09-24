@@ -30,6 +30,7 @@
  *  22. Complete test cleanup of all test users, guests, and event bookings.
  */
 import { PrismaClient } from '@prisma/client';
+import { EventBookingService } from '../src/server/services';
 
 const prisma = new PrismaClient();
 const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3000';
@@ -92,6 +93,15 @@ async function register(jar: CookieJar, email: string, name: string) {
   return { status: res.status, data: await res.json() };
 }
 
+async function cleanupTestEventBooking(eb: { id: string; bookingNumber: string; status: string }) {
+  if (eb.status === 'CONFIRMED' || eb.status === 'PENDING') {
+    await EventBookingService.cancelBooking(eb.bookingNumber, 'Phase 6.4 test cleanup');
+  }
+  await prisma.eventBookingStatusHistory.deleteMany({ where: { eventBookingId: eb.id } });
+  await prisma.eventBookingTicket.deleteMany({ where: { eventBookingId: eb.id } });
+  await prisma.eventBooking.delete({ where: { id: eb.id } });
+}
+
 async function main() {
   console.log(`--- Starting Phase 6.4 Authenticated Event Booking Tests (Run: ${RUN}) ---`);
 
@@ -127,6 +137,7 @@ async function main() {
   const event = eventWithData;
   const schedule = eventWithData.schedules[0];
   const ticketType = availableTicketTypes[0];
+  const initialSoldCounts = new Map(eventWithData.ticketTypes.map((tt) => [tt.id, tt.soldCount]));
 
   console.log(`Using Event: "${event.title}" (id: ${event.id})`);
   console.log(`Schedule: ${schedule.timeSlot} — ${schedule.activity} (id: ${schedule.id})`);
@@ -257,11 +268,9 @@ async function main() {
     `Attached to Profile: ${spoofDbBooking?.guestProfileId}`
   );
 
-  // Clean up spoof booking
+  // Clean up spoof booking (cancel first so soldCount is released)
   if (spoofDbBooking) {
-    await prisma.eventBookingStatusHistory.deleteMany({ where: { eventBookingId: spoofDbBooking.id } });
-    await prisma.eventBookingTicket.deleteMany({ where: { eventBookingId: spoofDbBooking.id } });
-    await prisma.eventBooking.delete({ where: { id: spoofDbBooking.id } });
+    await cleanupTestEventBooking(spoofDbBooking);
   }
 
   // ---------------------------------------------------------
@@ -405,13 +414,11 @@ async function main() {
     `Recorded: $${recordedTotal}, Expected: ~$${expectedServerTotal}`
   );
 
-  // Clean up forged-price booking
+  // Clean up forged-price booking (cancel first so soldCount is released)
   if (forgedPriceData.data?.bookingNumber) {
     const fp = await prisma.eventBooking.findUnique({ where: { bookingNumber: forgedPriceData.data.bookingNumber } });
     if (fp) {
-      await prisma.eventBookingStatusHistory.deleteMany({ where: { eventBookingId: fp.id } });
-      await prisma.eventBookingTicket.deleteMany({ where: { eventBookingId: fp.id } });
-      await prisma.eventBooking.delete({ where: { id: fp.id } });
+      await cleanupTestEventBooking(fp);
     }
   }
 
@@ -448,13 +455,11 @@ async function main() {
       'Test 19: Multi-ticket-type booking sums to correct server-computed total',
       `Recorded: $${recordedMultiTotal}, Expected: ~$${expectedMultiTotal}`
     );
-    // Clean up
+    // Clean up (cancel first so soldCount is released)
     if (multiData.data?.bookingNumber) {
       const mb = await prisma.eventBooking.findUnique({ where: { bookingNumber: multiData.data.bookingNumber } });
       if (mb) {
-        await prisma.eventBookingStatusHistory.deleteMany({ where: { eventBookingId: mb.id } });
-        await prisma.eventBookingTicket.deleteMany({ where: { eventBookingId: mb.id } });
-        await prisma.eventBooking.delete({ where: { id: mb.id } });
+        await cleanupTestEventBooking(mb);
       }
     }
   } else {
@@ -633,9 +638,7 @@ async function main() {
     });
 
     for (const eb of eventBookings) {
-      await prisma.eventBookingStatusHistory.deleteMany({ where: { eventBookingId: eb.id } });
-      await prisma.eventBookingTicket.deleteMany({ where: { eventBookingId: eb.id } });
-      await prisma.eventBooking.delete({ where: { id: eb.id } });
+      await cleanupTestEventBooking(eb);
     }
 
     await prisma.guestWinePreference.deleteMany({
@@ -651,9 +654,37 @@ async function main() {
       where: { email: { in: testEmails } },
     });
 
-    // Verify residual cleanup
+    // Verify residual cleanup and soldCount restoration
     const residualUsers = await prisma.user.count({ where: { email: { in: testEmails } } });
-    assert(residualUsers === 0, 'Test 22: Complete cleanup — 0 residual test users in DB', `Residual: ${residualUsers}`);
+    const residualEventBookings = await prisma.eventBooking.count({
+      where: { guestProfileId: { in: allProfileIds } },
+    });
+    const residualTickets = await prisma.eventBookingTicket.count({
+      where: { eventBooking: { guestProfileId: { in: allProfileIds } } },
+    });
+    const residualHistory = await prisma.eventBookingStatusHistory.count({
+      where: { eventBooking: { guestProfileId: { in: allProfileIds } } },
+    });
+    let soldCountRestored = true;
+    let soldCountDrift = '';
+    for (const [ttId, initial] of initialSoldCounts) {
+      const after = await prisma.eventTicketType.findUnique({ where: { id: ttId } });
+      if (after?.soldCount !== initial) {
+        soldCountRestored = false;
+        soldCountDrift += ` ${ttId}:${initial}->${after?.soldCount};`;
+      }
+    }
+    assert(
+      residualUsers === 0 &&
+        residualEventBookings === 0 &&
+        residualTickets === 0 &&
+        residualHistory === 0 &&
+        soldCountRestored,
+      'Test 22: Complete cleanup — 0 residual test users/bookings/tickets/history and soldCount restored',
+      `users:${residualUsers} evt:${residualEventBookings} tickets:${residualTickets} history:${residualHistory}${
+        soldCountDrift ? ' drift:' + soldCountDrift : ''
+      }`
+    );
   } catch (err) {
     console.error('Cleanup error:', err);
     assert(false, 'Test 22: Cleanup failed');
