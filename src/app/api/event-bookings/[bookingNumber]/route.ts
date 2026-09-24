@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { EventBookingService } from '@/server/services';
+import { getGuestSession } from '@/lib/auth/guest';
+import { AuthService } from '@/lib/auth';
 
 export async function GET(
   _request: NextRequest,
@@ -8,6 +10,21 @@ export async function GET(
   try {
     const { bookingNumber } = await context.params;
     const booking = await EventBookingService.getBookingByNumber(bookingNumber);
+
+    // Check sessions
+    const guestSession = await getGuestSession();
+    if (guestSession) {
+      // Authenticated GUEST: strictly enforce ownership
+      if (booking.guestProfileId !== guestSession.guestProfileId) {
+        return NextResponse.json({ success: false, error: 'Event booking not found' }, { status: 404 });
+      }
+    } else {
+      // Check staff/admin session
+      const adminSession = await AuthService.getSession();
+      if (!adminSession || !AuthService.isStaffRole(adminSession.role)) {
+        // Unauthenticated public lookup by exact booking number is allowed (preserves public confirmation view)
+      }
+    }
 
     // Customer-facing DTO - follows existing public booking lookup convention
     // bookingNumber is treated as public identifier (similar to /api/bookings/[bookingNumber])
@@ -64,6 +81,27 @@ export async function DELETE(
 ) {
   try {
     const { bookingNumber } = await context.params;
+    const booking = await EventBookingService.getBookingByNumber(bookingNumber);
+
+    // Check sessions
+    const guestSession = await getGuestSession();
+    if (guestSession) {
+      // Authenticated GUEST: strictly enforce ownership
+      if (booking.guestProfileId !== guestSession.guestProfileId) {
+        return NextResponse.json({ success: false, error: 'Unauthorized to cancel this booking' }, { status: 403 });
+      }
+    } else {
+      // If not a guest session, check if it's admin or public
+      const adminSession = await AuthService.getSession();
+      if (!adminSession || !AuthService.isStaffRole(adminSession.role)) {
+        // Unauthenticated public cancellation - only permitted if booking was unauthenticated (not belonging to a registered user with password)
+        const isRegisteredAccount = booking.guestProfile?.user?.passwordHash !== null && booking.guestProfile?.user?.passwordHash !== undefined;
+        if (isRegisteredAccount) {
+          return NextResponse.json({ success: false, error: 'Authentication required to manage this reservation' }, { status: 401 });
+        }
+      }
+    }
+
     let reason: string | undefined;
     try {
       const body = await request.json();

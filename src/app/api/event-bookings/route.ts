@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { EventBookingService } from '@/server/services';
 import { EventBookingCreateSchema } from '@/server/validators';
+import { getGuestSession } from '@/lib/auth/guest';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const validated = EventBookingCreateSchema.parse(body);
 
-    const booking = await EventBookingService.createBooking(validated);
+    const guestSession = await getGuestSession();
+    const booking = await EventBookingService.createBooking(validated, guestSession);
 
     // Build customer-facing DTO (avoid leaking internal IDs unnecessarily)
     const dto = {

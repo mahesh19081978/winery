@@ -860,7 +860,9 @@ export class BookingRepository {
       });
 
       return booking;
-    });
+    },
+    { maxWait: 30000, timeout: 30000 }
+    );
   }
 
   static async cancelBooking(bookingId: string, reason?: string) {
@@ -888,7 +890,9 @@ export class BookingRepository {
       });
 
       return updated;
-    });
+    },
+    { maxWait: 30000, timeout: 30000 }
+    );
   }
 }
 
@@ -1562,7 +1566,7 @@ export class EventBookingRepository {
         },
         eventSchedule: true,
         guestProfile: {
-          include: { user: { select: { email: true } } },
+          include: { user: { select: { id: true, email: true, passwordHash: true } } },
         },
         tickets: {
           include: { ticketType: true },

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useGuest } from '@/context/GuestContext';
 import { useParams } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -111,6 +112,16 @@ export default function EventDetailPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [successBooking, setSuccessBooking] = useState<{ bookingNumber: string; totalPrice: string; status: string } | null>(null);
+
+  // Authenticated guest prefill
+  const { profile, isAuthenticated, isLoading: guestLoading } = useGuest();
+  useEffect(() => {
+    if (!guestLoading && isAuthenticated && profile) {
+      if (!guestName && profile.name && profile.name !== 'Guest') setGuestName(profile.name);
+      if (!guestEmail && profile.email) setGuestEmail(profile.email);
+      if (!guestPhone && profile.phone) setGuestPhone(profile.phone);
+    }
+  }, [guestLoading, isAuthenticated, profile, guestName, guestEmail, guestPhone]);
 
   useEffect(() => {
     if (!slug) return;
@@ -405,6 +416,9 @@ export default function EventDetailPage() {
                     <div className="flex flex-col gap-2">
                       <Link href={`/event-booking/${successBooking.bookingNumber}`} className="w-full py-3 rounded-full bg-[#2d1117] text-[#faf8f5] text-xs font-semibold uppercase tracking-wider text-center hover:bg-[#461822] transition-colors">View Booking Details</Link>
                       <button type="button" onClick={() => setSuccessBooking(null)} className="text-xs text-[#8a3243] underline pt-1">Make another reservation</button>
+                      {isAuthenticated && (
+                        <Link href="/guest/profile" className="text-xs text-[#525960] underline text-center pt-0.5 hover:text-[#2d1117]">My Wine Journey Account</Link>
+                      )}
                     </div>
                   </div>
                 ) : !bookable.bookable ? (
@@ -527,6 +541,13 @@ export default function EventDetailPage() {
                           </div>
                           <button type="button" onClick={() => setStep('tickets')} className="text-xs text-[#8a3243] underline">Back</button>
                         </div>
+                        {isAuthenticated && (
+                          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-800">
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+                            <span className="font-semibold">VINORA Guest Member (Auto-Filled)</span>
+                            <span className="text-emerald-600 ml-auto hidden sm:block">Fields pre-filled from your account</span>
+                          </div>
+                        )}
                         <div className="space-y-3">
                           <div>
                             <label className="block text-xs uppercase tracking-wider font-semibold text-[#191c1f] mb-1 flex items-center gap-1"><User className="w-3 h-3" /> Full Name *</label>
@@ -546,6 +567,7 @@ export default function EventDetailPage() {
                         <button type="button" onClick={() => setStep('review')} disabled={!hasValidGuest} className="w-full py-3 rounded-full bg-[#2d1117] hover:bg-[#461822] disabled:opacity-40 text-[#faf8f5] text-xs font-bold uppercase tracking-[0.2em]">Review Booking</button>
                       </div>
                     )}
+
 
                     {/* Step: Review */}
                     {step === 'review' && (

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useGuest } from '@/context/GuestContext';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import QRCodePlaceholder from '@/components/booking/QRCodePlaceholder';
@@ -51,6 +52,8 @@ export default function EventBookingDetailPage() {
   const [booking, setBooking] = useState<EventBookingDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const { isAuthenticated } = useGuest();
 
   useEffect(() => {
     if (!bookingNumber) return;
@@ -182,6 +185,11 @@ export default function EventBookingDetailPage() {
               <Link href="/events" className="flex-1 py-3 rounded-full bg-[#2d1117] text-[#faf8f5] text-xs font-semibold uppercase tracking-wider text-center hover:bg-[#461822]">Explore More Events</Link>
               <Link href="/" className="flex-1 py-3 rounded-full border border-[#e6dece] text-xs font-semibold uppercase tracking-wider text-center hover:bg-[#f4f0e8]">Back to Home</Link>
             </div>
+            {isAuthenticated && (
+              <div className="text-center pt-1">
+                <Link href="/guest/profile" className="text-xs text-[#525960] underline hover:text-[#2d1117]">My Wine Journey Account</Link>
+              </div>
+            )}
           </div>
         </div>
       </div>

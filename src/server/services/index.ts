@@ -891,7 +891,10 @@ export class EventBookingService {
     return booking;
   }
 
-  static async createBooking(input: EventBookingCreateInput) {
+  static async createBooking(
+    input: EventBookingCreateInput,
+    guestSession?: import('@/lib/auth/guest').GuestSessionPayload | null
+  ) {
     // Validate event exists and is bookable
     const event = await prisma.event.findUnique({
       where: { id: input.eventId },
@@ -932,55 +935,70 @@ export class EventBookingService {
       }
     }
 
-    // Ensure or retrieve GuestProfile (reuse existing User+GuestProfile pattern, avoid duplicates)
-    let guestProfile = await prisma.guestProfile.findFirst({
-      where: { user: { email: input.guestEmail } },
-    });
-
-    if (!guestProfile) {
-      let user = await prisma.user.findUnique({
-        where: { email: input.guestEmail },
+    // Resolve GuestProfile ownership:
+    // If an authenticated guest session is present, ALWAYS derive ownership strictly from session.guestProfileId.
+    // Client-supplied email/userId is ignored for ownership identity.
+    let guestProfileId: string;
+    if (guestSession?.guestProfileId) {
+      const authenticatedProfile = await prisma.guestProfile.findUnique({
+        where: { id: guestSession.guestProfileId },
+      });
+      if (!authenticatedProfile) {
+        throw new EventBookingError('Authenticated guest profile not found', 404);
+      }
+      guestProfileId = authenticatedProfile.id;
+    } else {
+      // Unauthenticated public flow: lookup or create guest user/profile by input.guestEmail
+      let guestProfile = await prisma.guestProfile.findFirst({
+        where: { user: { email: input.guestEmail } },
       });
 
-      if (!user) {
+      if (!guestProfile) {
+        let user = await prisma.user.findUnique({
+          where: { email: input.guestEmail },
+        });
+
+        if (!user) {
+          try {
+            user = await prisma.user.create({
+              data: {
+                email: input.guestEmail,
+                wineryId: event.wineryId,
+                role: 'GUEST',
+              },
+            });
+          } catch (e) {
+            if (isPrismaUniqueViolation(e)) {
+              user = await prisma.user.findUnique({ where: { email: input.guestEmail } });
+              if (!user) throw new EventBookingError('Failed to create guest user', 500);
+            } else {
+              throw e;
+            }
+          }
+        }
+
         try {
-          user = await prisma.user.create({
+          guestProfile = await prisma.guestProfile.create({
             data: {
-              email: input.guestEmail,
-              wineryId: event.wineryId,
-              role: 'GUEST',
+              userId: user.id,
+              name: input.guestName,
+              phone: input.guestPhone,
             },
           });
         } catch (e) {
           if (isPrismaUniqueViolation(e)) {
-            user = await prisma.user.findUnique({ where: { email: input.guestEmail } });
-            if (!user) throw new EventBookingError('Failed to create guest user', 500);
+            guestProfile = await prisma.guestProfile.findFirst({ where: { userId: user.id } });
+            if (!guestProfile) {
+              // Fallback: find by email again
+              guestProfile = await prisma.guestProfile.findFirst({ where: { user: { email: input.guestEmail } } });
+            }
+            if (!guestProfile) throw new EventBookingError('Failed to create guest profile', 500);
           } else {
             throw e;
           }
         }
       }
-
-      try {
-        guestProfile = await prisma.guestProfile.create({
-          data: {
-            userId: user.id,
-            name: input.guestName,
-            phone: input.guestPhone,
-          },
-        });
-      } catch (e) {
-        if (isPrismaUniqueViolation(e)) {
-          guestProfile = await prisma.guestProfile.findFirst({ where: { userId: user.id } });
-          if (!guestProfile) {
-            // Fallback: find by email again
-            guestProfile = await prisma.guestProfile.findFirst({ where: { user: { email: input.guestEmail } } });
-          }
-          if (!guestProfile) throw new EventBookingError('Failed to create guest profile', 500);
-        } else {
-          throw e;
-        }
-      }
+      guestProfileId = guestProfile.id;
     }
 
     // Server-side pricing: quantity x current price per ticket type
@@ -1012,7 +1030,7 @@ export class EventBookingService {
           bookingNumber,
           eventId: input.eventId,
           eventScheduleId: input.eventScheduleId,
-          guestProfileId: guestProfile.id,
+          guestProfileId,
           totalPrice,
           tickets: ticketsWithPricing,
         });
