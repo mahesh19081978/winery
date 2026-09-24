@@ -438,3 +438,20 @@ export const WineVintageUpdateSchema = z.object({
 
 export type WineVintageCreateInput = z.infer<typeof WineVintageCreateSchema>;
 export type WineVintageUpdateInput = z.infer<typeof WineVintageUpdateSchema>;
+
+export const guestNotificationListQuerySchema = z.object({
+  type: z.enum(['all', 'unread']).default('all'),
+  page: z.preprocess((val) => (val === undefined || val === null || val === '' ? 1 : Number(val)), z.number().int().min(1)),
+  pageSize: z.preprocess((val) => (val === undefined || val === null || val === '' ? 20 : Number(val)), z.number().int().min(1).max(50)),
+});
+export type GuestNotificationListQuery = z.infer<typeof guestNotificationListQuerySchema>;
+
+export const guestNotificationActionSchema = z.object({
+  action: z.literal('MARK_READ'),
+});
+export type GuestNotificationActionInput = z.infer<typeof guestNotificationActionSchema>;
+
+export const guestNotificationBatchActionSchema = z.object({
+  action: z.literal('MARK_ALL_READ'),
+});
+export type GuestNotificationBatchActionInput = z.infer<typeof guestNotificationBatchActionSchema>;

@@ -15,6 +15,7 @@ import {
   TastingRepository,
   ReviewRepository,
   GuestBookingTimelineFilter,
+  NotificationRepository,
 } from '../repositories';
 import {
   BookingCreateInput,
@@ -39,9 +40,12 @@ import {
   GuestReviewCreateInput,
   GuestReviewListQuery,
   AdminReviewModerationInput,
+  GuestNotificationListQuery,
 } from '../validators';
 import { prisma } from '@/lib/db';
-import { BookingStatus, ReviewStatus, Prisma } from '@prisma/client';
+import { BookingStatus, ReviewStatus, Prisma, NotificationChannel, NotificationType } from '@prisma/client';
+import { sendGuestNotificationEmail } from '@/lib/email';
+import type { GuestSessionPayload } from '@/lib/auth/guest';
 import { createHash, randomBytes } from 'crypto';
 
 export class EventBookingError extends Error {
@@ -862,7 +866,7 @@ export class BookingService {
     const bookingNumber = `DVR-${year}-${randomCode}`;
 
     // 4. Atomic database transaction with row-level concurrency lock
-    return BookingRepository.createBookingWithTransaction({
+    const booking = await BookingRepository.createBookingWithTransaction({
       bookingNumber,
       wineryId: experience.wineryId,
       guestProfileId,
@@ -883,6 +887,10 @@ export class BookingService {
       guestEmail: input.guestEmail,
       guestPhone: input.guestPhone,
     }, maxAllowedCapacity);
+
+    await GuestNotificationService.notifyExperienceBookingConfirmed(booking, experience.title);
+
+    return booking;
   }
 
   static async cancelBooking(bookingNumber: string, reason?: string) {
@@ -891,7 +899,13 @@ export class BookingService {
       throw new Error(`Booking ${bookingNumber} not found`);
     }
 
-    return BookingRepository.cancelBooking(booking.id, reason);
+    if (booking.status === BookingStatus.CANCELLED) {
+      return booking;
+    }
+
+    const cancelled = await BookingRepository.cancelBooking(booking.id, reason);
+    await GuestNotificationService.notifyExperienceBookingCancelled(booking, reason);
+    return cancelled;
   }
 }
 
@@ -1054,6 +1068,9 @@ export class EventBookingService {
           totalPrice,
           tickets: ticketsWithPricing,
         });
+
+        await GuestNotificationService.notifyEventBookingConfirmed(booking, event.title);
+
         return booking;
       } catch (error: unknown) {
         lastError = error;
@@ -1101,7 +1118,9 @@ export class EventBookingService {
     }
 
     try {
-      return await EventBookingRepository.cancelBooking(existing.id, reason);
+      const cancelled = await EventBookingRepository.cancelBooking(existing.id, reason);
+      await GuestNotificationService.notifyEventBookingCancelled(existing, existing.event?.title, reason);
+      return cancelled;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes('Cannot cancel') || message.includes('cannot be cancelled')) {
@@ -2233,6 +2252,418 @@ export class GuestReviewService {
   }
 }
 
+export interface GuestNotificationDTO {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  read: boolean;
+  isRead: boolean;
+  readAt: string | null;
+  createdAt: string;
+  targetUrl: string | null;
+}
+
+export class GuestNotificationService {
+  static toDTO(notification: import('@prisma/client').Notification): GuestNotificationDTO {
+    const meta = (notification.metadata as Record<string, unknown>) || {};
+    const read = Boolean(meta.read);
+    const readAt = (meta.readAt as string) || null;
+    const eventType = (meta.eventType as string) || String(notification.type);
+    const targetUrl = (meta.targetUrl as string) || null;
+
+    return {
+      id: notification.id,
+      type: eventType,
+      title: notification.title,
+      message: notification.content,
+      read,
+      isRead: read,
+      readAt,
+      createdAt: notification.createdAt.toISOString(),
+      targetUrl,
+    };
+  }
+
+  static async listForGuest(
+    session: GuestSessionPayload,
+    query: GuestNotificationListQuery
+  ) {
+    const unreadOnly = query.type === 'unread';
+    const page = Math.max(query.page || 1, 1);
+    const pageSize = Math.min(Math.max(query.pageSize || 20, 1), 50);
+
+    const [result, unreadCount] = await Promise.all([
+      NotificationRepository.findManyByRecipient({
+        recipient: session.email,
+        unreadOnly,
+        page,
+        pageSize,
+      }),
+      NotificationRepository.countUnreadByRecipient(session.email),
+    ]);
+
+    return {
+      items: result.items.map(GuestNotificationService.toDTO),
+      pagination: {
+        page: result.page,
+        pageSize: result.pageSize,
+        total: result.total,
+        totalPages: result.totalPages,
+      },
+      unreadCount,
+    };
+  }
+
+  static async getForGuest(session: GuestSessionPayload, id: string): Promise<GuestNotificationDTO> {
+    const notification = await NotificationRepository.findByIdAndRecipient(id, session.email);
+    if (!notification) {
+      const err = new Error('Notification not found') as Error & { statusCode?: number };
+      err.statusCode = 404;
+      throw err;
+    }
+    return GuestNotificationService.toDTO(notification);
+  }
+
+  static async markAsRead(session: GuestSessionPayload, id: string): Promise<GuestNotificationDTO> {
+    const updated = await NotificationRepository.markAsRead(id, session.email);
+    if (!updated) {
+      const err = new Error('Notification not found') as Error & { statusCode?: number };
+      err.statusCode = 404;
+      throw err;
+    }
+    return GuestNotificationService.toDTO(updated);
+  }
+
+  static async markAllAsRead(session: GuestSessionPayload): Promise<{ markedCount: number }> {
+    const markedCount = await NotificationRepository.markAllAsRead(session.email);
+    return { markedCount };
+  }
+
+  // --- Notification Event Dispatchers ---
+
+  static async notifyExperienceBookingConfirmed(
+    booking: {
+      bookingNumber: string;
+      guestProfileId: string;
+      date: Date;
+      time: string;
+      totalGuests: number;
+    },
+    experienceTitle: string
+  ): Promise<void> {
+    try {
+      const profile = await prisma.guestProfile.findUnique({
+        where: { id: booking.guestProfileId },
+        select: {
+          id: true,
+          name: true,
+          emailNotifications: true,
+          user: { select: { email: true } },
+        },
+      });
+
+      if (!profile?.user?.email) return;
+
+      const dateStr = booking.date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+      const title = `Booking Confirmed: ${experienceTitle || 'Wine Tasting'}`;
+      const message = `Your reservation ${booking.bookingNumber} for ${experienceTitle || 'Wine Tasting'} on ${dateStr} at ${booking.time} has been confirmed.`;
+
+      await NotificationRepository.create({
+        recipient: profile.user.email,
+        channel: NotificationChannel.PUSH,
+        type: NotificationType.BOOKING_CONFIRMATION,
+        title,
+        content: message,
+        metadata: {
+          read: false,
+          readAt: null,
+          guestProfileId: profile.id,
+          bookingNumber: booking.bookingNumber,
+          eventType: 'BOOKING_CONFIRMATION',
+          targetUrl: '/app/bookings',
+        },
+      });
+
+      if (profile.emailNotifications) {
+        try {
+          await sendGuestNotificationEmail({
+            to: profile.user.email,
+            recipientName: profile.name,
+            eventType: 'BOOKING_CONFIRMATION',
+            title,
+            message,
+            bookingNumber: booking.bookingNumber,
+            date: dateStr,
+            time: booking.time,
+            guestsCount: booking.totalGuests,
+            itemTitle: experienceTitle,
+            targetUrl: '/app/bookings',
+          });
+        } catch (emailErr) {
+          console.error('[GuestNotificationService] Failed to send confirmation email:', emailErr);
+        }
+      }
+    } catch (err) {
+      console.error('[GuestNotificationService] Failed to create booking confirmation notification:', err);
+    }
+  }
+
+  static async notifyExperienceBookingCancelled(
+    booking: {
+      bookingNumber: string;
+      guestProfileId: string;
+    },
+    reason?: string
+  ): Promise<void> {
+    try {
+      const profile = await prisma.guestProfile.findUnique({
+        where: { id: booking.guestProfileId },
+        select: {
+          id: true,
+          name: true,
+          emailNotifications: true,
+          user: { select: { email: true } },
+        },
+      });
+
+      if (!profile?.user?.email) return;
+
+      const title = `Reservation Cancelled: ${booking.bookingNumber}`;
+      const reasonPart = reason ? ` Reason: ${reason}` : '';
+      const message = `Your reservation ${booking.bookingNumber} has been successfully cancelled.${reasonPart}`;
+
+      await NotificationRepository.create({
+        recipient: profile.user.email,
+        channel: NotificationChannel.PUSH,
+        type: NotificationType.BOOKING_CANCELLATION,
+        title,
+        content: message,
+        metadata: {
+          read: false,
+          readAt: null,
+          guestProfileId: profile.id,
+          bookingNumber: booking.bookingNumber,
+          eventType: 'BOOKING_CANCELLATION',
+          targetUrl: '/app/bookings',
+        },
+      });
+
+      if (profile.emailNotifications) {
+        try {
+          await sendGuestNotificationEmail({
+            to: profile.user.email,
+            recipientName: profile.name,
+            eventType: 'BOOKING_CANCELLATION',
+            title,
+            message,
+            bookingNumber: booking.bookingNumber,
+            targetUrl: '/app/bookings',
+          });
+        } catch (emailErr) {
+          console.error('[GuestNotificationService] Failed to send cancellation email:', emailErr);
+        }
+      }
+    } catch (err) {
+      console.error('[GuestNotificationService] Failed to create booking cancellation notification:', err);
+    }
+  }
+
+  static async notifyEventBookingConfirmed(
+    booking: {
+      bookingNumber: string;
+      guestProfileId: string;
+    },
+    eventTitle: string
+  ): Promise<void> {
+    try {
+      const profile = await prisma.guestProfile.findUnique({
+        where: { id: booking.guestProfileId },
+        select: {
+          id: true,
+          name: true,
+          emailNotifications: true,
+          user: { select: { email: true } },
+        },
+      });
+
+      if (!profile?.user?.email) return;
+
+      const title = `Event Reservation Confirmed: ${eventTitle || 'Estate Event'}`;
+      const message = `Your reservation ${booking.bookingNumber} for ${eventTitle || 'Estate Event'} has been confirmed.`;
+
+      await NotificationRepository.create({
+        recipient: profile.user.email,
+        channel: NotificationChannel.PUSH,
+        type: NotificationType.BOOKING_CONFIRMATION,
+        title,
+        content: message,
+        metadata: {
+          read: false,
+          readAt: null,
+          guestProfileId: profile.id,
+          bookingNumber: booking.bookingNumber,
+          eventType: 'EVENT_BOOKING_CONFIRMATION',
+          targetUrl: '/app/bookings',
+        },
+      });
+
+      if (profile.emailNotifications) {
+        try {
+          await sendGuestNotificationEmail({
+            to: profile.user.email,
+            recipientName: profile.name,
+            eventType: 'EVENT_BOOKING_CONFIRMATION',
+            title,
+            message,
+            bookingNumber: booking.bookingNumber,
+            itemTitle: eventTitle,
+            targetUrl: '/app/bookings',
+          });
+        } catch (emailErr) {
+          console.error('[GuestNotificationService] Failed to send event confirmation email:', emailErr);
+        }
+      }
+    } catch (err) {
+      console.error('[GuestNotificationService] Failed to create event confirmation notification:', err);
+    }
+  }
+
+  static async notifyEventBookingCancelled(
+    booking: {
+      bookingNumber: string;
+      guestProfileId: string;
+    },
+    eventTitle?: string,
+    reason?: string
+  ): Promise<void> {
+    try {
+      const profile = await prisma.guestProfile.findUnique({
+        where: { id: booking.guestProfileId },
+        select: {
+          id: true,
+          name: true,
+          emailNotifications: true,
+          user: { select: { email: true } },
+        },
+      });
+
+      if (!profile?.user?.email) return;
+
+      const title = `Event Reservation Cancelled: ${booking.bookingNumber}`;
+      const reasonPart = reason ? ` Reason: ${reason}` : '';
+      const message = `Your event reservation ${booking.bookingNumber} for ${eventTitle || 'Estate Event'} has been cancelled.${reasonPart}`;
+
+      await NotificationRepository.create({
+        recipient: profile.user.email,
+        channel: NotificationChannel.PUSH,
+        type: NotificationType.BOOKING_CANCELLATION,
+        title,
+        content: message,
+        metadata: {
+          read: false,
+          readAt: null,
+          guestProfileId: profile.id,
+          bookingNumber: booking.bookingNumber,
+          eventType: 'EVENT_BOOKING_CANCELLATION',
+          targetUrl: '/app/bookings',
+        },
+      });
+
+      if (profile.emailNotifications) {
+        try {
+          await sendGuestNotificationEmail({
+            to: profile.user.email,
+            recipientName: profile.name,
+            eventType: 'EVENT_BOOKING_CANCELLATION',
+            title,
+            message,
+            bookingNumber: booking.bookingNumber,
+            itemTitle: eventTitle,
+            targetUrl: '/app/bookings',
+          });
+        } catch (emailErr) {
+          console.error('[GuestNotificationService] Failed to send event cancellation email:', emailErr);
+        }
+      }
+    } catch (err) {
+      console.error('[GuestNotificationService] Failed to create event cancellation notification:', err);
+    }
+  }
+
+  static async notifyReviewModerated(
+    review: {
+      id: string;
+      title: string;
+      targetName?: string | null;
+      guestProfileId?: string | null;
+    },
+    status: 'APPROVED' | 'REJECTED'
+  ): Promise<void> {
+    try {
+      if (!review.guestProfileId) return;
+
+      const profile = await prisma.guestProfile.findUnique({
+        where: { id: review.guestProfileId },
+        select: {
+          id: true,
+          name: true,
+          emailNotifications: true,
+          user: { select: { email: true } },
+        },
+      });
+
+      if (!profile?.user?.email) return;
+
+      const isApproved = status === 'APPROVED';
+      const eventType = isApproved ? 'REVIEW_APPROVED' : 'REVIEW_REJECTED';
+      const title = isApproved ? 'Review Approved & Published' : 'Review Status Update';
+      const targetLabel = review.targetName || review.title || 'your experience';
+      const message = isApproved
+        ? `Your review for "${targetLabel}" has been approved and published to the VINORA estate collection.`
+        : `Your review for "${targetLabel}" could not be approved for publication at this time.`;
+
+      await NotificationRepository.create({
+        recipient: profile.user.email,
+        channel: NotificationChannel.PUSH,
+        type: NotificationType.REVIEW_REQUEST,
+        title,
+        content: message,
+        metadata: {
+          read: false,
+          readAt: null,
+          guestProfileId: profile.id,
+          reviewId: review.id,
+          eventType,
+          targetUrl: '/app/reviews',
+        },
+      });
+
+      if (profile.emailNotifications) {
+        try {
+          await sendGuestNotificationEmail({
+            to: profile.user.email,
+            recipientName: profile.name,
+            eventType,
+            title,
+            message,
+            itemTitle: targetLabel,
+            targetUrl: '/app/reviews',
+          });
+        } catch (emailErr) {
+          console.error('[GuestNotificationService] Failed to send review moderation email:', emailErr);
+        }
+      }
+    } catch (err) {
+      console.error('[GuestNotificationService] Failed to create review moderation notification:', err);
+    }
+  }
+}
+
 // Admin read-only visibility for submitted guest reviews (Phase 6.7 follow-up).
 // No approval/rejection workflow — status is displayed as stored.
 export interface AdminReviewItem {
@@ -2416,6 +2847,19 @@ export class AdminReviewService {
     }
 
     await ReviewRepository.updateStatus(id, targetStatus);
+
+    if (currentStatus === ReviewStatus.PENDING) {
+      await GuestNotificationService.notifyReviewModerated(
+        {
+          id: review.id,
+          title: review.title,
+          targetName: review.targetName,
+          guestProfileId: review.guestProfile?.id,
+        },
+        targetStatus === ReviewStatus.APPROVED ? 'APPROVED' : 'REJECTED'
+      );
+    }
+
     return this.getById(id, session);
   }
 }

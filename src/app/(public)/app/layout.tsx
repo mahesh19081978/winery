@@ -14,6 +14,7 @@ import {
   User,
   ArrowLeft,
   Sliders,
+  Bell,
 } from 'lucide-react';
 
 const ACCOUNT_NAV = [
@@ -24,6 +25,7 @@ const ACCOUNT_NAV = [
   { label: 'My Wines', href: '/app/wines', icon: Sparkles },
   { label: 'Events', href: '/app/events', icon: Calendar },
   { label: 'My Reviews', href: '/app/reviews', icon: MessageSquare },
+  { label: 'Notifications', href: '/app/notifications', icon: Bell },
   { label: 'My Wine Profile', href: '/app/wine-profile', icon: Sliders },
   { label: 'Profile', href: '/app/profile', icon: User },
 ];

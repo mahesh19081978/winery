@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { BookingStatus, ReviewStatus, Prisma } from '@prisma/client';
+import { BookingStatus, ReviewStatus, Prisma, NotificationChannel, NotificationType } from '@prisma/client';
 
 const VALID_BOOKING_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   [BookingStatus.PENDING]: [BookingStatus.CONFIRMED, BookingStatus.CANCELLED],
@@ -2540,5 +2540,150 @@ export class UserRepository {
         wineryId: data.wineryId,
       },
     });
+  }
+}
+
+export class NotificationRepository {
+  static async create(data: {
+    recipient: string;
+    channel?: NotificationChannel;
+    type: NotificationType;
+    title: string;
+    content: string;
+    isSent?: boolean;
+    sentAt?: Date | null;
+    metadata?: Prisma.InputJsonValue;
+  }) {
+    return prisma.notification.create({
+      data: {
+        recipient: data.recipient.toLowerCase().trim(),
+        channel: data.channel ?? NotificationChannel.PUSH,
+        type: data.type,
+        title: data.title,
+        content: data.content,
+        isSent: data.isSent ?? false,
+        sentAt: data.sentAt ?? null,
+        metadata: data.metadata ?? { read: false, readAt: null },
+      },
+    });
+  }
+
+  static async findManyByRecipient(params: {
+    recipient: string;
+    unreadOnly?: boolean;
+    page: number;
+    pageSize: number;
+  }) {
+    const { recipient, unreadOnly, page, pageSize } = params;
+    const skip = (page - 1) * pageSize;
+    const cleanRecipient = recipient.toLowerCase().trim();
+
+    const where: Prisma.NotificationWhereInput = {
+      recipient: cleanRecipient,
+      ...(unreadOnly ? { metadata: { path: ['read'], equals: false } } : {}),
+    };
+
+    const [items, total] = await Promise.all([
+      prisma.notification.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: pageSize,
+      }),
+      prisma.notification.count({ where }),
+    ]);
+
+    return {
+      items,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize) || 1,
+    };
+  }
+
+  static async countUnreadByRecipient(recipient: string): Promise<number> {
+    const cleanRecipient = recipient.toLowerCase().trim();
+    return prisma.notification.count({
+      where: {
+        recipient: cleanRecipient,
+        metadata: { path: ['read'], equals: false },
+      },
+    });
+  }
+
+  static async findByIdAndRecipient(id: string, recipient: string) {
+    const cleanRecipient = recipient.toLowerCase().trim();
+    return prisma.notification.findFirst({
+      where: {
+        id,
+        recipient: cleanRecipient,
+      },
+    });
+  }
+
+  static async markAsRead(id: string, recipient: string) {
+    const cleanRecipient = recipient.toLowerCase().trim();
+    const existing = await prisma.notification.findFirst({
+      where: {
+        id,
+        recipient: cleanRecipient,
+      },
+    });
+
+    if (!existing) {
+      return null;
+    }
+
+    const currentMeta = (existing.metadata as Record<string, unknown>) || {};
+    if (currentMeta.read === true) {
+      // Idempotent: already marked as read
+      return existing;
+    }
+
+    const updatedMeta = {
+      ...currentMeta,
+      read: true,
+      readAt: new Date().toISOString(),
+    };
+
+    return prisma.notification.update({
+      where: { id: existing.id },
+      data: { metadata: updatedMeta },
+    });
+  }
+
+  static async markAllAsRead(recipient: string): Promise<number> {
+    const cleanRecipient = recipient.toLowerCase().trim();
+    const unreadItems = await prisma.notification.findMany({
+      where: {
+        recipient: cleanRecipient,
+        metadata: { path: ['read'], equals: false },
+      },
+      select: { id: true, metadata: true },
+    });
+
+    if (unreadItems.length === 0) {
+      return 0;
+    }
+
+    const nowIso = new Date().toISOString();
+    await Promise.all(
+      unreadItems.map((item) => {
+        const currentMeta = (item.metadata as Record<string, unknown>) || {};
+        return prisma.notification.update({
+          where: { id: item.id },
+          data: {
+            metadata: {
+              ...currentMeta,
+              read: true,
+              readAt: nowIso,
+            },
+          },
+        });
+      })
+    );
+
+    return unreadItems.length;
   }
 }
