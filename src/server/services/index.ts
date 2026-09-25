@@ -16,6 +16,7 @@ import {
   ReviewRepository,
   GuestBookingTimelineFilter,
   NotificationRepository,
+  PaymentRepository,
 } from '../repositories';
 import {
   BookingCreateInput,
@@ -41,11 +42,16 @@ import {
   GuestReviewListQuery,
   AdminReviewModerationInput,
   GuestNotificationListQuery,
+  PaymentOrderCreateInput,
+  PaymentVerifyInput,
+  PaymentFailureInput,
+  PaymentBookingType,
 } from '../validators';
 import { prisma } from '@/lib/db';
-import { BookingStatus, ReviewStatus, Prisma, NotificationChannel, NotificationType } from '@prisma/client';
+import { BookingStatus, PaymentStatus, ReviewStatus, Prisma, NotificationChannel, NotificationType } from '@prisma/client';
 import { sendGuestNotificationEmail } from '@/lib/email';
 import type { GuestSessionPayload } from '@/lib/auth/guest';
+import { getRazorpayClient, verifyPaymentSignature, toSubunits } from '@/lib/razorpay';
 import { createHash, randomBytes } from 'crypto';
 
 export class EventBookingError extends Error {
@@ -3169,5 +3175,349 @@ export class GuestPasswordResetService {
       if (consumed.count === 0) throw invalid; // consumed concurrently
       await tx.user.update({ where: { id: record.userId }, data: { passwordHash } });
     });
+  }
+}
+
+export class PaymentError extends Error {
+  statusCode: number;
+  code?: string;
+  constructor(message: string, statusCode = 400, code?: string) {
+    super(message);
+    this.name = 'PaymentError';
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
+export interface PaymentOwnershipContext {
+  guestProfileId?: string;
+  email?: string;
+  isStaff?: boolean;
+}
+
+export class PaymentService {
+  private static async fetchBooking(bookingType: PaymentBookingType, bookingNumber: string) {
+    if (bookingType === 'EXPERIENCE') {
+      const booking = await prisma.booking.findUnique({
+        where: { bookingNumber },
+        include: {
+          guestProfile: {
+            include: { user: { select: { id: true, email: true, passwordHash: true } } },
+          },
+          items: true,
+          payments: true,
+        },
+      });
+      if (!booking) {
+        throw new PaymentError(`Experience booking ${bookingNumber} not found`, 404);
+      }
+      return { type: 'EXPERIENCE' as const, booking };
+    } else {
+      const eventBooking = await prisma.eventBooking.findUnique({
+        where: { bookingNumber },
+        include: {
+          guestProfile: {
+            include: { user: { select: { id: true, email: true, passwordHash: true } } },
+          },
+          event: true,
+          tickets: true,
+          payments: true,
+        },
+      });
+      if (!eventBooking) {
+        throw new PaymentError(`Event booking ${bookingNumber} not found`, 404);
+      }
+      return { type: 'EVENT' as const, booking: eventBooking };
+    }
+  }
+
+  private static validateBookingOwnership(
+    booking: {
+      guestProfileId: string;
+      guestProfile?: { user?: { passwordHash?: string | null; email?: string } | null } | null;
+    },
+    context?: PaymentOwnershipContext
+  ) {
+    if (context?.isStaff === true) {
+      return;
+    }
+
+    if (context?.guestProfileId) {
+      if (booking.guestProfileId !== context.guestProfileId) {
+        throw new PaymentError('Unauthorized to manage payment for this reservation', 403);
+      }
+      return;
+    }
+
+    // Unauthenticated access check:
+    // If the reservation belongs to a registered account with a password, require authentication
+    const hasPassword = Boolean(booking.guestProfile?.user?.passwordHash);
+    if (hasPassword) {
+      throw new PaymentError('Authentication required to manage payment for this registered account reservation', 401);
+    }
+  }
+
+  static async createPaymentOrder(
+    input: PaymentOrderCreateInput,
+    context?: PaymentOwnershipContext
+  ) {
+    const { type, booking } = await this.fetchBooking(input.bookingType, input.bookingNumber);
+
+    // 1. Ownership validation
+    this.validateBookingOwnership(booking, context);
+
+    // 2. Lifecycle status check
+    if (booking.status === BookingStatus.CANCELLED) {
+      throw new PaymentError('Cannot create payment for a cancelled reservation', 400);
+    }
+    if (booking.status === BookingStatus.COMPLETED) {
+      throw new PaymentError('Cannot create payment for a completed reservation', 400);
+    }
+
+    // 3. Paid in full check
+    const hasPaid = booking.payments.some((p) => p.status === PaymentStatus.PAID);
+    if (hasPaid) {
+      throw new PaymentError('This reservation is already paid in full', 409);
+    }
+
+    // 4. Idempotency Key Handling
+    if (input.idempotencyKey) {
+      const existingByIdemp = await PaymentRepository.findByIdempotencyKey(input.idempotencyKey);
+      if (existingByIdemp) {
+        const isSameBooking =
+          (type === 'EXPERIENCE' && existingByIdemp.bookingId === booking.id) ||
+          (type === 'EVENT' && existingByIdemp.eventBookingId === booking.id);
+
+        if (!isSameBooking) {
+          throw new PaymentError('Idempotency key has already been used for another reservation', 409);
+        }
+
+        const subunitAmount = toSubunits(existingByIdemp.amount.toNumber());
+        return {
+          paymentId: existingByIdemp.id,
+          orderId: existingByIdemp.providerOrderId!,
+          amount: existingByIdemp.amount.toNumber(),
+          amountSubunits: subunitAmount,
+          currency: existingByIdemp.currency,
+          bookingNumber: booking.bookingNumber,
+          bookingType: input.bookingType,
+          keyId: process.env.RAZORPAY_KEY_ID || '',
+          alreadyCreated: true,
+        };
+      }
+    }
+
+    // 5. Active Pending Order reuse (within 15 minutes TTL)
+    const existingPending = booking.payments.find(
+      (p) => p.status === PaymentStatus.PENDING && p.providerOrderId
+    );
+    if (existingPending && existingPending.providerOrderId) {
+      const ageMs = Date.now() - existingPending.createdAt.getTime();
+      const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
+      if (ageMs < FIFTEEN_MINUTES_MS) {
+        const subunitAmount = toSubunits(existingPending.amount.toNumber());
+        return {
+          paymentId: existingPending.id,
+          orderId: existingPending.providerOrderId,
+          amount: existingPending.amount.toNumber(),
+          amountSubunits: subunitAmount,
+          currency: existingPending.currency,
+          bookingNumber: booking.bookingNumber,
+          bookingType: input.bookingType,
+          keyId: process.env.RAZORPAY_KEY_ID || '',
+          alreadyCreated: true,
+        };
+      }
+    }
+
+    // 6. Server-side authoritative amount calculation
+    const totalAmountNum = Number(booking.totalPrice);
+    const currency = 'currency' in booking && typeof booking.currency === 'string' ? booking.currency : 'USD';
+    const subunitAmount = toSubunits(totalAmountNum);
+
+    if (subunitAmount <= 0) {
+      throw new PaymentError('Reservation total must be greater than zero to process payment', 400);
+    }
+
+    // 7. Razorpay Order Creation via Gateway SDK
+    const razorpay = getRazorpayClient();
+    let razorpayOrderId: string;
+    let razorpayOrderPayload: Prisma.InputJsonValue;
+    try {
+      const order = await razorpay.orders.create({
+        amount: subunitAmount,
+        currency,
+        receipt: booking.bookingNumber,
+        notes: {
+          bookingNumber: booking.bookingNumber,
+          bookingType: input.bookingType,
+          guestProfileId: booking.guestProfileId,
+        },
+      });
+      razorpayOrderId = order.id;
+      razorpayOrderPayload = JSON.parse(JSON.stringify(order));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new PaymentError(`Gateway order creation failed: ${msg}`, 502);
+    }
+
+    // 8. Create Payment Record with strict XOR integrity
+    const paymentData: Prisma.PaymentCreateInput = {
+      amount: booking.totalPrice,
+      currency,
+      status: PaymentStatus.PENDING,
+      provider: 'RAZORPAY',
+      providerOrderId: razorpayOrderId,
+      idempotencyKey: input.idempotencyKey || null,
+      metadata: { razorpayOrder: razorpayOrderPayload },
+      ...(type === 'EXPERIENCE'
+        ? { booking: { connect: { id: booking.id } } }
+        : { eventBooking: { connect: { id: booking.id } } }),
+    };
+
+    const payment = await PaymentRepository.create(paymentData);
+
+    return {
+      paymentId: payment.id,
+      orderId: razorpayOrderId,
+      amount: totalAmountNum,
+      amountSubunits: subunitAmount,
+      currency,
+      bookingNumber: booking.bookingNumber,
+      bookingType: input.bookingType,
+      keyId: process.env.RAZORPAY_KEY_ID || '',
+      alreadyCreated: false,
+    };
+  }
+
+  static async verifyPayment(
+    input: PaymentVerifyInput,
+    context?: PaymentOwnershipContext
+  ) {
+    const { type, booking } = await this.fetchBooking(input.bookingType, input.bookingNumber);
+
+    // 1. Ownership check
+    this.validateBookingOwnership(booking, context);
+
+    // 2. Cryptographic signature verification (HMAC-SHA256)
+    const isValidSignature = verifyPaymentSignature({
+      orderId: input.razorpayOrderId,
+      paymentId: input.razorpayPaymentId,
+      signature: input.razorpaySignature,
+    });
+
+    if (!isValidSignature) {
+      throw new PaymentError('Invalid payment signature', 400);
+    }
+
+    // 3. Locate payment record by providerOrderId
+    const payment = await PaymentRepository.findByProviderOrderId(input.razorpayOrderId);
+    if (!payment) {
+      throw new PaymentError(`Payment order ${input.razorpayOrderId} not found`, 404);
+    }
+
+    const isMatchingBooking =
+      (type === 'EXPERIENCE' && payment.bookingId === booking.id) ||
+      (type === 'EVENT' && payment.eventBookingId === booking.id);
+
+    if (!isMatchingBooking) {
+      throw new PaymentError('Payment order does not belong to the specified reservation', 400);
+    }
+
+    // 4. Idempotent short-circuit if already paid
+    if (payment.status === PaymentStatus.PAID) {
+      return {
+        success: true,
+        alreadyProcessed: true,
+        payment,
+        bookingNumber: booking.bookingNumber,
+        status: PaymentStatus.PAID,
+      };
+    }
+
+    // 5. Reservation lifecycle status guard
+    if (booking.status === BookingStatus.CONFIRMED) {
+      throw new PaymentError('Cannot verify payment for an already confirmed reservation', 409);
+    }
+    if (booking.status === BookingStatus.CANCELLED) {
+      throw new PaymentError('Cannot verify payment for a cancelled reservation', 400);
+    }
+    if (booking.status === BookingStatus.COMPLETED) {
+      throw new PaymentError('Cannot verify payment for a completed reservation', 400);
+    }
+    if (booking.status === BookingStatus.CHECKED_IN) {
+      throw new PaymentError('Cannot verify payment for a checked-in reservation', 400);
+    }
+    if (booking.status === BookingStatus.NO_SHOW) {
+      throw new PaymentError('Cannot verify payment for a no-show reservation', 400);
+    }
+
+    // 6. Atomic state transition in database transaction
+    const updatedPayment = await PaymentRepository.markPaymentPaidWithTransaction({
+      paymentId: payment.id,
+      providerPaymentId: input.razorpayPaymentId,
+      providerSignature: input.razorpaySignature,
+      paymentMethod: payment.paymentMethod || 'ONLINE',
+      notes: `Payment verified via Razorpay (${input.razorpayPaymentId})`,
+    });
+
+    return {
+      success: true,
+      alreadyProcessed: false,
+      payment: updatedPayment,
+      bookingNumber: booking.bookingNumber,
+      status: PaymentStatus.PAID,
+    };
+  }
+
+  static async recordPaymentFailure(
+    input: PaymentFailureInput,
+    context?: PaymentOwnershipContext
+  ) {
+    const { type, booking } = await this.fetchBooking(input.bookingType, input.bookingNumber);
+
+    // 1. Ownership check
+    this.validateBookingOwnership(booking, context);
+
+    // 2. Locate payment
+    const payment = await PaymentRepository.findByProviderOrderId(input.providerOrderId);
+    if (!payment) {
+      throw new PaymentError(`Payment order ${input.providerOrderId} not found`, 404);
+    }
+
+    const isMatchingBooking =
+      (type === 'EXPERIENCE' && payment.bookingId === booking.id) ||
+      (type === 'EVENT' && payment.eventBookingId === booking.id);
+
+    if (!isMatchingBooking) {
+      throw new PaymentError('Payment order does not belong to the specified reservation', 400);
+    }
+
+    // If already paid, do not mark as failed
+    if (payment.status === PaymentStatus.PAID) {
+      return payment;
+    }
+
+    return PaymentRepository.markPaymentFailed({
+      paymentId: payment.id,
+      errorCode: input.errorCode,
+      errorMessage: input.errorMessage,
+      metadata: input.metadata as Prisma.InputJsonValue,
+    });
+  }
+
+  static async getPaymentsForBooking(
+    bookingType: PaymentBookingType,
+    bookingNumber: string,
+    context?: PaymentOwnershipContext
+  ) {
+    const { type, booking } = await this.fetchBooking(bookingType, bookingNumber);
+    this.validateBookingOwnership(booking, context);
+
+    if (type === 'EXPERIENCE') {
+      return PaymentRepository.findManyByBookingId(booking.id);
+    } else {
+      return PaymentRepository.findManyByEventBookingId(booking.id);
+    }
   }
 }

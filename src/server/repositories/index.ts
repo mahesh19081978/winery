@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { BookingStatus, ReviewStatus, Prisma, NotificationChannel, NotificationType } from '@prisma/client';
+import { BookingStatus, PaymentStatus, ReviewStatus, Prisma, NotificationChannel, NotificationType } from '@prisma/client';
 
 const VALID_BOOKING_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   [BookingStatus.PENDING]: [BookingStatus.CONFIRMED, BookingStatus.CANCELLED],
@@ -2685,5 +2685,246 @@ export class NotificationRepository {
     );
 
     return unreadItems.length;
+  }
+}
+
+export class PaymentRepository {
+  static async create(data: Prisma.PaymentCreateInput, tx?: Prisma.TransactionClient) {
+    const client = tx || prisma;
+    return client.payment.create({
+      data,
+      include: {
+        booking: true,
+        eventBooking: true,
+      },
+    });
+  }
+
+  static async findById(id: string, tx?: Prisma.TransactionClient) {
+    const client = tx || prisma;
+    return client.payment.findUnique({
+      where: { id },
+      include: {
+        booking: true,
+        eventBooking: true,
+      },
+    });
+  }
+
+  static async findByProviderOrderId(providerOrderId: string, tx?: Prisma.TransactionClient) {
+    const client = tx || prisma;
+    return client.payment.findUnique({
+      where: { providerOrderId },
+      include: {
+        booking: true,
+        eventBooking: true,
+      },
+    });
+  }
+
+  static async findByProviderPaymentId(providerPaymentId: string, tx?: Prisma.TransactionClient) {
+    const client = tx || prisma;
+    return client.payment.findUnique({
+      where: { providerPaymentId },
+      include: {
+        booking: true,
+        eventBooking: true,
+      },
+    });
+  }
+
+  static async findByIdempotencyKey(idempotencyKey: string, tx?: Prisma.TransactionClient) {
+    const client = tx || prisma;
+    return client.payment.findUnique({
+      where: { idempotencyKey },
+      include: {
+        booking: true,
+        eventBooking: true,
+      },
+    });
+  }
+
+  static async findLatestByBookingId(bookingId: string, tx?: Prisma.TransactionClient) {
+    const client = tx || prisma;
+    return client.payment.findFirst({
+      where: { bookingId },
+      orderBy: { createdAt: 'desc' },
+      include: { booking: true },
+    });
+  }
+
+  static async findLatestByEventBookingId(eventBookingId: string, tx?: Prisma.TransactionClient) {
+    const client = tx || prisma;
+    return client.payment.findFirst({
+      where: { eventBookingId },
+      orderBy: { createdAt: 'desc' },
+      include: { eventBooking: true },
+    });
+  }
+
+  static async findManyByBookingId(bookingId: string, tx?: Prisma.TransactionClient) {
+    const client = tx || prisma;
+    return client.payment.findMany({
+      where: { bookingId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  static async findManyByEventBookingId(eventBookingId: string, tx?: Prisma.TransactionClient) {
+    const client = tx || prisma;
+    return client.payment.findMany({
+      where: { eventBookingId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  static async update(id: string, data: Prisma.PaymentUpdateInput, tx?: Prisma.TransactionClient) {
+    const client = tx || prisma;
+    return client.payment.update({
+      where: { id },
+      data,
+      include: {
+        booking: true,
+        eventBooking: true,
+      },
+    });
+  }
+
+  static async markPaymentPaidWithTransaction(params: {
+    paymentId: string;
+    providerPaymentId: string;
+    providerSignature: string;
+    paymentMethod?: string;
+    metadata?: Prisma.InputJsonValue;
+    notes?: string;
+  }) {
+    return prisma.$transaction(async (tx) => {
+      const existing = await tx.payment.findUnique({
+        where: { id: params.paymentId },
+        include: {
+          booking: true,
+          eventBooking: true,
+        },
+      });
+
+      if (!existing) {
+        throw new Error(`Payment ${params.paymentId} not found`);
+      }
+
+      if (existing.status === PaymentStatus.PAID) {
+        return existing;
+      }
+
+      if (existing.booking && existing.booking.status !== BookingStatus.PENDING) {
+        throw new Error(`Cannot mark payment paid: booking is in ${existing.booking.status} status`);
+      }
+      if (existing.eventBooking && existing.eventBooking.status !== BookingStatus.PENDING) {
+        throw new Error(`Cannot mark payment paid: event booking is in ${existing.eventBooking.status} status`);
+      }
+
+      const updatedPayment = await tx.payment.update({
+        where: { id: params.paymentId },
+        data: {
+          status: PaymentStatus.PAID,
+          providerPaymentId: params.providerPaymentId,
+          providerSignature: params.providerSignature,
+          paymentMethod: params.paymentMethod || existing.paymentMethod,
+          ...(params.metadata !== undefined ? { metadata: params.metadata } : {}),
+        },
+        include: {
+          booking: true,
+          eventBooking: true,
+        },
+      });
+
+      if (existing.bookingId && existing.booking) {
+        if (existing.booking.status === BookingStatus.PENDING) {
+          await tx.booking.update({
+            where: { id: existing.bookingId },
+            data: { status: BookingStatus.CONFIRMED },
+          });
+
+          await tx.bookingStatusHistory.create({
+            data: {
+              bookingId: existing.bookingId,
+              fromStatus: BookingStatus.PENDING,
+              toStatus: BookingStatus.CONFIRMED,
+              changedBy: 'PAYMENT_VERIFIED',
+              notes: params.notes || `Payment verified successfully via Razorpay (${params.providerPaymentId})`,
+            },
+          });
+        }
+      } else if (existing.eventBookingId && existing.eventBooking) {
+        if (existing.eventBooking.status === BookingStatus.PENDING) {
+          await tx.eventBooking.update({
+            where: { id: existing.eventBookingId },
+            data: { status: BookingStatus.CONFIRMED },
+          });
+
+          await tx.eventBookingStatusHistory.create({
+            data: {
+              eventBookingId: existing.eventBookingId,
+              fromStatus: BookingStatus.PENDING,
+              toStatus: BookingStatus.CONFIRMED,
+              changedBy: 'PAYMENT_VERIFIED',
+              notes: params.notes || `Payment verified successfully via Razorpay (${params.providerPaymentId})`,
+            },
+          });
+        }
+      }
+
+      return updatedPayment;
+    });
+  }
+
+  static async markPaymentFailed(params: {
+    paymentId: string;
+    errorCode?: string;
+    errorMessage?: string;
+    metadata?: Prisma.InputJsonValue;
+  }, tx?: Prisma.TransactionClient) {
+    const client = tx || prisma;
+    const existing = await client.payment.findUnique({ where: { id: params.paymentId } });
+    if (!existing) {
+      throw new Error(`Payment ${params.paymentId} not found`);
+    }
+
+    if (existing.status === PaymentStatus.PAID) {
+      return existing;
+    }
+
+    return client.payment.update({
+      where: { id: params.paymentId },
+      data: {
+        status: PaymentStatus.FAILED,
+        errorCode: params.errorCode || null,
+        errorMessage: params.errorMessage || null,
+        ...(params.metadata !== undefined ? { metadata: params.metadata } : {}),
+      },
+      include: {
+        booking: true,
+        eventBooking: true,
+      },
+    });
+  }
+}
+
+export class WebhookRepository {
+  static async create(data: Prisma.WebhookEventCreateInput, tx?: Prisma.TransactionClient) {
+    const client = tx || prisma;
+    return client.webhookEvent.create({ data });
+  }
+
+  static async findByEventId(eventId: string, tx?: Prisma.TransactionClient) {
+    const client = tx || prisma;
+    return client.webhookEvent.findUnique({ where: { eventId } });
+  }
+
+  static async markProcessed(id: string, processed = true, tx?: Prisma.TransactionClient) {
+    const client = tx || prisma;
+    return client.webhookEvent.update({
+      where: { id },
+      data: { processed },
+    });
   }
 }

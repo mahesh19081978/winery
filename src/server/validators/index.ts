@@ -455,3 +455,33 @@ export const guestNotificationBatchActionSchema = z.object({
   action: z.literal('MARK_ALL_READ'),
 });
 export type GuestNotificationBatchActionInput = z.infer<typeof guestNotificationBatchActionSchema>;
+
+// --- Payment Foundation (Phase 7.0B) ---
+export const PaymentBookingTypeEnum = z.enum(['EXPERIENCE', 'EVENT']);
+export type PaymentBookingType = z.infer<typeof PaymentBookingTypeEnum>;
+
+export const PaymentOrderCreateSchema = z.object({
+  bookingType: PaymentBookingTypeEnum,
+  bookingNumber: z.string().trim().min(1, 'Booking number is required'),
+  idempotencyKey: z.string().trim().min(8, 'Idempotency key must be at least 8 characters').max(255).optional(),
+});
+export type PaymentOrderCreateInput = z.infer<typeof PaymentOrderCreateSchema>;
+
+export const PaymentVerifySchema = z.object({
+  bookingType: PaymentBookingTypeEnum,
+  bookingNumber: z.string().trim().min(1, 'Booking number is required'),
+  razorpayOrderId: z.string().trim().min(1, 'razorpayOrderId is required'),
+  razorpayPaymentId: z.string().trim().min(1, 'razorpayPaymentId is required'),
+  razorpaySignature: z.string().trim().min(1, 'razorpaySignature is required'),
+});
+export type PaymentVerifyInput = z.infer<typeof PaymentVerifySchema>;
+
+export const PaymentFailureSchema = z.object({
+  bookingType: PaymentBookingTypeEnum,
+  bookingNumber: z.string().trim().min(1, 'Booking number is required'),
+  providerOrderId: z.string().trim().min(1, 'providerOrderId is required'),
+  errorCode: z.string().trim().max(100).optional(),
+  errorMessage: z.string().trim().max(500).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+export type PaymentFailureInput = z.infer<typeof PaymentFailureSchema>;
