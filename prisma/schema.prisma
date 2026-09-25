@@ -508,6 +508,7 @@ model Booking {
   specialRequests     String?              @db.Text
   dietaryRequirements String?              @db.Text
   qrCodeUrl           String?
+  paymentExpiresAt    DateTime?
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 
@@ -579,20 +580,33 @@ model BookingStatusHistory {
 }
 
 model Payment {
-  id              String        @id @default(uuid())
-  bookingId       String
-  amount          Decimal       @db.Decimal(10, 2)
-  currency        String        @default("USD")
-  status          PaymentStatus @default(PENDING)
-  provider        String?       // "STRIPE", "RAZORPAY", "MANUAL", "ON_SITE"
-  providerPaymentId String?
-  paymentMethod   String?       // "CREDIT_CARD", "APPLE_PAY", etc.
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id                String        @id @default(uuid())
+  bookingId         String?
+  eventBookingId    String?
+  amount            Decimal       @db.Decimal(10, 2)
+  currency          String        @default("USD")
+  status            PaymentStatus @default(PENDING)
+  provider          String?       // "RAZORPAY", "STRIPE", "MANUAL", "ON_SITE"
+  providerOrderId   String?       @unique
+  providerPaymentId String?       @unique
+  providerSignature String?
+  paymentMethod     String?       // "UPI", "CARD", "NETBANKING", "WALLET", etc.
+  refundId          String?
+  refundAmount      Decimal?      @db.Decimal(10, 2)
+  refundReason      String?
+  errorCode         String?
+  errorMessage      String?
+  metadata          Json?
+  idempotencyKey    String?       @unique
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
-  booking         Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  booking           Booking?      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  eventBooking      EventBooking? @relation(fields: [eventBookingId], references: [id], onDelete: Cascade)
 
   @@index([bookingId])
+  @@index([eventBookingId])
+  @@index([status])
   @@map("payments")
 }
 
@@ -690,6 +704,7 @@ model EventBooking {
   guestProfileId  String
   totalPrice      Decimal                    @db.Decimal(10, 2)
   status          BookingStatus              @default(CONFIRMED)
+  paymentExpiresAt DateTime?
   createdAt       DateTime                   @default(now())
   updatedAt       DateTime                   @updatedAt
 
@@ -698,6 +713,7 @@ model EventBooking {
   guestProfile    GuestProfile               @relation(fields: [guestProfileId], references: [id], onDelete: Restrict)
   tickets         EventBookingTicket[]
   statusHistory   EventBookingStatusHistory[]
+  payments        Payment[]
 
   @@index([eventId])
   @@index([eventScheduleId])
@@ -935,4 +951,20 @@ model Notification {
 
   @@index([recipient, channel])
   @@map("notifications")
+}
+
+// ----------------------------------------------------
+// 13. Webhooks & Gateway Events
+// ----------------------------------------------------
+model WebhookEvent {
+  id        String   @id @default(uuid())
+  provider  String   // "RAZORPAY"
+  eventId   String   @unique // e.g. x-razorpay-event-id or payload.event_id
+  eventType String   // e.g. "payment.captured", "payment.failed", "refund.processed"
+  processed Boolean  @default(true)
+  payload   Json
+  createdAt DateTime @default(now())
+
+  @@index([provider, eventType])
+  @@map("webhook_events")
 }
