@@ -845,6 +845,7 @@ export class BookingRepository {
     subtotal: Prisma.Decimal;
     taxAmount: Prisma.Decimal;
     totalPrice: Prisma.Decimal;
+    status?: BookingStatus;
     specialRequests?: string;
     dietaryRequirements?: string;
     itemTitle: string;
@@ -879,6 +880,8 @@ export class BookingRepository {
         );
       }
 
+      const initialStatus = data.status || BookingStatus.CONFIRMED;
+
       // 3. Atomically create booking, item, attendee, and history
       const booking = await tx.booking.create({
         data: {
@@ -893,7 +896,7 @@ export class BookingRepository {
           subtotal: data.subtotal,
           taxAmount: data.taxAmount,
           totalPrice: data.totalPrice,
-          status: BookingStatus.CONFIRMED,
+          status: initialStatus,
           specialRequests: data.specialRequests,
           dietaryRequirements: data.dietaryRequirements,
           items: {
@@ -924,9 +927,11 @@ export class BookingRepository {
             create: [
               {
                 fromStatus: BookingStatus.PENDING,
-                toStatus: BookingStatus.CONFIRMED,
+                toStatus: initialStatus,
                 changedBy: 'CUSTOMER_API',
-                notes: 'Reservation confirmed via API booking transaction',
+                notes: initialStatus === BookingStatus.CONFIRMED
+                  ? 'Reservation confirmed via API booking transaction'
+                  : 'Reservation created, awaiting online payment',
               },
             ],
           },
@@ -2327,6 +2332,7 @@ export class EventBookingRepository {
     eventScheduleId: string;
     guestProfileId: string;
     totalPrice: Prisma.Decimal;
+    status?: BookingStatus;
     tickets: Array<{ eventTicketTypeId: string; quantity: number; unitPrice: Prisma.Decimal }>;
   }) {
     return prisma.$transaction(
@@ -2368,6 +2374,8 @@ export class EventBookingRepository {
         }
       }
 
+      const initialStatus = data.status || BookingStatus.CONFIRMED;
+
       // Create booking with tickets and status history atomically
       const booking = await tx.eventBooking.create({
         data: {
@@ -2376,7 +2384,7 @@ export class EventBookingRepository {
           eventScheduleId: data.eventScheduleId,
           guestProfileId: data.guestProfileId,
           totalPrice: data.totalPrice,
-          status: BookingStatus.CONFIRMED,
+          status: initialStatus,
           tickets: {
             create: sortedTickets.map((t) => ({
               eventTicketTypeId: t.eventTicketTypeId,
@@ -2388,9 +2396,11 @@ export class EventBookingRepository {
             create: [
               {
                 fromStatus: BookingStatus.PENDING,
-                toStatus: BookingStatus.CONFIRMED,
+                toStatus: initialStatus,
                 changedBy: 'CUSTOMER_API',
-                notes: 'Event booking confirmed via API transaction',
+                notes: initialStatus === BookingStatus.CONFIRMED
+                  ? 'Event booking confirmed via API transaction'
+                  : 'Event booking created, awaiting online payment',
               },
             ],
           },
@@ -2802,8 +2812,12 @@ export class PaymentRepository {
       const existing = await tx.payment.findUnique({
         where: { id: params.paymentId },
         include: {
-          booking: true,
-          eventBooking: true,
+          booking: {
+            include: { items: true },
+          },
+          eventBooking: {
+            include: { event: true },
+          },
         },
       });
 
@@ -2814,6 +2828,7 @@ export class PaymentRepository {
       if (existing.status === PaymentStatus.PAID) {
         return existing;
       }
+
 
       if (existing.booking && existing.booking.status !== BookingStatus.PENDING) {
         throw new Error(`Cannot mark payment paid: booking is in ${existing.booking.status} status`);
@@ -2832,8 +2847,12 @@ export class PaymentRepository {
           ...(params.metadata !== undefined ? { metadata: params.metadata } : {}),
         },
         include: {
-          booking: true,
-          eventBooking: true,
+          booking: {
+            include: { items: true },
+          },
+          eventBooking: {
+            include: { event: true },
+          },
         },
       });
 

@@ -24,7 +24,9 @@ import {
   User,
   Mail,
   Phone,
+  CreditCard,
 } from 'lucide-react';
+import { openRazorpayCheckout } from '@/lib/payment/razorpay-client';
 
 interface ApiTicketType {
   id: string;
@@ -112,6 +114,9 @@ export default function EventDetailPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [successBooking, setSuccessBooking] = useState<{ bookingNumber: string; totalPrice: string; status: string } | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<'ONLINE' | 'PAY_ON_ARRIVAL'>('ONLINE');
+  const [paymentNotice, setPaymentNotice] = useState<string | null>(null);
+  const [pendingBookingNumber, setPendingBookingNumber] = useState<string | null>(null);
 
   // Authenticated guest prefill
   const { profile, isAuthenticated, isLoading: guestLoading } = useGuest();
@@ -238,53 +243,108 @@ export default function EventDetailPage() {
       return;
     }
 
-    const payload = {
-      eventId: event.id,
-      eventScheduleId: selectedScheduleId,
+    setPaymentNotice(null);
+
+    let targetBookingNumber = pendingBookingNumber;
+    let targetTotalPrice = displayTotal.toFixed(2);
+
+    // 1. Create booking in DB if not already created
+    if (!targetBookingNumber) {
+      const payload = {
+        eventId: event.id,
+        eventScheduleId: selectedScheduleId,
+        guestName: guestName.trim(),
+        guestEmail: guestEmail.trim(),
+        guestPhone: guestPhone.trim() || undefined,
+        paymentMethod,
+        tickets: selectedTicketsArray.map((t) => ({
+          eventTicketTypeId: t.ticketTypeId,
+          quantity: t.quantity,
+        })),
+      };
+
+      setSubmitting(true);
+      try {
+        const res = await fetch('/api/event-bookings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const result = await res.json();
+        if (!res.ok || !result.success) {
+          const msg = result.error || 'Failed to create booking';
+          if (res.status === 409 || msg.includes('Insufficient capacity') || msg.includes('no longer available')) {
+            setSubmitError('Those tickets are no longer available in the selected quantity. Please review availability and try again.');
+          } else {
+            setSubmitError(msg);
+          }
+          setSubmitting(false);
+          return;
+        }
+
+        const data = result.data as { bookingNumber: string; totalPrice: string; status: string };
+        targetBookingNumber = data.bookingNumber;
+        targetTotalPrice = data.totalPrice;
+        setPendingBookingNumber(data.bookingNumber);
+
+        if (paymentMethod === 'PAY_ON_ARRIVAL') {
+          setSuccessBooking({ bookingNumber: data.bookingNumber, totalPrice: data.totalPrice, status: data.status });
+          setSubmitting(false);
+          return;
+        }
+      } catch {
+        setSubmitError('Network error. Please check your connection and try again.');
+        setSubmitting(false);
+        return;
+      }
+    }
+
+    if (!targetBookingNumber) {
+      setSubmitting(false);
+      return;
+    }
+
+    if (paymentMethod === 'PAY_ON_ARRIVAL') {
+      setSuccessBooking({ bookingNumber: targetBookingNumber, totalPrice: targetTotalPrice, status: 'CONFIRMED' });
+      setSubmitting(false);
+      return;
+    }
+
+    // 2. Launch Razorpay Checkout
+    setSubmitting(true);
+    const checkoutResult = await openRazorpayCheckout({
+      bookingType: 'EVENT',
+      bookingNumber: targetBookingNumber,
       guestName: guestName.trim(),
       guestEmail: guestEmail.trim(),
       guestPhone: guestPhone.trim() || undefined,
-      tickets: selectedTicketsArray.map((t) => ({
-        eventTicketTypeId: t.ticketTypeId,
-        quantity: t.quantity,
-      })),
-    };
+      title: event.title,
+      onSuccess: () => {
+        setSuccessBooking({
+          bookingNumber: targetBookingNumber!,
+          totalPrice: targetTotalPrice,
+          status: 'CONFIRMED',
+        });
+      },
+      onFailure: (err) => {
+        setSubmitError(err);
+      },
+      onDismiss: () => {
+        setPaymentNotice(
+          'Your tickets are held as Pending. You can complete payment below, or choose to pay at the venue upon arrival.'
+        );
+      },
+    });
 
-    setSubmitting(true);
-    try {
-      const res = await fetch('/api/event-bookings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+    if (checkoutResult.success) {
+      setSuccessBooking({
+        bookingNumber: targetBookingNumber,
+        totalPrice: targetTotalPrice,
+        status: 'CONFIRMED',
       });
-      const result = await res.json();
-      if (!res.ok || !result.success) {
-        const msg = result.error || 'Failed to create booking';
-        // Map capacity conflict to friendly message
-        if (res.status === 409 || msg.includes('Insufficient capacity') || msg.includes('no longer available')) {
-          setSubmitError('Those tickets are no longer available in the selected quantity. Please review availability and try again.');
-        } else if (res.status === 404) {
-          setSubmitError(msg);
-        } else if (res.status === 400) {
-          setSubmitError(msg);
-          // Surface validation details if present
-          if (result.details) {
-            // keep selections where safe - do not clear
-          }
-        } else {
-          setSubmitError(msg);
-        }
-        return;
-      }
-      const data = result.data as { bookingNumber: string; totalPrice: string; status: string };
-      setSuccessBooking({ bookingNumber: data.bookingNumber, totalPrice: data.totalPrice, status: data.status });
-      // Optionally navigate directly to confirmation page
-      // router.push(`/event-booking/${data.bookingNumber}`);
-    } catch {
-      setSubmitError('Network error. Please check your connection and try again.');
-    } finally {
-      setSubmitting(false);
     }
+
+    setSubmitting(false);
   };
 
   const selectedSchedule = event.schedules.find((s) => s.id === selectedScheduleId) || null;
@@ -608,10 +668,105 @@ export default function EventDetailPage() {
                             <span className="text-xs text-[#525960] block">{guestEmail}{guestPhone ? ` · ${guestPhone}` : ''}</span>
                           </div>
                         </div>
-                        <button type="button" disabled={!canSubmit} onClick={handleSubmit} className="w-full py-4 rounded-full bg-[#2d1117] hover:bg-[#461822] disabled:opacity-50 text-[#faf8f5] text-xs font-bold uppercase tracking-[0.2em] transition-all shadow-md inline-flex items-center justify-center gap-2">
-                          {submitting ? <><Loader2 className="w-4 h-4 animate-spin" /><span>Confirming...</span></> : <span>Confirm Reservation</span>}
+
+                        {/* Payment Method Selection */}
+                        <div className="space-y-3">
+                          <span className="text-xs uppercase tracking-wider font-semibold text-[#191c1f] block">
+                            Select Payment Method
+                          </span>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            <div
+                              onClick={() => {
+                                setPaymentMethod('ONLINE');
+                                setSubmitError(null);
+                              }}
+                              className={`cursor-pointer p-3.5 rounded-2xl border-2 transition-all flex items-start gap-3 ${
+                                paymentMethod === 'ONLINE'
+                                  ? 'border-[#8a3243] bg-[#f4f0e8]/60 shadow-sm ring-1 ring-[#8a3243]/20'
+                                  : 'border-[#e6dece] hover:border-[#c5a059] bg-white'
+                              }`}
+                            >
+                              <div className="p-1.5 rounded-lg bg-white border border-[#e6dece] text-[#8a3243] shrink-0 mt-0.5">
+                                <CreditCard className="w-3.5 h-3.5" />
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-1.5">
+                                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-[#191c1f]">
+                                    Pay Online
+                                  </h4>
+                                  <span className="px-1.5 py-0.2 rounded-full bg-[#8a3243]/10 text-[#8a3243] text-[8px] font-bold uppercase tracking-wider">
+                                    Instant
+                                  </span>
+                                </div>
+                                <p className="text-[10px] text-[#525960] mt-0.5 leading-relaxed">
+                                  Razorpay (Cards, UPI, Netbanking).
+                                </p>
+                              </div>
+                            </div>
+
+                            <div
+                              onClick={() => {
+                                setPaymentMethod('PAY_ON_ARRIVAL');
+                                setSubmitError(null);
+                                setPaymentNotice(null);
+                              }}
+                              className={`cursor-pointer p-3.5 rounded-2xl border-2 transition-all flex items-start gap-3 ${
+                                paymentMethod === 'PAY_ON_ARRIVAL'
+                                  ? 'border-[#8a3243] bg-[#f4f0e8]/60 shadow-sm ring-1 ring-[#8a3243]/20'
+                                  : 'border-[#e6dece] hover:border-[#c5a059] bg-white'
+                              }`}
+                            >
+                              <div className="p-1.5 rounded-lg bg-white border border-[#e6dece] text-[#525960] shrink-0 mt-0.5">
+                                <Wine className="w-3.5 h-3.5" />
+                              </div>
+                              <div>
+                                <h4 className="text-[11px] font-bold uppercase tracking-wider text-[#191c1f]">
+                                  Pay at Venue
+                                </h4>
+                                <p className="text-[10px] text-[#525960] mt-0.5 leading-relaxed">
+                                  Settle upon arrival at event check-in.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Payment Notice / Retry Callout */}
+                        {paymentNotice && (
+                          <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-2.5 text-xs text-amber-900">
+                            <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                            <div className="space-y-0.5">
+                              <p className="font-semibold text-amber-950 text-[11px]">Payment Action Required</p>
+                              <p className="text-amber-800 text-[11px] leading-relaxed">{paymentNotice}</p>
+                            </div>
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          disabled={!canSubmit || submitting}
+                          onClick={handleSubmit}
+                          className="w-full py-4 rounded-full bg-[#2d1117] hover:bg-[#461822] disabled:opacity-50 text-[#faf8f5] text-xs font-bold uppercase tracking-[0.2em] transition-all shadow-md inline-flex items-center justify-center gap-2"
+                        >
+                          {submitting ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <span>Processing...</span>
+                            </>
+                          ) : (
+                            <span>
+                              {paymentMethod === 'ONLINE'
+                                ? `Pay with Razorpay · $${displayTotal.toFixed(2)}`
+                                : 'Confirm Reservation'}
+                            </span>
+                          )}
                         </button>
-                        <p className="text-[11px] text-[#525960] text-center leading-relaxed">By confirming, you agree to estate terms. No payment required now.</p>
+                        <p className="text-[11px] text-[#525960] text-center leading-relaxed">
+                          {paymentMethod === 'ONLINE'
+                            ? 'Secure 256-bit encrypted gateway payment powered by Razorpay.'
+                            : 'Reserve your tickets now. Settle balance at estate check-in.'}
+                        </p>
                       </div>
                     )}
                   </div>

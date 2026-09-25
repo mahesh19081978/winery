@@ -19,8 +19,10 @@ import {
   PaymentRepository,
 } from '../repositories';
 import {
-  BookingCreateInput,
-  EventBookingCreateInput,
+  BookingCreateSchema,
+  BookingCreateRawInput,
+  EventBookingCreateSchema,
+  EventBookingCreateRawInput,
   GuestProfileUpdateInput,
   GuestWineProfileUpdateInput,
   TastingRecordCreateInput,
@@ -771,9 +773,10 @@ export class BookingService {
   }
 
   static async createBooking(
-    input: BookingCreateInput,
+    rawInput: BookingCreateRawInput,
     guestSession?: import('@/lib/auth/guest').GuestSessionPayload | null
   ) {
+    const input = BookingCreateSchema.parse(rawInput);
     const experience = await prisma.experience.findFirst({
       where: { slug: input.experienceSlug, isActive: true },
       include: { winery: true },
@@ -872,6 +875,8 @@ export class BookingService {
     const bookingNumber = `DVR-${year}-${randomCode}`;
 
     // 4. Atomic database transaction with row-level concurrency lock
+    const initialStatus = input.paymentMethod === 'ONLINE' ? BookingStatus.PENDING : BookingStatus.CONFIRMED;
+
     const booking = await BookingRepository.createBookingWithTransaction({
       bookingNumber,
       wineryId: experience.wineryId,
@@ -884,6 +889,7 @@ export class BookingService {
       subtotal,
       taxAmount,
       totalPrice,
+      status: initialStatus,
       specialRequests: input.specialRequests,
       dietaryRequirements: input.dietaryRequirements,
       itemTitle: experience.title,
@@ -894,7 +900,9 @@ export class BookingService {
       guestPhone: input.guestPhone,
     }, maxAllowedCapacity);
 
-    await GuestNotificationService.notifyExperienceBookingConfirmed(booking, experience.title);
+    if (initialStatus === BookingStatus.CONFIRMED) {
+      await GuestNotificationService.notifyExperienceBookingConfirmed(booking, experience.title);
+    }
 
     return booking;
   }
@@ -932,9 +940,10 @@ export class EventBookingService {
   }
 
   static async createBooking(
-    input: EventBookingCreateInput,
+    rawInput: EventBookingCreateRawInput,
     guestSession?: import('@/lib/auth/guest').GuestSessionPayload | null
   ) {
+    const input = EventBookingCreateSchema.parse(rawInput);
     // Validate event exists and is bookable
     const event = await prisma.event.findUnique({
       where: { id: input.eventId },
@@ -1062,6 +1071,7 @@ export class EventBookingService {
     // Transactional creation with collision-safe booking number
     const maxRetries = 5;
     let lastError: unknown = null;
+    const initialStatus = input.paymentMethod === 'ONLINE' ? BookingStatus.PENDING : BookingStatus.CONFIRMED;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       const bookingNumber = generateEventBookingNumber();
@@ -1072,10 +1082,13 @@ export class EventBookingService {
           eventScheduleId: input.eventScheduleId,
           guestProfileId,
           totalPrice,
+          status: initialStatus,
           tickets: ticketsWithPricing,
         });
 
-        await GuestNotificationService.notifyEventBookingConfirmed(booking, event.title);
+        if (initialStatus === BookingStatus.CONFIRMED) {
+          await GuestNotificationService.notifyEventBookingConfirmed(booking, event.title);
+        }
 
         return booking;
       } catch (error: unknown) {
@@ -3460,6 +3473,14 @@ export class PaymentService {
       paymentMethod: payment.paymentMethod || 'ONLINE',
       notes: `Payment verified via Razorpay (${input.razorpayPaymentId})`,
     });
+
+    if (type === 'EXPERIENCE' && updatedPayment.booking) {
+      const expTitle = updatedPayment.booking.items?.[0]?.title || 'Wine Tasting Experience';
+      await GuestNotificationService.notifyExperienceBookingConfirmed(updatedPayment.booking, expTitle).catch(() => {});
+    } else if (type === 'EVENT' && updatedPayment.eventBooking) {
+      const eventTitle = updatedPayment.eventBooking.event?.title || 'Winery Event';
+      await GuestNotificationService.notifyEventBookingConfirmed(updatedPayment.eventBooking, eventTitle).catch(() => {});
+    }
 
     return {
       success: true,

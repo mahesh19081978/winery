@@ -11,9 +11,13 @@ export const BookingCreateSchema = z.object({
   guestPhone: z.string().optional().default(''),
   specialRequests: z.string().optional().default(''),
   dietaryRequirements: z.string().optional().default(''),
+  paymentMethod: z.enum(['ONLINE', 'PAY_ON_ARRIVAL']).optional().default('PAY_ON_ARRIVAL'),
 });
 
 export type BookingCreateInput = z.infer<typeof BookingCreateSchema>;
+/** Raw input type before Zod coercion — optional fields are truly optional here */
+export type BookingCreateRawInput = z.input<typeof BookingCreateSchema>;
+
 
 export const ALLOWED_VARIETALS = [
   'Cabernet Sauvignon',
@@ -241,6 +245,7 @@ export const EventBookingCreateSchema = z.object({
   guestName: z.string().min(2, 'Guest name must be at least 2 characters'),
   guestEmail: z.string().email('Invalid email address'),
   guestPhone: z.string().optional().default(''),
+  paymentMethod: z.enum(['ONLINE', 'PAY_ON_ARRIVAL']).optional().default('PAY_ON_ARRIVAL'),
   tickets: z
     .array(EventBookingTicketSelectionSchema)
     .min(1, 'At least one ticket selection is required')
@@ -251,6 +256,8 @@ export const EventBookingCreateSchema = z.object({
 });
 
 export type EventBookingCreateInput = z.infer<typeof EventBookingCreateSchema>;
+/** Raw input type before Zod coercion — optional fields are truly optional here */
+export type EventBookingCreateRawInput = z.input<typeof EventBookingCreateSchema>;
 
 // --- Event Management Admin (Phase 5.11) ---
 const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;

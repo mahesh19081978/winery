@@ -18,7 +18,10 @@ import {
   ShieldCheck,
   AlertCircle,
   Loader2,
+  CreditCard,
+  Lock,
 } from 'lucide-react';
+import { openRazorpayCheckout } from '@/lib/payment/razorpay-client';
 
 const STEPS = [
   'Experience',
@@ -91,6 +94,9 @@ function BookingContent() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  const [paymentMethod, setPaymentMethod] = useState<'ONLINE' | 'PAY_ON_ARRIVAL'>('ONLINE');
+  const [paymentNotice, setPaymentNotice] = useState<string | null>(null);
+
   const selectedExp =
     mockExperiences.find((e) => e.id === currentBooking.experienceId) ||
     mockExperiences.find((e) => e.id === initialExpId) ||
@@ -119,37 +125,79 @@ function BookingContent() {
   const handleSubmitBooking = async () => {
     setIsSubmitting(true);
     setSubmitError(null);
+    setPaymentNotice(null);
 
     try {
-      const experienceSlug = getExperienceSlug();
+      let bookingToPay = createdBooking;
 
-      const response = await fetch('/api/bookings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          experienceSlug,
-          date: currentBooking.date,
-          time: currentBooking.time,
-          adults: currentBooking.adults,
-          children: currentBooking.children,
-          guestName: currentBooking.guestName,
-          guestEmail: currentBooking.guestEmail,
-          guestPhone: currentBooking.guestPhone || '',
-          specialRequests: currentBooking.specialRequests || '',
-          dietaryRequirements: ''
-        })
-      });
+      // 1. Create booking in DB if not already created
+      if (!bookingToPay) {
+        const experienceSlug = getExperienceSlug();
 
-      const result = await response.json();
+        const response = await fetch('/api/bookings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            experienceSlug,
+            date: currentBooking.date,
+            time: currentBooking.time,
+            adults: currentBooking.adults,
+            children: currentBooking.children,
+            guestName: currentBooking.guestName,
+            guestEmail: currentBooking.guestEmail,
+            guestPhone: currentBooking.guestPhone || '',
+            specialRequests: currentBooking.specialRequests || '',
+            dietaryRequirements: '',
+            paymentMethod,
+          }),
+        });
 
-      if (!response.ok) {
-        const errorMsg = result.error || 'Failed to create booking. Please try again.';
-        setSubmitError(errorMsg);
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+          const errorMsg = result.error || 'Failed to create booking. Please try again.';
+          setSubmitError(errorMsg);
+          return;
+        }
+
+        bookingToPay = result.data;
+        setCreatedBooking(result.data);
+      }
+
+      if (!bookingToPay) return;
+
+      // 2. If Pay on Arrival was selected, advance to confirmation
+      if (paymentMethod === 'PAY_ON_ARRIVAL') {
+        setStep(7);
         return;
       }
 
-      setCreatedBooking(result.data);
-      setStep(7);
+      // 3. Online Razorpay Checkout
+      const checkoutResult = await openRazorpayCheckout({
+        bookingType: 'EXPERIENCE',
+        bookingNumber: bookingToPay.bookingNumber,
+        guestName: currentBooking.guestName,
+        guestEmail: currentBooking.guestEmail,
+        guestPhone: currentBooking.guestPhone,
+        title: selectedExp.title,
+        onSuccess: () => {
+          setCreatedBooking((prev) => (prev ? { ...prev, status: 'CONFIRMED' } : prev));
+          setStep(7);
+        },
+        onFailure: (err) => {
+          setSubmitError(err);
+        },
+        onDismiss: () => {
+          setPaymentNotice(
+            'Your reservation is held as Pending. You can complete payment below, or choose to pay upon arrival at the estate.'
+          );
+        },
+      });
+
+      if (checkoutResult.success) {
+        setCreatedBooking((prev) => (prev ? { ...prev, status: 'CONFIRMED' } : prev));
+        setStep(7);
+      }
     } catch {
       setSubmitError('Network error. Please check your connection and try again.');
     } finally {
@@ -161,6 +209,7 @@ function BookingContent() {
     if (step > 1 && step < 7) {
       setStep(step - 1);
       setSubmitError(null);
+      setPaymentNotice(null);
     }
   };
 
@@ -580,12 +629,99 @@ function BookingContent() {
                 </div>
               </div>
 
-              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-3 text-xs text-emerald-800">
-                <ShieldCheck className="w-5 h-5 shrink-0" />
-                <span>
-                  No payment required now. Pay directly at the estate cellar door upon arrival.
+              {/* Payment Method Selection */}
+              <div className="space-y-3">
+                <span className="text-xs uppercase tracking-wider font-semibold text-[#191c1f] block">
+                  Select Payment Method
                 </span>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div
+                    onClick={() => {
+                      setPaymentMethod('ONLINE');
+                      setSubmitError(null);
+                    }}
+                    className={`cursor-pointer p-4 rounded-2xl border-2 transition-all flex items-start gap-3.5 ${
+                      paymentMethod === 'ONLINE'
+                        ? 'border-[#8a3243] bg-[#f4f0e8]/60 shadow-sm ring-1 ring-[#8a3243]/20'
+                        : 'border-[#e6dece] hover:border-[#c5a059] bg-white'
+                    }`}
+                  >
+                    <div className="p-2 rounded-xl bg-white border border-[#e6dece] text-[#8a3243] shrink-0 mt-0.5">
+                      <CreditCard className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-[#191c1f]">
+                          Pay Online (Razorpay)
+                        </h4>
+                        <span className="px-2 py-0.5 rounded-full bg-[#8a3243]/10 text-[#8a3243] text-[9px] font-bold uppercase tracking-wider">
+                          Instant
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#525960] mt-1 leading-relaxed">
+                        Cards, UPI, Netbanking. Secure 256-bit encrypted checkout.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div
+                    onClick={() => {
+                      setPaymentMethod('PAY_ON_ARRIVAL');
+                      setSubmitError(null);
+                      setPaymentNotice(null);
+                    }}
+                    className={`cursor-pointer p-4 rounded-2xl border-2 transition-all flex items-start gap-3.5 ${
+                      paymentMethod === 'PAY_ON_ARRIVAL'
+                        ? 'border-[#8a3243] bg-[#f4f0e8]/60 shadow-sm ring-1 ring-[#8a3243]/20'
+                        : 'border-[#e6dece] hover:border-[#c5a059] bg-white'
+                    }`}
+                  >
+                    <div className="p-2 rounded-xl bg-white border border-[#e6dece] text-[#525960] shrink-0 mt-0.5">
+                      <Wine className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-[#191c1f]">
+                          Pay on Arrival
+                        </h4>
+                      </div>
+                      <p className="text-[11px] text-[#525960] mt-1 leading-relaxed">
+                        Reserve now and settle your tasting bill at the cellar door.
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
+
+              {/* Payment Notice / Retry Callout */}
+              {paymentNotice && (
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3 text-xs text-amber-900">
+                  <AlertCircle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-semibold text-amber-950">Payment Action Required</p>
+                    <p className="text-amber-800 leading-relaxed">{paymentNotice}</p>
+                  </div>
+                </div>
+              )}
+
+              {paymentMethod === 'ONLINE' && !paymentNotice && (
+                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-3 text-xs text-emerald-800">
+                  <Lock className="w-4 h-4 shrink-0 text-emerald-700" />
+                  <span>
+                    Upon clicking continue, the secure Razorpay checkout modal will open to complete your payment of ${totalPrice.toFixed(2)}.
+                  </span>
+                </div>
+              )}
+
+              {paymentMethod === 'PAY_ON_ARRIVAL' && (
+                <div className="p-4 bg-[#f4f0e8] border border-[#e6dece] rounded-2xl flex items-center gap-3 text-xs text-[#525960]">
+                  <ShieldCheck className="w-5 h-5 shrink-0 text-[#8a3243]" />
+                  <span>
+                    No immediate online charge. Settle at the estate upon check-in.
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
@@ -657,6 +793,14 @@ function BookingContent() {
                       ${serverTotal.toFixed(2)}
                     </strong>
                   </div>
+                  <div className="col-span-2 pt-2 border-t border-[#e6dece] flex items-center justify-between">
+                    <span className="text-stone-500">Payment Status:</span>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                      paymentMethod === 'ONLINE' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                    }`}>
+                      {paymentMethod === 'ONLINE' ? 'Paid via Razorpay' : 'Pay on Arrival at Estate'}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -715,7 +859,13 @@ function BookingContent() {
                   </>
                 ) : (
                   <>
-                    <span>{step === 6 ? 'Confirm Reservation' : 'Continue'}</span>
+                    <span>
+                      {step === 6
+                        ? paymentMethod === 'ONLINE'
+                          ? `Pay with Razorpay · $${totalPrice.toFixed(2)}`
+                          : 'Confirm Reservation'
+                        : 'Continue'}
+                    </span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </>
                 )}

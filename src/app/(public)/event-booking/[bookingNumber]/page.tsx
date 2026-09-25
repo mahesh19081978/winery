@@ -15,7 +15,10 @@ import {
   CheckCircle,
   Loader2,
   AlertCircle,
+  CreditCard,
 } from 'lucide-react';
+import { useCallback } from 'react';
+import { openRazorpayCheckout, type ClientPaymentDTO } from '@/lib/payment/razorpay-client';
 
 interface EventBookingDetail {
   bookingNumber: string;
@@ -52,8 +55,24 @@ export default function EventBookingDetailPage() {
   const [booking, setBooking] = useState<EventBookingDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [payments, setPayments] = useState<ClientPaymentDTO[]>([]);
+  const [isPaying, setIsPaying] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   const { isAuthenticated } = useGuest();
+
+  const fetchPayments = useCallback(async (bookingNum: string) => {
+    try {
+      const res = await fetch(`/api/payments/${bookingNum}?type=EVENT`);
+      const json = await res.json();
+      if (res.ok && json.success && Array.isArray(json.data)) {
+        setPayments(json.data);
+      }
+    } catch {
+      // Non-blocking
+    }
+  }, []);
 
   useEffect(() => {
     if (!bookingNumber) return;
@@ -63,8 +82,14 @@ export default function EventBookingDetailPage() {
         const res = await fetch(`/api/event-bookings/${bookingNumber}`);
         const result = await res.json();
         if (!cancelled) {
-          if (!res.ok || !result.success) setError(result.error || 'Booking not found');
-          else setBooking(result.data);
+          if (!res.ok || !result.success) {
+            setError(result.error || 'Booking not found');
+          } else {
+            setBooking(result.data);
+            if (result.data.bookingNumber) {
+              fetchPayments(result.data.bookingNumber);
+            }
+          }
         }
       } catch {
         if (!cancelled) setError('Failed to load booking');
@@ -74,7 +99,40 @@ export default function EventBookingDetailPage() {
     }
     fetchBooking();
     return () => { cancelled = true; };
-  }, [bookingNumber]);
+  }, [bookingNumber, fetchPayments]);
+
+  const handlePayNow = async () => {
+    if (!booking) return;
+    setIsPaying(true);
+    setPaymentError(null);
+
+    const title = booking.event.title || 'Special Event Booking';
+
+    const result = await openRazorpayCheckout({
+      bookingType: 'EVENT',
+      bookingNumber: booking.bookingNumber,
+      guestName: booking.guest.name || 'Guest',
+      guestEmail: booking.guest.email || '',
+      title,
+      onSuccess: () => {
+        setBooking((prev) => (prev ? { ...prev, status: 'CONFIRMED' } : prev));
+        setActionNotice('Payment confirmed successfully via Razorpay! Your reservation is confirmed.');
+        fetchPayments(booking.bookingNumber);
+      },
+      onFailure: (err) => {
+        setPaymentError(err);
+      },
+      onDismiss: () => {
+        setPaymentError('Payment window closed. Your reservation remains Pending.');
+      },
+    });
+
+    if (result.success) {
+      setBooking((prev) => (prev ? { ...prev, status: 'CONFIRMED' } : prev));
+      fetchPayments(booking.bookingNumber);
+    }
+    setIsPaying(false);
+  };
 
   if (loading) {
     return (
@@ -113,9 +171,60 @@ export default function EventBookingDetailPage() {
       </div>
 
       <div className="max-w-3xl mx-auto px-4 sm:px-6 pt-10">
+        {actionNotice && (
+          <div className="mb-6 p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-emerald-600" />
+              {actionNotice}
+            </span>
+            <button
+              onClick={() => setActionNotice(null)}
+              className="text-emerald-900 font-bold ml-2"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* Payment Pending Banner with Razorpay Checkout */}
+        {booking.status === 'PENDING' && (
+          <div className="mb-6 p-5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+                <h3 className="font-semibold text-sm text-amber-950">Payment Pending</h3>
+              </div>
+              <p className="text-xs text-amber-800 leading-relaxed">
+                Your reservation is held, but online payment has not yet been completed. Pay now for immediate confirmation pass.
+              </p>
+              {paymentError && <p className="text-xs text-rose-600 font-medium pt-1">{paymentError}</p>}
+            </div>
+            <button
+              type="button"
+              disabled={isPaying}
+              onClick={handlePayNow}
+              className="shrink-0 px-6 py-3 rounded-full bg-[#8a3243] hover:bg-[#722937] text-white text-xs font-semibold uppercase tracking-wider transition-all shadow-md inline-flex items-center gap-2 disabled:opacity-50"
+            >
+              {isPaying ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Processing...</span>
+                </>
+              ) : (
+                <>
+                  <CreditCard className="w-3.5 h-3.5" />
+                  <span>Pay Now · ${Number(booking.totalPrice).toFixed(2)}</span>
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
         <div className="text-center mb-8">
-          <span className="text-xs uppercase tracking-[0.3em] font-semibold text-[#8a3243] block mb-2">Event Booking Confirmation</span>
-          <h1 className="font-serif text-3xl sm:text-4xl text-[#191c1f]">Your reservation is confirmed</h1>
+          <span className="text-xs uppercase tracking-[0.3em] font-semibold text-[#8a3243] block mb-2">Event Booking {booking.status === 'PENDING' ? 'Summary' : 'Confirmation'}</span>
+          <h1 className="font-serif text-3xl sm:text-4xl text-[#191c1f]">
+            {booking.status === 'PENDING' ? 'Your reservation is pending payment' : 'Your reservation is confirmed'}
+          </h1>
           <p className="text-sm text-[#525960] mt-2">Booking reference <span className="font-mono font-bold text-[#8a3243]">{booking.bookingNumber}</span></p>
         </div>
 
@@ -157,7 +266,50 @@ export default function EventBookingDetailPage() {
                 </div>
               ))}
               <div className="flex justify-between text-base font-bold text-[#191c1f] pt-3 border-t border-[#e6dece]"><span>Total</span><span className="text-[#8a3243] font-serif">${Number(booking.totalPrice).toFixed(2)}</span></div>
-              <p className="text-[10px] text-[#525960]">Payment not required now. Pay at estate on arrival. Authoritative total from server.</p>
+              <p className="text-[10px] text-[#525960]">
+                {booking.status === 'PENDING'
+                  ? 'Payment pending. Complete online checkout using the button above or pay upon arrival if allowed.'
+                  : payments.some((p) => p.status === 'PAID')
+                  ? 'Paid in full via Razorpay online checkout.'
+                  : 'Pay at estate on arrival. Authoritative total from server.'}
+              </p>
+            </div>
+
+            {/* Payment Summary */}
+            <div className="p-5 bg-white border border-[#e6dece] rounded-2xl text-xs space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs uppercase tracking-wider font-semibold text-[#191c1f] flex items-center gap-1.5">
+                  <CreditCard className="w-3.5 h-3.5 text-[#8a3243]" />
+                  Payment Status
+                </span>
+                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                  booking.status === 'CONFIRMED' && payments.some((p) => p.status === 'PAID')
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : booking.status === 'PENDING'
+                    ? 'bg-amber-100 text-amber-800'
+                    : 'bg-[#f4f0e8] text-[#525960]'
+                }`}>
+                  {payments.some((p) => p.status === 'PAID')
+                    ? 'Paid via Razorpay'
+                    : booking.status === 'PENDING'
+                    ? 'Payment Pending'
+                    : 'Pay at Estate Door'}
+                </span>
+              </div>
+              {payments.filter((p) => p.status === 'PAID').map((p) => (
+                <div key={p.id} className="pt-2 text-[11px] text-[#525960] flex flex-wrap items-center justify-between gap-2 border-t border-[#e6dece]/60">
+                  <span>Paid: <strong>${p.amount} {p.currency}</strong></span>
+                  {p.providerPaymentId && <span>Ref: <code className="font-mono text-[#8a3243] text-[10px]">{p.providerPaymentId}</code></span>}
+                  <span>{new Date(p.createdAt).toLocaleDateString()}</span>
+                </div>
+              ))}
+              {payments.length === 0 && (
+                <p className="text-[11px] text-[#525960] leading-relaxed">
+                  {booking.status === 'PENDING'
+                    ? 'Online checkout pending. Use the button above to complete payment.'
+                    : 'No online payment recorded. Settled at the estate entrance.'}
+                </p>
+              )}
             </div>
 
             <div className="p-5 bg-white border border-[#e6dece] rounded-2xl text-xs grid grid-cols-1 sm:grid-cols-2 gap-4">
