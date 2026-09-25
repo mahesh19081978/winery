@@ -17,6 +17,7 @@ import {
   GuestBookingTimelineFilter,
   NotificationRepository,
   PaymentRepository,
+  WebhookRepository,
 } from '../repositories';
 import {
   BookingCreateSchema,
@@ -3541,4 +3542,165 @@ export class PaymentService {
       return PaymentRepository.findManyByEventBookingId(booking.id);
     }
   }
+
+  /**
+   * Reconciles Razorpay webhook events asynchronously and idempotently.
+   * Handles payment.captured, order.paid, and payment.failed.
+   */
+  static async processWebhookEvent(params: {
+    eventId: string;
+    eventType: string;
+    payload: Record<string, unknown>;
+  }): Promise<{
+    handled: boolean;
+    alreadyProcessed: boolean;
+    reason?: string;
+    paymentId?: string;
+    status?: string;
+  }> {
+    const { eventId, eventType, payload } = params;
+
+    // 1. Check idempotency in WebhookEvent table
+    const existingEvent = await WebhookRepository.findByEventId(eventId);
+    if (existingEvent) {
+      return {
+        handled: true,
+        alreadyProcessed: true,
+        reason: 'Event already processed',
+      };
+    }
+
+    // 2. Persist the incoming webhook event record as processed = false before execution
+    const webhookRecord = await WebhookRepository.create({
+      provider: 'RAZORPAY',
+      eventId,
+      eventType,
+      processed: false,
+      payload: payload as Prisma.InputJsonValue,
+    });
+
+    try {
+      // 3. Process supported events
+      if (eventType === 'payment.captured' || eventType === 'order.paid') {
+        const paymentPayload = payload?.payment as { entity?: { id?: string; order_id?: string; method?: string } } | undefined;
+        const orderPayload = payload?.order as { entity?: { id?: string } } | undefined;
+
+        const paymentEntity = paymentPayload?.entity;
+        const orderEntity = orderPayload?.entity;
+
+        const providerOrderId = paymentEntity?.order_id || orderEntity?.id;
+        const providerPaymentId = paymentEntity?.id;
+        const method = paymentEntity?.method;
+
+        if (!providerOrderId) {
+          await WebhookRepository.markProcessed(webhookRecord.id, true);
+          return { handled: true, alreadyProcessed: false, reason: 'No providerOrderId present in webhook payload' };
+        }
+
+        // Find payment record by providerOrderId
+        const payment = await PaymentRepository.findByProviderOrderId(providerOrderId);
+        if (!payment) {
+          await WebhookRepository.markProcessed(webhookRecord.id, true);
+          return { handled: true, alreadyProcessed: false, reason: `Payment for order ${providerOrderId} not found in database` };
+        }
+
+        // If payment is already marked PAID, this is idempotent
+        if (payment.status === PaymentStatus.PAID) {
+          await WebhookRepository.markProcessed(webhookRecord.id, true);
+          return { handled: true, alreadyProcessed: true, paymentId: payment.id, status: PaymentStatus.PAID };
+        }
+
+        // Verify booking status
+        const isExperience = Boolean(payment.bookingId);
+        const booking = isExperience ? payment.booking : payment.eventBooking;
+
+        if (!booking) {
+          await WebhookRepository.markProcessed(webhookRecord.id, true);
+          return { handled: true, alreadyProcessed: false, reason: 'Associated reservation record not found' };
+        }
+
+        // If booking is already cancelled, completed, etc., reject transition
+        if (booking.status !== BookingStatus.PENDING) {
+          await WebhookRepository.markProcessed(webhookRecord.id, true);
+          return {
+            handled: true,
+            alreadyProcessed: false,
+            reason: `Reservation is in ${booking.status} status; payment cannot be marked PAID`,
+          };
+        }
+
+        // Atomically mark payment paid & update booking to CONFIRMED
+        const updatedPayment = await PaymentRepository.markPaymentPaidWithTransaction({
+          paymentId: payment.id,
+          providerPaymentId: providerPaymentId || payment.providerPaymentId || `pay_wh_${Date.now()}`,
+          providerSignature: payment.providerSignature || null,
+          paymentMethod: method || payment.paymentMethod || 'ONLINE',
+          notes: `Reconciled via Razorpay webhook (${eventType}${providerPaymentId ? ` - ${providerPaymentId}` : ''})`,
+        });
+
+        // Trigger confirmation notification
+        if (isExperience && updatedPayment.booking) {
+          const expTitle = updatedPayment.booking.items?.[0]?.title || 'Wine Tasting Experience';
+          await GuestNotificationService.notifyExperienceBookingConfirmed(updatedPayment.booking, expTitle).catch(() => {});
+        } else if (!isExperience && updatedPayment.eventBooking) {
+          const eventTitle = updatedPayment.eventBooking.event?.title || 'Winery Event';
+          await GuestNotificationService.notifyEventBookingConfirmed(updatedPayment.eventBooking, eventTitle).catch(() => {});
+        }
+
+        await WebhookRepository.markProcessed(webhookRecord.id, true);
+        return {
+          handled: true,
+          alreadyProcessed: false,
+          paymentId: updatedPayment.id,
+          status: PaymentStatus.PAID,
+        };
+      }
+
+      if (eventType === 'payment.failed') {
+        const paymentPayload = payload?.payment as {
+          entity?: {
+            id?: string;
+            order_id?: string;
+            error_code?: string;
+            error_description?: string;
+          };
+        } | undefined;
+        const paymentEntity = paymentPayload?.entity;
+        const providerOrderId = paymentEntity?.order_id;
+        const errorCode = paymentEntity?.error_code || 'GATEWAY_ERROR';
+        const errorMessage = paymentEntity?.error_description || 'Payment failed at gateway';
+
+        if (providerOrderId) {
+          const payment = await PaymentRepository.findByProviderOrderId(providerOrderId);
+          if (payment && payment.status !== PaymentStatus.PAID) {
+            await PaymentRepository.markPaymentFailed({
+              paymentId: payment.id,
+              errorCode,
+              errorMessage,
+              metadata: { webhookEventId: eventId, failurePayload: paymentEntity } as Prisma.InputJsonValue,
+            });
+          }
+        }
+
+        await WebhookRepository.markProcessed(webhookRecord.id, true);
+        return {
+          handled: true,
+          alreadyProcessed: false,
+          status: PaymentStatus.FAILED,
+        };
+      }
+
+      // Unhandled / ignored event type (e.g. refund.created, invoice.paid, etc.)
+      await WebhookRepository.markProcessed(webhookRecord.id, true);
+      return {
+        handled: false,
+        alreadyProcessed: false,
+        reason: `Ignored event type: ${eventType}`,
+      };
+    } catch (err: unknown) {
+      console.error(`[PaymentService.processWebhookEvent] Error processing event ${eventId} (${eventType}):`, err);
+      throw err;
+    }
+  }
 }
+

@@ -2803,7 +2803,7 @@ export class PaymentRepository {
   static async markPaymentPaidWithTransaction(params: {
     paymentId: string;
     providerPaymentId: string;
-    providerSignature: string;
+    providerSignature?: string | null;
     paymentMethod?: string;
     metadata?: Prisma.InputJsonValue;
     notes?: string;
@@ -2842,7 +2842,7 @@ export class PaymentRepository {
         data: {
           status: PaymentStatus.PAID,
           providerPaymentId: params.providerPaymentId,
-          providerSignature: params.providerSignature,
+          providerSignature: params.providerSignature !== undefined ? params.providerSignature : existing.providerSignature,
           paymentMethod: params.paymentMethod || existing.paymentMethod,
           ...(params.metadata !== undefined ? { metadata: params.metadata } : {}),
         },
