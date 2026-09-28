@@ -143,6 +143,19 @@ export async function POST(request: NextRequest) {
 
     const emailProvider = getEmailProvider();
 
+    // DIAGNOSTIC LOG (TEMPORARY): Check email provider and configuration status without exposing secrets or guest PII
+    const isResendConfigured = Boolean(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim().length > 0);
+    const isEmailFromConfigured = Boolean(process.env.EMAIL_FROM && process.env.EMAIL_FROM.trim().length > 0);
+    const isConciergeConfigured = Boolean(process.env.ESTATE_CONCIERGE_EMAIL && process.env.ESTATE_CONCIERGE_EMAIL.trim().length > 0);
+    const providerName = emailProvider.constructor.name === 'ResendEmailProvider' ? 'Resend' : 'FileOutbox';
+
+    console.info('[DIAGNOSTIC] /api/contact email dispatch:', {
+      provider: providerName,
+      RESEND_API_KEY_configured: isResendConfigured ? 'YES' : 'NO',
+      EMAIL_FROM_configured: isEmailFromConfigured ? 'YES' : 'NO',
+      ESTATE_CONCIERGE_EMAIL_configured: isConciergeConfigured ? 'YES' : 'NO',
+    });
+
     await Promise.all([
       emailProvider.send({
         to: estateConciergeEmail,
