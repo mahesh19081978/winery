@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { AuthService } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { deleteGalleryFile } from '@/lib/storage';
 
 const UpdateGalleryImageSchema = z.object({
   title: z.string().trim().min(2, 'Title must be at least 2 characters').max(100).optional(),
@@ -80,6 +81,11 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     await prisma.galleryImage.delete({
       where: { id },
     });
+
+    // Delete image from storage (Vercel Blob / local) if applicable
+    if (existing.imageUrl) {
+      await deleteGalleryFile(existing.imageUrl);
+    }
 
     return NextResponse.json({
       success: true,
