@@ -2800,6 +2800,167 @@ export class PaymentRepository {
     });
   }
 
+  // Fields returned to authorized staff on /api/admin/payments.
+  // providerSignature, idempotencyKey and metadata are deliberately excluded so
+  // gateway secrets can never reach an admin payload.
+  static readonly adminPaymentSelect = {
+    id: true,
+    amount: true,
+    currency: true,
+    status: true,
+    provider: true,
+    providerOrderId: true,
+    providerPaymentId: true,
+    paymentMethod: true,
+    refundId: true,
+    refundAmount: true,
+    refundReason: true,
+    errorCode: true,
+    errorMessage: true,
+    createdAt: true,
+    updatedAt: true,
+    booking: {
+      select: {
+        bookingNumber: true,
+        status: true,
+        date: true,
+        time: true,
+        totalPrice: true,
+        currency: true,
+        winery: { select: { name: true, slug: true } },
+        guestProfile: {
+          select: { name: true, user: { select: { email: true } } },
+        },
+        items: { select: { title: true }, orderBy: { createdAt: 'asc' }, take: 1 },
+      },
+    },
+    eventBooking: {
+      select: {
+        bookingNumber: true,
+        status: true,
+        totalPrice: true,
+        guestProfile: {
+          select: { name: true, user: { select: { email: true } } },
+        },
+        event: {
+          select: {
+            title: true,
+            eventDate: true,
+            winery: { select: { name: true, slug: true } },
+          },
+        },
+      },
+    },
+  } satisfies Prisma.PaymentSelect;
+
+  // A Payment row has no wineryId of its own; tenancy is reached through the
+  // experience booking or through the event's winery.
+  static adminTenantScope(wineryId?: string): Prisma.PaymentWhereInput[] {
+    if (!wineryId) return [];
+    return [
+      {
+        OR: [
+          { booking: { wineryId } },
+          { eventBooking: { event: { wineryId } } },
+        ],
+      },
+    ];
+  }
+
+  static async findByIdForAdmin(id: string, wineryId?: string) {
+    const conditions: Prisma.PaymentWhereInput[] = [{ id }, ...PaymentRepository.adminTenantScope(wineryId)];
+    return prisma.payment.findFirst({
+      where: { AND: conditions },
+      select: PaymentRepository.adminPaymentSelect,
+    });
+  }
+
+  static async findPageForAdmin(
+    filters: {
+      search?: string;
+      status?: PaymentStatus;
+      bookingType?: 'EXPERIENCE' | 'EVENT';
+      dateFrom?: string;
+      dateTo?: string;
+      wineryId?: string;
+      page?: number;
+      pageSize?: number;
+    } = {}
+  ) {
+    const page = filters.page || 1;
+    const pageSize = filters.pageSize || 20;
+    const skip = (page - 1) * pageSize;
+
+    const conditions: Prisma.PaymentWhereInput[] = [
+      ...PaymentRepository.adminTenantScope(filters.wineryId),
+    ];
+
+    const search = filters.search?.trim();
+    if (search) {
+      conditions.push({
+        OR: [
+          { providerOrderId: { contains: search, mode: 'insensitive' } },
+          { providerPaymentId: { contains: search, mode: 'insensitive' } },
+          { refundId: { contains: search, mode: 'insensitive' } },
+          { paymentMethod: { contains: search, mode: 'insensitive' } },
+          { booking: { bookingNumber: { contains: search, mode: 'insensitive' } } },
+          { booking: { guestProfile: { name: { contains: search, mode: 'insensitive' } } } },
+          { booking: { guestProfile: { user: { email: { contains: search, mode: 'insensitive' } } } } },
+          { eventBooking: { bookingNumber: { contains: search, mode: 'insensitive' } } },
+          { eventBooking: { guestProfile: { name: { contains: search, mode: 'insensitive' } } } },
+          { eventBooking: { guestProfile: { user: { email: { contains: search, mode: 'insensitive' } } } } },
+          { eventBooking: { event: { title: { contains: search, mode: 'insensitive' } } } },
+        ],
+      });
+    }
+
+    if (filters.status) {
+      conditions.push({ status: filters.status });
+    }
+
+    if (filters.bookingType === 'EXPERIENCE') {
+      conditions.push({ bookingId: { not: null } });
+    } else if (filters.bookingType === 'EVENT') {
+      conditions.push({ eventBookingId: { not: null } });
+    }
+
+    if (filters.dateFrom || filters.dateTo) {
+      const range: Prisma.DateTimeFilter = {};
+      if (filters.dateFrom) range.gte = new Date(filters.dateFrom);
+      if (filters.dateTo) {
+        const endOfDay = new Date(filters.dateTo);
+        if (!Number.isNaN(endOfDay.getTime())) {
+          endOfDay.setHours(23, 59, 59, 999);
+          range.lte = endOfDay;
+        }
+      }
+      conditions.push({ createdAt: range });
+    }
+
+    const where: Prisma.PaymentWhereInput = conditions.length > 0 ? { AND: conditions } : {};
+
+    const [payments, total] = await Promise.all([
+      prisma.payment.findMany({
+        where,
+        select: PaymentRepository.adminPaymentSelect,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip,
+        take: pageSize,
+      }),
+      prisma.payment.count({ where }),
+    ]);
+
+    return {
+      payments,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    };
+  }
+
   static async markPaymentPaidWithTransaction(params: {
     paymentId: string;
     providerPaymentId: string;

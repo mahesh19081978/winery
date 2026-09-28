@@ -1,6 +1,7 @@
 import { SignJWT, jwtVerify } from 'jose';
 import bcrypt from 'bcryptjs';
 import { cookies } from 'next/headers';
+import type { NextRequest } from 'next/server';
 import { UserRole } from '@prisma/client';
 
 export const ADMIN_AUTH_COOKIE_NAME = 'elysee_admin_session';
@@ -70,6 +71,21 @@ export class AuthService {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Resolves the admin session for a route handler.
+   * Falls back to verifying the admin cookie carried by the incoming request when
+   * the ambient cookies() store is unavailable (identical token verification,
+   * same staff-role requirement is applied by the caller).
+   */
+  static async getSessionFromRequest(request: NextRequest): Promise<AdminSessionPayload | null> {
+    const session = await this.getSession();
+    if (session) return session;
+
+    const token = request.cookies.get(ADMIN_AUTH_COOKIE_NAME)?.value;
+    if (!token) return null;
+    return this.verifySessionToken(token);
   }
 
   static async setSessionCookie(token: string): Promise<void> {

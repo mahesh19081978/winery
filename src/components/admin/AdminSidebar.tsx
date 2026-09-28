@@ -26,6 +26,7 @@ import {
   Bell,
   ShieldCheck,
   Settings,
+  CreditCard,
   X,
 } from 'lucide-react';
 
@@ -56,6 +57,12 @@ const NAVIGATION_SECTIONS: NavSection[] = [
       { name: 'Calendar', href: '/admin/calendar', icon: Calendar, isImplemented: false },
       { name: 'Experiences', href: '/admin/experiences', icon: Sparkles, isImplemented: true },
       { name: 'Availability', href: '/admin/availability', icon: Clock, isImplemented: true },
+    ],
+  },
+  {
+    title: 'FINANCE',
+    items: [
+      { name: 'Payments', href: '/admin/payments', icon: CreditCard, isImplemented: true },
     ],
   },
   {

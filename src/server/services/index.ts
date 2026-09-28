@@ -56,6 +56,12 @@ import { BookingStatus, PaymentStatus, ReviewStatus, Prisma, NotificationChannel
 import { sendGuestNotificationEmail } from '@/lib/email';
 import type { GuestSessionPayload } from '@/lib/auth/guest';
 import { getRazorpayClient, verifyPaymentSignature, toSubunits, createRazorpayRefund } from '@/lib/razorpay';
+import {
+  toAdminPaymentSummaryDto,
+  toAdminPaymentDetailDto,
+  type AdminPaymentSummaryDto,
+  type AdminPaymentDetailDto,
+} from '@/lib/payment/admin-dto';
 import { createHash, randomBytes } from 'crypto';
 
 export class EventBookingError extends Error {
@@ -3542,6 +3548,57 @@ export class PaymentService {
     } else {
       return PaymentRepository.findManyByEventBookingId(booking.id);
     }
+  }
+
+  /**
+   * Admin payment listing (staff authorization is enforced by the admin route).
+   * Rows are tenant-scoped through the booking/event winery and returned as
+   * sanitized DTOs so gateway secrets never leave the server.
+   */
+  static async listForAdmin(query: {
+    search?: string;
+    status?: PaymentStatus;
+    bookingType?: PaymentBookingType;
+    dateFrom?: string;
+    dateTo?: string;
+    wineryId?: string | null;
+    page?: number;
+    pageSize?: number;
+  }): Promise<{
+    payments: AdminPaymentSummaryDto[];
+    pagination: { page: number; pageSize: number; total: number; totalPages: number };
+  }> {
+    const page = Math.max(query.page || 1, 1);
+    const pageSize = Math.min(Math.max(query.pageSize || 20, 1), 50);
+
+    const { payments, pagination } = await PaymentRepository.findPageForAdmin({
+      search: query.search,
+      status: query.status,
+      bookingType: query.bookingType,
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+      wineryId: query.wineryId ?? undefined,
+      page,
+      pageSize,
+    });
+
+    return {
+      payments: payments.map(toAdminPaymentSummaryDto),
+      pagination,
+    };
+  }
+
+  /**
+   * Admin payment detail. Returns null when the payment does not exist or is
+   * outside the caller's tenant, so callers can 404 uniformly.
+   */
+  static async getForAdmin(
+    id: string,
+    wineryId?: string | null
+  ): Promise<AdminPaymentDetailDto | null> {
+    const payment = await PaymentRepository.findByIdForAdmin(id, wineryId ?? undefined);
+    if (!payment) return null;
+    return toAdminPaymentDetailDto(payment);
   }
 
   /**
