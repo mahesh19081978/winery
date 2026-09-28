@@ -398,14 +398,14 @@ async function runTests() {
 
     // 7. Unknown / Unhandled Webhook Events
     console.log('\n7. Handling Unknown and Unhandled Webhook Events:');
-    const whEventId4 = `evt_refund_${Date.now()}`;
+    const whEventId4 = `evt_unknown_${Date.now()}`;
     createdWebhookEventIds.push(whEventId4);
 
     const unhandledPayload = {
-      event: 'refund.processed',
+      event: 'invoice.paid',
       id: whEventId4,
       payload: {
-        refund: { entity: { id: 'rfnd_001', amount: 5000 } },
+        invoice: { entity: { id: 'in_001', amount_paid: 5000 } },
       },
     };
 
@@ -418,6 +418,35 @@ async function runTests() {
     const dbWebhookRecord = await prisma.webhookEvent.findUnique({ where: { eventId: whEventId4 } });
     assert(Boolean(dbWebhookRecord), 'WebhookEvent record stored in database for audit trail');
     assert(dbWebhookRecord?.processed === true, 'WebhookEvent record marked as processed: true');
+
+    // 7b. Refund event for an unknown payment must NOT be treated as "ignored event type"
+    const whEventId5 = `evt_refund_unknown_${Date.now()}`;
+    createdWebhookEventIds.push(whEventId5);
+
+    const unmatchedRefundPayload = {
+      event: 'refund.processed',
+      id: whEventId5,
+      payload: {
+        refund: { entity: { id: 'rfnd_unknown_001', amount: 5000, payment_id: 'pay_does_not_exist' } },
+      },
+    };
+
+    const reqWh5 = buildWebhookRequest(unmatchedRefundPayload, undefined, whEventId5);
+    const resWh5 = await parseResponse(await webhookRoute(reqWh5));
+    assert(resWh5.status === 200, 'Unmatched refund webhook returns HTTP 200 acknowledging receipt');
+    assert(resWh5.json.handled === false, 'Unmatched refund webhook response indicates handled: false');
+    assert(
+      resWh5.json.reason?.includes('No matching payment record found for refund'),
+      'Unmatched refund reason reports no matching payment record'
+    );
+    assert(
+      !resWh5.json.reason?.includes('Ignored event type'),
+      'Unmatched refund is not mis-reported as an ignored event type'
+    );
+
+    const dbRefundWebhookRecord = await prisma.webhookEvent.findUnique({ where: { eventId: whEventId5 } });
+    assert(Boolean(dbRefundWebhookRecord), 'Unmatched refund WebhookEvent record stored for audit trail');
+    assert(dbRefundWebhookRecord?.processed === true, 'Unmatched refund WebhookEvent marked as processed: true');
 
     // 8. Reconciled Reservation Query via Payment Status API
     console.log('\n8. Payment Status API Visibility for Reconciled Reservations:');
