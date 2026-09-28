@@ -100,7 +100,20 @@ export async function POST(request: NextRequest) {
       validated.message,
     ].join('\n');
 
-    // 2. Send acknowledgment to the guest
+    const emailProvider = getEmailProvider();
+
+    // 1. Send notification to estate concierge
+    await emailProvider.send({
+      to: estateConciergeEmail,
+      replyTo: validated.email,
+      subject: `[Concierge Inquiry] ${validated.subject} — ${validated.name}`,
+      html: conciergeHtml,
+      text: conciergeText,
+    });
+
+    // TODO: Re-enable guest acknowledgment email after Resend domain verification and production setup.
+    // In unverified testing environments, Resend limits recipients to the account owner, causing a 403 error if sent to external guest emails.
+    /*
     const guestHtml = `<!doctype html>
 <html>
   <body style="margin:0;padding:0;background-color:#faf8f5;">
@@ -141,40 +154,18 @@ export async function POST(request: NextRequest) {
       'The Estate Concierge Team at VINORA',
     ].join('\n');
 
-    const emailProvider = getEmailProvider();
-
-    // DIAGNOSTIC LOG (TEMPORARY): Check email provider and configuration status without exposing secrets or guest PII
-    const isResendConfigured = Boolean(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim().length > 0);
-    const isEmailFromConfigured = Boolean(process.env.EMAIL_FROM && process.env.EMAIL_FROM.trim().length > 0);
-    const isConciergeConfigured = Boolean(process.env.ESTATE_CONCIERGE_EMAIL && process.env.ESTATE_CONCIERGE_EMAIL.trim().length > 0);
-    const providerName = emailProvider.constructor.name === 'ResendEmailProvider' ? 'Resend' : 'FileOutbox';
-
-    console.info('[DIAGNOSTIC] /api/contact email dispatch:', {
-      provider: providerName,
-      RESEND_API_KEY_configured: isResendConfigured ? 'YES' : 'NO',
-      EMAIL_FROM_configured: isEmailFromConfigured ? 'YES' : 'NO',
-      ESTATE_CONCIERGE_EMAIL_configured: isConciergeConfigured ? 'YES' : 'NO',
+    await emailProvider.send({
+      to: validated.email,
+      subject: `Inquiry Received: ${validated.subject} — VINORA Estate`,
+      html: guestHtml,
+      text: guestText,
     });
-
-    await Promise.all([
-      emailProvider.send({
-        to: estateConciergeEmail,
-        replyTo: validated.email,
-        subject: `[Concierge Inquiry] ${validated.subject} — ${validated.name}`,
-        html: conciergeHtml,
-        text: conciergeText,
-      }),
-      emailProvider.send({
-        to: validated.email,
-        subject: `Inquiry Received: ${validated.subject} — VINORA Estate`,
-        html: guestHtml,
-        text: guestText,
-      }),
-    ]);
+    */
 
     return NextResponse.json({
       success: true,
-      message: 'Your inquiry has been received. Our concierge team will reach out shortly.',
+      message:
+        'Your inquiry has been submitted successfully. Thank you for contacting VINORA. We’ve received your message and our concierge team will respond shortly.',
     });
   } catch (error: unknown) {
     if (error instanceof z.ZodError) {
