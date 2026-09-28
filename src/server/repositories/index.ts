@@ -2926,6 +2926,117 @@ export class PaymentRepository {
       },
     });
   }
+
+  static async markPaymentRefundedWithTransaction(params: {
+    paymentId: string;
+    refundId: string;
+    refundAmount: Prisma.Decimal;
+    refundReason?: string | null;
+    isPartial?: boolean;
+    metadata?: Prisma.InputJsonValue;
+    staffUserId?: string;
+  }) {
+    return prisma.$transaction(async (tx) => {
+      const existing = await tx.payment.findUnique({
+        where: { id: params.paymentId },
+        include: {
+          booking: true,
+          eventBooking: {
+            include: { tickets: true },
+          },
+        },
+      });
+
+      if (!existing) {
+        throw new Error(`Payment ${params.paymentId} not found`);
+      }
+
+      if (existing.status === PaymentStatus.REFUNDED) {
+        return existing;
+      }
+
+      const newStatus = params.isPartial ? PaymentStatus.PARTIALLY_REFUNDED : PaymentStatus.REFUNDED;
+
+      const updatedPayment = await tx.payment.update({
+        where: { id: params.paymentId },
+        data: {
+          status: newStatus,
+          refundId: params.refundId,
+          refundAmount: params.refundAmount,
+          refundReason: params.refundReason || null,
+          ...(params.metadata !== undefined ? { metadata: params.metadata } : {}),
+        },
+        include: {
+          booking: true,
+          eventBooking: true,
+        },
+      });
+
+      const changedBy = params.staffUserId || 'STAFF_REFUND';
+
+      // For full refunds, if the reservation is CONFIRMED, update to CANCELLED and release capacity if applicable
+      if (!params.isPartial) {
+        if (existing.bookingId && existing.booking) {
+          if (existing.booking.status === BookingStatus.CONFIRMED || existing.booking.status === BookingStatus.PENDING) {
+            await tx.booking.update({
+              where: { id: existing.bookingId },
+              data: { status: BookingStatus.CANCELLED },
+            });
+
+            await tx.bookingStatusHistory.create({
+              data: {
+                bookingId: existing.bookingId,
+                fromStatus: existing.booking.status,
+                toStatus: BookingStatus.CANCELLED,
+                changedBy,
+                notes: `Reservation cancelled due to full refund (${params.refundId})`,
+              },
+            });
+          }
+        } else if (existing.eventBookingId && existing.eventBooking) {
+          if (existing.eventBooking.status === BookingStatus.CONFIRMED || existing.eventBooking.status === BookingStatus.PENDING) {
+            const ticketTypeIds = existing.eventBooking.tickets
+              .filter((t) => t.eventTicketTypeId)
+              .map((t) => t.eventTicketTypeId as string)
+              .sort();
+
+            if (ticketTypeIds.length > 0) {
+              await tx.$queryRaw`SELECT id FROM "event_ticket_types" WHERE id IN (${Prisma.join(ticketTypeIds)}) ORDER BY id FOR UPDATE`;
+            }
+
+            await tx.eventBooking.update({
+              where: { id: existing.eventBookingId },
+              data: { status: BookingStatus.CANCELLED },
+            });
+
+            await tx.eventBookingStatusHistory.create({
+              data: {
+                eventBookingId: existing.eventBookingId,
+                fromStatus: existing.eventBooking.status,
+                toStatus: BookingStatus.CANCELLED,
+                changedBy,
+                notes: `Event booking cancelled due to full refund (${params.refundId})`,
+              },
+            });
+
+            // Release capacity for event tickets
+            for (const t of existing.eventBooking.tickets) {
+              if (!t.eventTicketTypeId) continue;
+              const tt = await tx.eventTicketType.findUnique({ where: { id: t.eventTicketTypeId } });
+              if (!tt) continue;
+              const newSoldCount = Math.max(0, tt.soldCount - t.quantity);
+              await tx.eventTicketType.update({
+                where: { id: t.eventTicketTypeId },
+                data: { soldCount: newSoldCount },
+              });
+            }
+          }
+        }
+      }
+
+      return updatedPayment;
+    });
+  }
 }
 
 export class WebhookRepository {

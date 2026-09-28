@@ -492,3 +492,14 @@ export const PaymentFailureSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 export type PaymentFailureInput = z.infer<typeof PaymentFailureSchema>;
+
+export const PaymentRefundSchema = z.object({
+  bookingType: PaymentBookingTypeEnum,
+  bookingNumber: z.string().trim().min(1, 'Booking number is required'),
+  paymentId: z.string().trim().min(1, 'Payment ID is required').optional(),
+  providerPaymentId: z.string().trim().min(1, 'Provider payment ID is required').optional(),
+  amount: z.number().positive('Refund amount must be greater than zero').optional(),
+  reason: z.string().trim().max(500).optional(),
+  idempotencyKey: z.string().trim().min(8, 'Idempotency key must be at least 8 characters').max(255).optional(),
+});
+export type PaymentRefundInput = z.infer<typeof PaymentRefundSchema>;

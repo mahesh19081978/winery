@@ -48,13 +48,14 @@ import {
   PaymentOrderCreateInput,
   PaymentVerifyInput,
   PaymentFailureInput,
+  PaymentRefundInput,
   PaymentBookingType,
 } from '../validators';
 import { prisma } from '@/lib/db';
 import { BookingStatus, PaymentStatus, ReviewStatus, Prisma, NotificationChannel, NotificationType } from '@prisma/client';
 import { sendGuestNotificationEmail } from '@/lib/email';
 import type { GuestSessionPayload } from '@/lib/auth/guest';
-import { getRazorpayClient, verifyPaymentSignature, toSubunits } from '@/lib/razorpay';
+import { getRazorpayClient, verifyPaymentSignature, toSubunits, createRazorpayRefund } from '@/lib/razorpay';
 import { createHash, randomBytes } from 'crypto';
 
 export class EventBookingError extends Error {
@@ -3690,7 +3691,56 @@ export class PaymentService {
         };
       }
 
-      // Unhandled / ignored event type (e.g. refund.created, invoice.paid, etc.)
+      if (eventType === 'refund.created' || eventType === 'refund.processed') {
+        const refundPayload = payload?.refund as {
+          entity?: {
+            id?: string;
+            payment_id?: string;
+            amount?: number;
+            notes?: Record<string, string>;
+          };
+        } | undefined;
+        const refundEntity = refundPayload?.entity;
+        const providerPaymentId = refundEntity?.payment_id;
+        const refundId = refundEntity?.id;
+        const amountSubunits = refundEntity?.amount;
+
+        if (providerPaymentId && refundId) {
+          const payment = await PaymentRepository.findByProviderPaymentId(providerPaymentId);
+          if (payment) {
+            if (payment.status !== PaymentStatus.REFUNDED) {
+              const refundAmountNum = amountSubunits !== undefined ? amountSubunits / 100 : payment.amount.toNumber();
+              const isPartial = refundAmountNum < payment.amount.toNumber();
+              await PaymentRepository.markPaymentRefundedWithTransaction({
+                paymentId: payment.id,
+                refundId,
+                refundAmount: new Prisma.Decimal(refundAmountNum),
+                refundReason: refundEntity?.notes?.reason || 'Reconciled via webhook',
+                isPartial,
+                metadata: { webhookEventId: eventId, refundEntity } as Prisma.InputJsonValue,
+                staffUserId: 'WEBHOOK_RECONCILIATION',
+              });
+            }
+
+            await WebhookRepository.markProcessed(webhookRecord.id, true);
+            return {
+              handled: true,
+              alreadyProcessed: false,
+              paymentId: payment.id,
+              status: PaymentStatus.REFUNDED,
+            };
+          }
+        }
+
+        await WebhookRepository.markProcessed(webhookRecord.id, true);
+        return {
+          handled: false,
+          alreadyProcessed: false,
+          reason: `No matching payment record found for refund on payment ${providerPaymentId || 'unknown'}`,
+        };
+      }
+
+      // Unhandled / ignored event type (e.g. invoice.paid, etc.)
       await WebhookRepository.markProcessed(webhookRecord.id, true);
       return {
         handled: false,
@@ -3701,6 +3751,132 @@ export class PaymentService {
       console.error(`[PaymentService.processWebhookEvent] Error processing event ${eventId} (${eventType}):`, err);
       throw err;
     }
+  }
+
+  /**
+   * Processes a staff-authorized refund for a PAID payment.
+   * Full refund defaults to the persisted authoritative payment amount.
+   */
+  static async refundPayment(
+    input: PaymentRefundInput,
+    context?: PaymentOwnershipContext
+  ) {
+    // 1. Staff authorization check
+    if (context?.isStaff !== true) {
+      throw new PaymentError('Only authorized winery staff can initiate payment refunds', 403);
+    }
+
+    // 2. Fetch reservation
+    const { type, booking } = await this.fetchBooking(input.bookingType, input.bookingNumber);
+
+    // 3. Locate target payment
+    let payment;
+    if (input.paymentId) {
+      payment = await PaymentRepository.findById(input.paymentId);
+    } else if (input.providerPaymentId) {
+      payment = await PaymentRepository.findByProviderPaymentId(input.providerPaymentId);
+    } else {
+      // Find latest PAID payment for the reservation
+      if (type === 'EXPERIENCE') {
+        const payments = await PaymentRepository.findManyByBookingId(booking.id);
+        payment = payments.find((p) => p.status === PaymentStatus.PAID) || payments[0];
+      } else {
+        const payments = await PaymentRepository.findManyByEventBookingId(booking.id);
+        payment = payments.find((p) => p.status === PaymentStatus.PAID) || payments[0];
+      }
+    }
+
+    if (!payment) {
+      throw new PaymentError(`No payment found for reservation ${input.bookingNumber}`, 404);
+    }
+
+    // Verify reservation association
+    const isMatching =
+      (type === 'EXPERIENCE' && payment.bookingId === booking.id) ||
+      (type === 'EVENT' && payment.eventBookingId === booking.id);
+    if (!isMatching) {
+      throw new PaymentError('Payment record does not belong to the specified reservation', 400);
+    }
+
+    // 4. Idempotency short-circuit
+    if (payment.status === PaymentStatus.REFUNDED) {
+      return {
+        success: true,
+        alreadyRefunded: true,
+        payment,
+        refundId: payment.refundId,
+        refundAmount: Number(payment.refundAmount ?? payment.amount),
+        bookingNumber: booking.bookingNumber,
+        status: PaymentStatus.REFUNDED,
+      };
+    }
+
+    // 5. Must be PAID to be refunded
+    if (payment.status !== PaymentStatus.PAID) {
+      throw new PaymentError(`Cannot refund payment in ${payment.status} status. Only PAID payments can be refunded.`, 400);
+    }
+
+    if (!payment.providerPaymentId) {
+      throw new PaymentError('Cannot refund payment: missing gateway payment ID (providerPaymentId)', 400);
+    }
+
+    // 6. Authoritative amount determination & partial support guard
+    const paymentAmountNum = payment.amount.toNumber();
+    const refundAmountNum = input.amount !== undefined ? input.amount : paymentAmountNum;
+
+    if (refundAmountNum <= 0) {
+      throw new PaymentError('Refund amount must be greater than zero', 400);
+    }
+    if (refundAmountNum > paymentAmountNum) {
+      throw new PaymentError(`Refund amount (${refundAmountNum}) cannot exceed total paid amount (${paymentAmountNum})`, 400);
+    }
+
+    const isPartial = refundAmountNum < paymentAmountNum;
+    const refundAmountSubunits = toSubunits(refundAmountNum);
+
+    // 7. Execute Razorpay Gateway Refund
+    let gatewayRefund;
+    try {
+      gatewayRefund = await createRazorpayRefund({
+        paymentId: payment.providerPaymentId,
+        amountSubunits: refundAmountSubunits,
+        notes: {
+          bookingNumber: booking.bookingNumber,
+          bookingType: input.bookingType,
+          reason: input.reason || 'Staff initiated refund',
+          staffEmail: context.email || 'staff',
+        },
+        receipt: `ref_${booking.bookingNumber}`,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new PaymentError(`Gateway refund initiation failed: ${msg}`, 502);
+    }
+
+    // 8. Atomic transactional update
+    const updatedPayment = await PaymentRepository.markPaymentRefundedWithTransaction({
+      paymentId: payment.id,
+      refundId: gatewayRefund.id,
+      refundAmount: new Prisma.Decimal(refundAmountNum),
+      refundReason: input.reason || 'Staff initiated refund',
+      isPartial,
+      metadata: {
+        gatewayRefund: JSON.parse(JSON.stringify(gatewayRefund)),
+        refundedAt: new Date().toISOString(),
+        idempotencyKey: input.idempotencyKey || null,
+      },
+      staffUserId: context.email || 'STAFF',
+    });
+
+    return {
+      success: true,
+      alreadyRefunded: false,
+      payment: updatedPayment,
+      refundId: gatewayRefund.id,
+      refundAmount: refundAmountNum,
+      bookingNumber: booking.bookingNumber,
+      status: updatedPayment.status,
+    };
   }
 }
 

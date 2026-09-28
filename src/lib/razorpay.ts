@@ -162,3 +162,45 @@ export function toSubunits(amount: number | string): number {
 export function fromSubunits(subunits: number): number {
   return Number((subunits / 100).toFixed(2));
 }
+
+/**
+ * Initiates a server-side refund with the Razorpay Gateway API.
+ */
+export async function createRazorpayRefund(params: {
+  paymentId: string;
+  amountSubunits?: number;
+  notes?: Record<string, string>;
+  receipt?: string;
+}): Promise<{
+  id: string;
+  amount: number;
+  currency: string;
+  status: string;
+  payment_id: string;
+}> {
+  const client = getRazorpayClient();
+  const requestBody: {
+    amount?: number;
+    notes?: Record<string, string>;
+    receipt?: string;
+  } = {};
+
+  if (params.amountSubunits !== undefined) {
+    requestBody.amount = params.amountSubunits;
+  }
+  if (params.notes) {
+    requestBody.notes = params.notes;
+  }
+  if (params.receipt) {
+    requestBody.receipt = params.receipt;
+  }
+
+  const refund = await client.payments.refund(params.paymentId, requestBody);
+  return {
+    id: refund.id,
+    amount: typeof refund.amount === 'number' ? refund.amount : Number(refund.amount),
+    currency: refund.currency,
+    status: (refund as unknown as { status?: string }).status || 'processed',
+    payment_id: refund.payment_id,
+  };
+}
