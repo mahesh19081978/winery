@@ -70,6 +70,14 @@ function BookingContent() {
 
   const { profile, isAuthenticated, isLoading: guestLoading } = useGuest();
 
+  // Sync experience from query param if provided
+  useEffect(() => {
+    const matched = mockExperiences.find((e) => e.id === initialExpId || e.slug === initialExpId);
+    if (matched && currentBooking.experienceId !== matched.id) {
+      updateBooking({ experienceId: matched.id });
+    }
+  }, [initialExpId, updateBooking, currentBooking.experienceId]);
+
   // Prefill lead guest contact details from authenticated profile
   useEffect(() => {
     if (!guestLoading && isAuthenticated && profile) {
@@ -98,8 +106,8 @@ function BookingContent() {
   const [paymentNotice, setPaymentNotice] = useState<string | null>(null);
 
   const selectedExp =
-    mockExperiences.find((e) => e.id === currentBooking.experienceId) ||
-    mockExperiences.find((e) => e.id === initialExpId) ||
+    mockExperiences.find((e) => e.id === currentBooking.experienceId || e.slug === currentBooking.experienceId) ||
+    mockExperiences.find((e) => e.id === initialExpId || e.slug === initialExpId) ||
     mockExperiences[0];
 
   const { basePrice, taxAmount, totalPrice } = calculatePricing();
@@ -304,7 +312,7 @@ function BookingContent() {
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-2 sm:gap-3">
                 {availableDates.map((item) => {
                   const isSelected = currentBooking.date === item.iso;
                   return (
@@ -312,19 +320,19 @@ function BookingContent() {
                       key={item.iso}
                       type="button"
                       onClick={() => updateBooking({ date: item.iso })}
-                      className={`p-4 rounded-2xl border text-center transition-all flex flex-col items-center ${
+                      className={`p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border text-center transition-all flex flex-col items-center ${
                         isSelected
                           ? 'bg-[#2d1117] text-[#faf8f5] border-[#2d1117] shadow-md ring-2 ring-[#c5a059]/40'
                           : 'bg-[#faf8f5] border-[#e6dece] text-[#191c1f] hover:border-[#8a3243]'
                       }`}
                     >
-                      <span className={`text-[11px] uppercase tracking-wider font-semibold ${isSelected ? 'text-[#c5a059]' : 'text-[#8a3243]'}`}>
+                      <span className={`text-[10px] sm:text-[11px] uppercase tracking-wider font-semibold ${isSelected ? 'text-[#c5a059]' : 'text-[#8a3243]'}`}>
                         {item.dayName}
                       </span>
-                      <span className="font-serif text-2xl font-bold my-1">
+                      <span className="font-serif text-lg sm:text-2xl font-bold my-0.5 sm:my-1">
                         {item.dayNum}
                       </span>
-                      <span className="text-[10px] uppercase text-[#525960]">
+                      <span className="text-[9px] sm:text-[10px] uppercase text-[#525960]">
                         {item.monthName}
                       </span>
                     </button>

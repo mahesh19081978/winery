@@ -74,6 +74,11 @@ export default function Footer() {
                   Guest Testimonials
                 </Link>
               </li>
+              <li>
+                <Link href="/contact" className="hover:text-[#faf8f5] transition-colors">
+                  Contact & Concierge
+                </Link>
+              </li>
             </ul>
           </div>
 

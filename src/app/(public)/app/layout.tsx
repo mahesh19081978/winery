@@ -83,8 +83,10 @@ export default function GuestAccountLayout({ children }: { children: React.React
 
       {/* Account Navigation Bar (Horizontal Scroll / Desktop Tabs) */}
       <div className="bg-white border-b border-[#e6dece] sticky top-16 z-20 backdrop-blur-md bg-white/95">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <nav className="flex items-center space-x-1 sm:space-x-2 overflow-x-auto py-2 scrollbar-none">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
+          <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-4 bg-gradient-to-r from-white to-transparent sm:hidden z-10" />
+          <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-4 bg-gradient-to-l from-white to-transparent sm:hidden z-10" />
+          <nav className="flex items-center space-x-1 sm:space-x-2 overflow-x-auto py-2 scrollbar-none px-1">
             {ACCOUNT_NAV.map((item) => {
               const Icon = item.icon;
               const isActive =

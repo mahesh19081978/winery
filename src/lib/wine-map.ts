@@ -64,6 +64,12 @@ export interface PublicWineShape {
   rating: number;
   reviewCount: number;
   characteristics: string[];
+  bookingCtaHref?: string;
+  relatedExperience?: {
+    id: string;
+    slug: string;
+    title: string;
+  } | null;
 }
 
 export function toPublicWine(dbWine: {
@@ -84,6 +90,15 @@ export function toPublicWine(dbWine: {
   vintages: Array<{ vintageYear: number; price: unknown; isAvailable: boolean; alcohol: string; oakAging: string | null; tastingNotes: string | null; aromaTags: string[]; body: number; acidity: number; sweetness: number; tannin: number }>;
   images: Array<{ url: string; isPrimary: boolean; sortOrder: number }>;
   foodPairings: Array<{ dishName: string }>;
+  experienceWines?: Array<{
+    sortOrder?: number;
+    experience?: {
+      id: string;
+      slug: string;
+      title: string;
+      isActive?: boolean;
+    } | null;
+  }>;
 }): PublicWineShape {
   const display = selectDisplayVintage(dbWine.vintages);
   const vintageYear = display?.vintageYear ?? (dbWine.vintages[0]?.vintageYear ?? new Date().getFullYear());
@@ -103,6 +118,23 @@ export function toPublicWine(dbWine: {
     return a.sortOrder - b.sortOrder;
   });
   const image = sortedImages[0]?.url || 'https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?auto=format&fit=crop&w=800&q=80';
+
+  // Resolve related experience from experienceWines (first active experience, ordered by sortOrder)
+  let relatedExperience: { id: string; slug: string; title: string } | null = null;
+  let bookingCtaHref = '/book';
+
+  if (dbWine.experienceWines && dbWine.experienceWines.length > 0) {
+    const sortedExpWines = [...dbWine.experienceWines].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    const matched = sortedExpWines.find(ew => ew.experience && (ew.experience.isActive ?? true))?.experience;
+    if (matched && matched.slug) {
+      relatedExperience = {
+        id: matched.id,
+        slug: matched.slug,
+        title: matched.title,
+      };
+      bookingCtaHref = `/book?experience=${matched.slug}`;
+    }
+  }
 
   return {
     id: dbWine.id,
@@ -126,5 +158,7 @@ export function toPublicWine(dbWine: {
     rating: Number(dbWine.rating),
     reviewCount: dbWine.reviewCount,
     characteristics: dbWine.characteristics,
+    bookingCtaHref,
+    relatedExperience,
   };
 }

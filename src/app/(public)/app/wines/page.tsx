@@ -1,27 +1,56 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useGuest } from '@/context/GuestContext';
-import { mockWines } from '@/data/wines';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Loader2 } from 'lucide-react';
 import WineCard from '@/components/wine/WineCard';
 import EmptyState from '@/components/common/EmptyState';
+import { Wine } from '@/types';
+import { toPublicWine } from '@/lib/wine-map';
 
 export default function MyWinesPage() {
   const { savedWineIds, tastings } = useGuest();
   const [activeTab, setActiveTab] = useState<'saved' | 'rated' | 'recommended'>('saved');
+  const [wines, setWines] = useState<Wine[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadCatalog() {
+      try {
+        setLoading(true);
+        const res = await fetch('/api/wines', { cache: 'no-store' });
+        if (res.ok) {
+          const json = await res.json();
+          if (!cancelled && json.success && Array.isArray(json.data)) {
+            const mapped = json.data.map((w: Parameters<typeof toPublicWine>[0]) => toPublicWine(w));
+            setWines(mapped);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load wines in MyWinesPage:', err);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadCatalog();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Favorite / Saved wines
-  const favoriteWinesList = mockWines.filter(w => savedWineIds.includes(w.id));
+  const favoriteWinesList = wines.filter(w => savedWineIds.includes(w.id));
 
   // Highly rated wines from tasting records (e.g. rating >= 4.5)
   const highlyRatedWineIds = tastings
     .filter((r) => r.rating >= 4.5)
     .map((r) => r.wineId);
-  const highlyRatedWinesList = mockWines.filter(w => highlyRatedWineIds.includes(w.id));
+  const highlyRatedWinesList = wines.filter(w => highlyRatedWineIds.includes(w.id));
 
   // Sommelier recommended (e.g. not tasted yet or signature reserve)
-  const recommendedWinesList = mockWines.filter(w => !tastings.some((r) => r.wineId === w.id)).slice(0, 4);
+  const recommendedWinesList = wines.filter(w => !tastings.some((r) => r.wineId === w.id)).slice(0, 4);
 
   return (
     <div className="space-y-8">
@@ -65,53 +94,62 @@ export default function MyWinesPage() {
         </button>
       </div>
 
-      {/* Wine Grid */}
-      {activeTab === 'saved' && (
-        favoriteWinesList.length === 0 ? (
-          <EmptyState
-            title="Your cellar wishlist is empty"
-            description="Tap the heart icon on any wine in our catalogue to save it to your personal allocation collection."
-            actionText="Explore Wine Catalogue"
-            actionHref="/wines"
-          />
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {favoriteWinesList.map(wine => (
-              <WineCard key={wine.id} wine={wine} />
-            ))}
-          </div>
-        )
-      )}
-
-      {activeTab === 'rated' && (
-        highlyRatedWinesList.length === 0 ? (
-          <EmptyState
-            title="No 5-star wines logged yet"
-            description="Log your tasting impressions in your journal to bookmark your favorite high-rated vintages."
-            actionText="Go to Tasting Journal"
-            actionHref="/app/tastings"
-          />
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {highlyRatedWinesList.map(wine => (
-              <WineCard key={wine.id} wine={wine} />
-            ))}
-          </div>
-        )
-      )}
-
-      {activeTab === 'recommended' && (
-        <div className="space-y-6">
-          <div className="p-4 rounded-2xl bg-[#faf8f5] border border-stone-200/80 flex items-center gap-3 text-xs text-stone-600">
-            <Sparkles className="w-4 h-4 text-[#c5a059] shrink-0" />
-            <span>These vintages match your profile preference for balanced acidity, dark fruit aromatics, and French oak barrel aging.</span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {recommendedWinesList.map(wine => (
-              <WineCard key={wine.id} wine={wine} />
-            ))}
-          </div>
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-20 gap-3">
+          <Loader2 className="w-8 h-8 text-[#8a3243] animate-spin" />
+          <span className="text-xs uppercase tracking-widest text-stone-500">Loading your cellar bottles…</span>
         </div>
+      ) : (
+        <>
+          {/* Wine Grid */}
+          {activeTab === 'saved' && (
+            favoriteWinesList.length === 0 ? (
+              <EmptyState
+                title="Your cellar wishlist is empty"
+                description="Tap the heart icon on any wine in our catalogue to save it to your personal allocation collection."
+                actionText="Explore Wine Catalogue"
+                actionHref="/wines"
+              />
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {favoriteWinesList.map(wine => (
+                  <WineCard key={wine.id} wine={wine} />
+                ))}
+              </div>
+            )
+          )}
+
+          {activeTab === 'rated' && (
+            highlyRatedWinesList.length === 0 ? (
+              <EmptyState
+                title="No 5-star wines logged yet"
+                description="Log your tasting impressions in your journal to bookmark your favorite high-rated vintages."
+                actionText="Go to Tasting Journal"
+                actionHref="/app/tastings"
+              />
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {highlyRatedWinesList.map(wine => (
+                  <WineCard key={wine.id} wine={wine} />
+                ))}
+              </div>
+            )
+          )}
+
+          {activeTab === 'recommended' && (
+            <div className="space-y-6">
+              <div className="p-4 rounded-2xl bg-[#faf8f5] border border-stone-200/80 flex items-center gap-3 text-xs text-stone-600">
+                <Sparkles className="w-4 h-4 text-[#c5a059] shrink-0" />
+                <span>These vintages match your profile preference for balanced acidity, dark fruit aromatics, and French oak barrel aging.</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {recommendedWinesList.map(wine => (
+                  <WineCard key={wine.id} wine={wine} />
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

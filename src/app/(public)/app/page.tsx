@@ -1,23 +1,53 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useGuest } from '@/context/GuestContext';
-import { mockWines } from '@/data/wines';
 import { 
-  Wine, 
+  Wine as WineIcon, 
   Sparkles, 
   ArrowRight, 
   Star,
   ChevronRight,
   BookOpen
 } from 'lucide-react';
+import { Wine } from '@/types';
+import { toPublicWine } from '@/lib/wine-map';
 
 export default function GuestOverviewPage() {
   const { profile, tastings, savedWineIds } = useGuest();
+  const [recommendedWines, setRecommendedWines] = useState<Wine[]>([]);
+  const [eventsCount, setEventsCount] = useState<number>(profile.eventsAttendedCount ?? 0);
 
-  // Recommended wines
-  const recommendedWines = mockWines.slice(0, 3);
+  useEffect(() => {
+    let cancelled = false;
+
+    // Fetch real wines for recommendations
+    fetch('/api/wines', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.success && Array.isArray(data.data)) {
+          const mapped = data.data.slice(0, 3).map((w: Parameters<typeof toPublicWine>[0]) => toPublicWine(w));
+          setRecommendedWines(mapped);
+        }
+      })
+      .catch((err) => console.error('Failed to load recommended wines:', err));
+
+    // Fetch real events count for this guest
+    fetch('/api/auth/guest/bookings?type=event&filter=all', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.success && data.data?.pagination?.total !== undefined) {
+          setEventsCount(data.data.pagination.total);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profile]);
 
   // Recent tastings
   const recentTastings = tastings.slice(0, 3);
@@ -43,7 +73,7 @@ export default function GuestOverviewPage() {
           {/* Quick Stats Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-6 border-t border-white/10">
             <div>
-              <div className="text-2xl md:text-3xl font-serif text-[#c5a059]">{profile.visitsCount || 4}</div>
+              <div className="text-2xl md:text-3xl font-serif text-[#c5a059]">{profile.visitsCount ?? 0}</div>
               <div className="text-xs text-stone-400 uppercase tracking-wider mt-1">Estate Visits</div>
             </div>
             <div>
@@ -55,7 +85,7 @@ export default function GuestOverviewPage() {
               <div className="text-xs text-stone-400 uppercase tracking-wider mt-1">Cellar Wishlist</div>
             </div>
             <div>
-              <div className="text-2xl md:text-3xl font-serif text-[#c5a059]">{profile.eventsAttendedCount || 2}</div>
+              <div className="text-2xl md:text-3xl font-serif text-[#c5a059]">{eventsCount}</div>
               <div className="text-xs text-stone-400 uppercase tracking-wider mt-1">Events Booked</div>
             </div>
           </div>
@@ -64,14 +94,14 @@ export default function GuestOverviewPage() {
 
       {/* Upcoming Experience / Digital Pass */}
       <section className="bg-white rounded-3xl p-8 border border-stone-200/80 shadow-sm text-center">
-        <Wine className="w-12 h-12 text-[#c5a059] mx-auto mb-4 stroke-1" />
-        <h2 className="font-serif text-2xl text-stone-900 mb-2">No Upcoming Reservations</h2>
+        <WineIcon className="w-12 h-12 text-[#c5a059] mx-auto mb-4 stroke-1" />
+        <h2 className="font-serif text-2xl text-stone-900 mb-2">Reserve an Estate Visit</h2>
         <p className="text-stone-500 text-sm max-w-md mx-auto mb-6">
           Immerse yourself in our terroirs. Book a private cave tour, tasting flight, or harvest dining experience.
         </p>
         <Link
           href="/experiences"
-          className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-[#8a3243] text-white text-sm font-medium hover:bg-[#732937] transition"
+          className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-[#8a3243] text-white text-sm font-medium hover:bg-[#732937] transition shadow-sm"
         >
           Explore Experiences <ArrowRight className="w-4 h-4" />
         </Link>
@@ -96,18 +126,21 @@ export default function GuestOverviewPage() {
             </div>
 
             <div className="space-y-4">
-              {recentTastings.map((log) => {
-                const wine = mockWines.find(w => w.id === log.wineId);
-                return (
+              {recentTastings.length === 0 ? (
+                <div className="p-8 text-center bg-[#faf8f5] rounded-2xl border border-stone-100 text-xs text-stone-500">
+                  No tasting notes recorded yet.
+                </div>
+              ) : (
+                recentTastings.map((log) => (
                   <Link
                     key={log.id}
-                    href={`/app/tastings/${log.id}`}
+                    href={`/app/tastings`}
                     className="flex items-center gap-4 p-4 rounded-2xl border border-stone-100 bg-[#faf8f5] hover:border-[#c5a059]/40 hover:bg-[#f5ede4] transition group"
                   >
                     <div className="w-12 h-14 relative bg-stone-100 rounded-lg overflow-hidden shrink-0">
                       <Image
-                        src={wine?.image || 'https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?q=80&w=400&auto=format&fit=crop'}
-                        alt={wine?.name || 'Wine'}
+                        src={'https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?q=80&w=400&auto=format&fit=crop'}
+                        alt={log.wineName}
                         fill
                         className="object-cover"
                       />
@@ -115,7 +148,7 @@ export default function GuestOverviewPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <h4 className="font-serif font-medium text-stone-900 text-sm truncate group-hover:text-[#8a3243] transition">
-                          {wine?.name || log.wineName}
+                          {log.wineName}
                         </h4>
                         <div className="flex items-center gap-1 text-[#c5a059] text-xs font-semibold">
                           <Star className="w-3.5 h-3.5 fill-current" />
@@ -134,8 +167,8 @@ export default function GuestOverviewPage() {
                       </div>
                     </div>
                   </Link>
-                );
-              })}
+                ))
+              )}
             </div>
           </div>
 
@@ -191,10 +224,10 @@ export default function GuestOverviewPage() {
                       </span>
                     </div>
                     <div className="text-xs text-stone-500 mt-0.5">
-                      {wine.vintage} · {wine.category} · {wine.tasteProfile.alcohol}
+                      {wine.vintage} · {wine.category} · {wine.tasteProfile?.alcohol}
                     </div>
                     <div className="text-[11px] text-stone-400 italic truncate mt-1">
-                      {wine.foodPairings.slice(0, 2).join(', ')}
+                      {wine.foodPairings?.slice(0, 2).join(', ')}
                     </div>
                   </div>
                 </Link>

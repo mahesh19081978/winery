@@ -19,16 +19,45 @@ const jakarta = Plus_Jakarta_Sans({
   display: "swap"
 });
 
+const siteUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+
 export const metadata: Metadata = {
-  title: "VINORA | Winery & Wine Experience Platform",
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: "VINORA | Winery & Wine Experience Platform",
+    template: "%s | VINORA",
+  },
   description: "Discover handcrafted biodynamic wines, cellar tastings, vineyard picnics, and sunset dining at VINORA.",
+  icons: {
+    icon: [
+      { url: '/favicon.ico' },
+      { url: '/logo-mark.png', type: 'image/png' },
+    ],
+    apple: [
+      { url: '/logo-mark.png' },
+    ],
+  },
   openGraph: {
     title: "VINORA | Winery & Wine Experience Platform",
     description: "Discover handcrafted biodynamic wines, cellar tastings, vineyard picnics, and sunset dining at VINORA.",
     siteName: "VINORA",
     locale: "en_US",
-    type: "website"
-  }
+    type: "website",
+    images: [
+      {
+        url: '/logo.png',
+        width: 1200,
+        height: 630,
+        alt: 'VINORA — Winery & Wine Experience Platform',
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "VINORA | Winery & Wine Experience Platform",
+    description: "Discover handcrafted biodynamic wines, cellar tastings, vineyard picnics, and sunset dining at VINORA.",
+    images: ['/logo.png'],
+  },
 };
 
 export default function RootLayout({

@@ -31,6 +31,12 @@ export interface Wine {
   rating: number;
   reviewCount: number;
   characteristics: string[];
+  bookingCtaHref?: string;
+  relatedExperience?: {
+    id: string;
+    slug: string;
+    title: string;
+  } | null;
 }
 
 export interface ExperienceTimelineItem {

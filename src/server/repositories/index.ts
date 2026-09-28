@@ -60,6 +60,14 @@ export class WineRepository {
         vintages: true,
         images: true,
         foodPairings: true,
+        experienceWines: {
+          include: {
+            experience: {
+              select: { id: true, slug: true, title: true, isActive: true },
+            },
+          },
+          orderBy: { sortOrder: 'asc' },
+        },
       },
       orderBy: { name: 'asc' },
     });
@@ -72,6 +80,14 @@ export class WineRepository {
         vintages: true,
         images: true,
         foodPairings: true,
+        experienceWines: {
+          include: {
+            experience: {
+              select: { id: true, slug: true, title: true, isActive: true },
+            },
+          },
+          orderBy: { sortOrder: 'asc' },
+        },
         reviews: {
           where: { status: ReviewStatus.APPROVED },
           orderBy: { createdAt: 'desc' },

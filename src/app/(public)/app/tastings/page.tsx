@@ -1,29 +1,53 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useGuest } from '@/context/GuestContext';
-import { mockWines } from '@/data/wines';
 import { 
   Plus, 
   Search, 
   Star, 
   Calendar, 
   ChevronRight,
+  Loader2
 } from 'lucide-react';
 import TastingFeedbackModal from '@/components/tasting/TastingFeedbackModal';
 import EmptyState from '@/components/common/EmptyState';
+import { Wine } from '@/types';
+import { toPublicWine } from '@/lib/wine-map';
 
 export default function TastingsPage() {
   const { tastings } = useGuest();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRating, setSelectedRating] = useState<number | 'all'>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [catalogWines, setCatalogWines] = useState<Wine[]>([]);
+  const [loadingCatalog, setLoadingCatalog] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/wines', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.success && Array.isArray(data.data)) {
+          const mapped = data.data.map((w: Parameters<typeof toPublicWine>[0]) => toPublicWine(w));
+          setCatalogWines(mapped);
+        }
+      })
+      .catch((err) => console.error('Failed to load wines in TastingsPage:', err))
+      .finally(() => {
+        if (!cancelled) setLoadingCatalog(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Filter records
   const filteredRecords = tastings.filter(record => {
-    const wine = mockWines.find(w => w.id === record.wineId);
+    const wine = catalogWines.find(w => w.id === record.wineId);
     const wineName = (wine?.name || record.wineName).toLowerCase();
     const notes = record.notes.toLowerCase();
     const query = searchQuery.toLowerCase();
@@ -82,7 +106,12 @@ export default function TastingsPage() {
       </div>
 
       {/* Grid of Tasting Records */}
-      {filteredRecords.length === 0 ? (
+      {loadingCatalog ? (
+        <div className="flex flex-col items-center justify-center py-16 gap-3">
+          <Loader2 className="w-8 h-8 text-[#8a3243] animate-spin" />
+          <span className="text-xs uppercase tracking-widest text-stone-500">Loading tasting archive…</span>
+        </div>
+      ) : filteredRecords.length === 0 ? (
         <EmptyState
           title="No tasting records found"
           description={
@@ -96,7 +125,7 @@ export default function TastingsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {filteredRecords.map(record => {
-            const wine = mockWines.find(w => w.id === record.wineId);
+            const wine = catalogWines.find(w => w.id === record.wineId);
 
             return (
               <div 
@@ -170,8 +199,8 @@ export default function TastingsPage() {
         <TastingFeedbackModal
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}
-          defaultWineName={mockWines[0].name}
-          defaultVintage={mockWines[0].vintage}
+          defaultWineName={catalogWines[0]?.name || 'Estate Reserve Wine'}
+          defaultVintage={catalogWines[0]?.vintage || new Date().getFullYear()}
         />
       )}
     </div>

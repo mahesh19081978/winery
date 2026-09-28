@@ -78,6 +78,7 @@ export default function Header() {
     { href: '/our-story', label: 'Our Story', active: pathname === '/our-story' },
     { href: '/gallery', label: 'Gallery', active: pathname === '/gallery' },
     { href: '/visit', label: 'Visit Us', active: pathname === '/visit' },
+    { href: '/contact', label: 'Contact', active: pathname === '/contact' },
   ];
 
   return (
@@ -91,14 +92,14 @@ export default function Header() {
             : 'bg-[#faf8f5] py-4 border-b border-[#e6dece]'
         }`}
       >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4 xl:gap-5">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 flex items-center justify-between gap-2 sm:gap-4 xl:gap-5">
           {/* Logo Brand */}
           <Link
             href="/"
-            className="flex items-center gap-2.5 shrink-0 group"
+            className="flex items-center gap-2 sm:gap-2.5 shrink-0 group"
             aria-label="VINORA — Winery & Wine Experience Platform by CIS"
           >
-            <span className="flex items-center justify-center w-10 h-10 rounded-full bg-white ring-1 ring-black/10 shadow-sm overflow-hidden shrink-0">
+            <span className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-white ring-1 ring-black/10 shadow-sm overflow-hidden shrink-0">
               <Image
                 src={logoMark}
                 alt="VINORA"
@@ -106,11 +107,11 @@ export default function Header() {
                 height={40}
                 priority
                 unoptimized
-                className="w-9 h-9 object-contain"
+                className="w-7 h-7 sm:w-9 sm:h-9 object-contain"
               />
             </span>
             <span
-              className={`font-serif text-xl sm:text-2xl font-bold tracking-[0.15em] whitespace-nowrap transition-colors ${
+              className={`font-serif text-lg sm:text-2xl font-bold tracking-[0.12em] sm:tracking-[0.15em] whitespace-nowrap transition-colors ${
                 onLightSurface ? 'text-[#2d1117]' : 'text-[#faf8f5]'
               }`}
             >
@@ -188,21 +189,21 @@ export default function Header() {
           </Link>
 
           {/* Mobile Hamburger Button */}
-          <div className="flex items-center gap-2 xl:hidden">
+          <div className="flex items-center gap-1.5 sm:gap-2 xl:hidden">
             <Link
               href="/book"
-              className="px-3.5 py-1.5 rounded-full bg-[#2d1117] text-[#faf8f5] text-[11px] font-semibold uppercase tracking-wider"
+              className="px-2.5 sm:px-3.5 py-1.5 rounded-full bg-[#2d1117] text-[#faf8f5] text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider"
             >
               Book
             </Link>
             <button
               onClick={() => setMobileMenuOpen(true)}
-              className={`p-2 rounded-lg transition-colors focus:outline-none ${
+              className={`p-1.5 sm:p-2 rounded-lg transition-colors focus:outline-none ${
                 onLightSurface ? 'text-[#2d1117]' : 'text-[#faf8f5]'
               }`}
               aria-label="Open menu"
             >
-              <Menu className="w-6 h-6" />
+              <Menu className="w-5 h-5 sm:w-6 sm:h-6" />
             </button>
           </div>
         </div>

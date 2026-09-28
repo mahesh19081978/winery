@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { X, Wine, Calendar, Compass, BookOpen, MapPin, User, Sparkles } from 'lucide-react';
+import { X, Wine, Calendar, Compass, BookOpen, MapPin, User, Sparkles, Mail } from 'lucide-react';
 import { useConcierge } from '@/context/ConciergeContext';
 import logoFull from '../../../public/logo.png';
 
@@ -104,6 +104,15 @@ export default function MobileMenu({ isOpen, onClose }: MobileMenuProps) {
             >
               <MapPin className="w-5 h-5 text-[#8a3243]" />
               <span>Visit Us</span>
+            </Link>
+
+            <Link
+              href="/contact"
+              onClick={onClose}
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-[#191c1f] hover:bg-[#f4f0e8] hover:text-[#461822] font-medium text-base transition-colors"
+            >
+              <Mail className="w-5 h-5 text-[#8a3243]" />
+              <span>Contact & Concierge</span>
             </Link>
 
             <Link

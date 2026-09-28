@@ -100,7 +100,7 @@ export default function WineCard({ wine }: WineCardProps) {
           </Link>
 
           <Link
-            href={`/book?experience=exp-signature-tasting`}
+            href={wine.bookingCtaHref || (wine.relatedExperience?.slug ? `/book?experience=${wine.relatedExperience.slug}` : '/book')}
             className="text-[11px] font-medium text-[#525960] hover:text-[#191c1f] transition-colors underline"
           >
             Taste at Estate

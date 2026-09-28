@@ -55,6 +55,21 @@ export default async function WineDetailPage({ params }: PageProps) {
 
   const pub = toPublicWine(wine as unknown as Parameters<typeof toPublicWine>[0]);
 
+  // Determine dynamic experience for booking CTA from ExperienceWine relations
+  let bookingCtaHref = '/book';
+  try {
+    const expWine = await prisma.experienceWine.findFirst({
+      where: { wineId: wine.id },
+      include: { experience: { select: { slug: true } } },
+      orderBy: { sortOrder: 'asc' },
+    });
+    if (expWine?.experience?.slug) {
+      bookingCtaHref = `/book?experience=${expWine.experience.slug}`;
+    }
+  } catch {
+    bookingCtaHref = '/book';
+  }
+
   let relatedPubs: ReturnType<typeof toPublicWine>[] = [];
   try {
     const all = await WineService.getAllWines();
@@ -125,7 +140,7 @@ export default async function WineDetailPage({ params }: PageProps) {
               </div>
 
               <div className="pt-4 flex flex-col sm:flex-row items-center gap-4 border-t border-[#e6dece]">
-                <Link href={`/book?experience=exp-signature-tasting`} className="w-full sm:w-auto px-8 py-3.5 rounded-full bg-[#2d1117] hover:bg-[#461822] text-[#faf8f5] text-xs font-semibold uppercase tracking-widest transition-all shadow-md text-center">Taste This Wine at the Estate</Link>
+                <Link href={bookingCtaHref} className="w-full sm:w-auto px-8 py-3.5 rounded-full bg-[#2d1117] hover:bg-[#461822] text-[#faf8f5] text-xs font-semibold uppercase tracking-widest transition-all shadow-md text-center">Taste This Wine at the Estate</Link>
                 <Link href="/experiences" className="w-full sm:w-auto px-6 py-3.5 rounded-full border border-[#8a3243] text-[#8a3243] hover:bg-[#f4f0e8] text-xs font-semibold uppercase tracking-wider transition-colors text-center">View Tasting Flights</Link>
               </div>
             </div>

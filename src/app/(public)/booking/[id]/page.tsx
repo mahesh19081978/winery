@@ -163,6 +163,72 @@ export default function BookingDetailPage() {
     }
   };
 
+  const handleDownloadIcs = () => {
+    if (!booking) return;
+
+    // Parse date and time (e.g. date: 2026-10-15, time: 2:00 PM or 14:00)
+    let startHour = 14;
+    let startMin = 0;
+    const timeMatch = booking.time?.match(/(\d+):(\d+)\s*(AM|PM)?/i);
+    if (timeMatch) {
+      let h = parseInt(timeMatch[1], 10);
+      const m = parseInt(timeMatch[2], 10);
+      const ampm = timeMatch[3]?.toUpperCase();
+      if (ampm === 'PM' && h < 12) h += 12;
+      if (ampm === 'AM' && h === 12) h = 0;
+      startHour = h;
+      startMin = m;
+    }
+
+    const dateParts = booking.date.split('-');
+    const year = dateParts[0];
+    const month = (dateParts[1] || '01').padStart(2, '0');
+    const day = (dateParts[2] || '01').padStart(2, '0');
+
+    const dtStart = `${year}${month}${day}T${String(startHour).padStart(2, '0')}${String(startMin).padStart(2, '0')}00`;
+    const endHour = (startHour + 2) % 24;
+    const dtEnd = `${year}${month}${day}T${String(endHour).padStart(2, '0')}${String(startMin).padStart(2, '0')}00`;
+
+    const summary = `VINORA Estate: ${booking.items?.[0]?.experience?.title || booking.items?.[0]?.title || 'Tasting Experience'}`;
+    const description = `Reservation Reference: ${booking.bookingNumber}\\nParty Size: ${booking.totalGuests} guests\\nConcierge: +1 (555) 392-8733`;
+    const location = `VINORA Estate, 4800 Terrasses du Rêve, Coteaux de l'Est`;
+
+    const icsContent = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//VINORA Estate//Wine Experience Platform//EN',
+      'CALSCALE:GREGORIAN',
+      'BEGIN:VEVENT',
+      `UID:${booking.bookingNumber}@vinora.estate`,
+      `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z`,
+      `DTSTART:${dtStart}`,
+      `DTEND:${dtEnd}`,
+      `SUMMARY:${summary}`,
+      `DESCRIPTION:${description}`,
+      `LOCATION:${location}`,
+      'STATUS:CONFIRMED',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n');
+
+    const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `VINORA-Booking-${booking.bookingNumber}.ics`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    setActionNotice('Calendar invite (.ics) downloaded.');
+  };
+
+  const handlePrintPass = () => {
+    setActionNotice('Preparing digital pass for print/saving...');
+    window.print();
+  };
+
   if (loading) {
     return (
       <div className="w-full pt-20 pb-24 bg-[#faf8f5]">
@@ -440,10 +506,10 @@ export default function BookingDetailPage() {
             )}
 
             {/* Action Buttons */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2 print:hidden">
               <button
                 type="button"
-                onClick={() => setActionNotice('Calendar invite (.ics) generated.')}
+                onClick={handleDownloadIcs}
                 className="flex items-center justify-center gap-1.5 py-3 px-3 rounded-xl border border-[#e6dece] hover:bg-[#f4f0e8] text-xs font-semibold uppercase tracking-wider text-[#2d1117] transition-colors"
               >
                 <CalendarPlus className="w-4 h-4 text-[#8a3243]" />
@@ -452,7 +518,7 @@ export default function BookingDetailPage() {
 
               <button
                 type="button"
-                onClick={() => setActionNotice('Digital ticket PDF download started.')}
+                onClick={handlePrintPass}
                 className="flex items-center justify-center gap-1.5 py-3 px-3 rounded-xl border border-[#e6dece] hover:bg-[#f4f0e8] text-xs font-semibold uppercase tracking-wider text-[#2d1117] transition-colors"
               >
                 <Download className="w-4 h-4 text-[#8a3243]" />
