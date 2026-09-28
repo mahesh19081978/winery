@@ -112,6 +112,13 @@ enum NotificationType {
   REVIEW_REQUEST
 }
 
+enum ContactInquiryStatus {
+  NEW
+  IN_PROGRESS
+  RESOLVED
+  ARCHIVED
+}
+
 // ----------------------------------------------------
 // 1. Winery Domain (Multi-tenant root)
 // ----------------------------------------------------
@@ -147,6 +154,7 @@ model Winery {
   galleryImages      GalleryImage[]
   closures           WineryClosure[]
   availabilityRules  AvailabilityRule[]
+  contactInquiries   ContactInquiry[]
 
   @@map("wineries")
 }
@@ -166,6 +174,7 @@ model User {
   winery       Winery?   @relation(fields: [wineryId], references: [id], onDelete: SetNull)
   guestProfile GuestProfile?
   passwordResetTokens PasswordResetToken[]
+  assignedContactInquiries ContactInquiry[]
 
   @@index([role])
   @@map("users")
@@ -967,4 +976,30 @@ model WebhookEvent {
 
   @@index([provider, eventType])
   @@map("webhook_events")
+}
+
+// ----------------------------------------------------
+// 14. Contact Inquiries Domain
+// ----------------------------------------------------
+model ContactInquiry {
+  id           String               @id @default(uuid())
+  wineryId     String
+  name         String
+  email        String
+  phone        String?
+  subject      String
+  category     String               @default("GENERAL")
+  message      String               @db.Text
+  status       ContactInquiryStatus @default(NEW)
+  assignedToId String?
+  internalNotes String?             @db.Text
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  winery       Winery               @relation(fields: [wineryId], references: [id], onDelete: Cascade)
+  assignedTo   User?                @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  @@index([wineryId, status])
+  @@index([assignedToId])
+  @@map("contact_inquiries")
 }

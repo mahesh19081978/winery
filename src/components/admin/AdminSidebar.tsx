@@ -21,8 +21,8 @@ import {
   CalendarCheck,
   Star,
   Image,
+  Mail,
   MessagesSquare,
-  PhoneCall,
   Bell,
   ShieldCheck,
   Settings,
@@ -54,7 +54,7 @@ const NAVIGATION_SECTIONS: NavSection[] = [
     items: [
       { name: 'Front Desk', href: '/admin/front-desk', icon: UserCheck, isImplemented: true },
       { name: 'Bookings', href: '/admin/bookings', icon: CalendarDays, isImplemented: true },
-      { name: 'Calendar', href: '/admin/calendar', icon: Calendar, isImplemented: false },
+      { name: 'Calendar', href: '/admin/calendar', icon: Calendar, isImplemented: true },
       { name: 'Experiences', href: '/admin/experiences', icon: Sparkles, isImplemented: true },
       { name: 'Availability', href: '/admin/availability', icon: Clock, isImplemented: true },
     ],
@@ -69,7 +69,7 @@ const NAVIGATION_SECTIONS: NavSection[] = [
     title: 'WINE',
     items: [
       { name: 'Wines', href: '/admin/wines', icon: Wine, isImplemented: true },
-      { name: 'Vintages', href: '/admin/vintages', icon: Layers, isImplemented: false },
+      { name: 'Vintages', href: '/admin/vintages', icon: Layers, isImplemented: true },
       { name: 'Tastings', href: '/admin/tastings', icon: GlassWater, isImplemented: true },
     ],
   },
@@ -77,8 +77,7 @@ const NAVIGATION_SECTIONS: NavSection[] = [
     title: 'GUESTS',
     items: [
       { name: 'Guests', href: '/admin/guests', icon: Users, isImplemented: true },
-      { name: 'Guest CRM', href: '/admin/guests', icon: UserCheck, isImplemented: true },
-      { name: 'Wine Profiles', href: '/admin/profiles', icon: HeartHandshake, isImplemented: false },
+      { name: 'Wine Profiles', href: '/admin/profiles', icon: HeartHandshake, isImplemented: true },
     ],
   },
   {
@@ -92,22 +91,22 @@ const NAVIGATION_SECTIONS: NavSection[] = [
     title: 'ENGAGEMENT',
     items: [
       { name: 'Reviews', href: '/admin/reviews', icon: Star, isImplemented: true },
-      { name: 'Gallery', href: '/admin/gallery', icon: Image, isImplemented: false },
+      { name: 'Gallery', href: '/admin/gallery', icon: Image, isImplemented: true },
+      { name: 'Contact Inquiries', href: '/admin/contact-inquiries', icon: Mail, isImplemented: true },
     ],
   },
   {
     title: 'COMMUNICATION',
     items: [
-      { name: 'Conversations', href: '/admin/conversations', icon: MessagesSquare, isImplemented: false },
-      { name: 'Voice Calls', href: '/admin/calls', icon: PhoneCall, isImplemented: false },
-      { name: 'Notifications', href: '/admin/notifications', icon: Bell, isImplemented: false },
+      { name: 'Conversations', href: '/admin/conversations', icon: MessagesSquare, isImplemented: true },
+      { name: 'Notifications', href: '/admin/notifications', icon: Bell, isImplemented: true },
     ],
   },
   {
     title: 'SYSTEM',
     items: [
-      { name: 'Staff & Roles', href: '/admin/staff', icon: ShieldCheck, isImplemented: false },
-      { name: 'Settings', href: '/admin/settings', icon: Settings, isImplemented: false },
+      { name: 'Staff & Roles', href: '/admin/staff', icon: ShieldCheck, isImplemented: true },
+      { name: 'Settings', href: '/admin/settings', icon: Settings, isImplemented: true },
     ],
   },
 ];
@@ -179,11 +178,9 @@ export function AdminSidebar({ isOpen, onClose }: AdminSidebarProps) {
               </div>
               <ul className="space-y-0.5">
                 {section.items.map((item) => {
-                  const isActive = item.name === 'Guest CRM'
-                    ? pathname.startsWith('/admin/guests/')
-                    : item.name === 'Guests'
-                      ? pathname === '/admin/guests'
-                      : pathname === item.href || (item.href !== '/admin' && pathname.startsWith(item.href));
+                  const isActive = item.name === 'Guests'
+                    ? pathname.startsWith('/admin/guests')
+                    : pathname === item.href || (item.href !== '/admin' && pathname.startsWith(item.href));
                   const Icon = item.icon;
 
                   if (item.isImplemented) {

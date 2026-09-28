@@ -273,26 +273,43 @@ export default function ContactPage() {
                     id="subject"
                     type="text"
                     required
+                    minLength={3}
+                    maxLength={200}
                     value={formData.subject}
                     onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
                     placeholder="e.g. Private Sunset Tasting for 8 Guests"
                     className="w-full px-4 py-3 rounded-xl border border-[#e6dece] text-sm text-[#191c1f] focus:outline-none focus:ring-2 focus:ring-[#8a3243]/30 focus:border-[#8a3243] bg-[#faf8f5]/50"
                   />
+                  {formData.subject && formData.subject.trim().length < 3 && (
+                    <p className="text-[11px] text-stone-500 mt-1">At least 3 characters required.</p>
+                  )}
                 </div>
 
                 <div>
-                  <label htmlFor="message" className="block text-xs font-semibold uppercase tracking-wider text-[#191c1f] mb-2">
-                    Message Details <span className="text-rose-600">*</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label htmlFor="message" className="block text-xs font-semibold uppercase tracking-wider text-[#191c1f]">
+                      Message Details <span className="text-rose-600">*</span>
+                    </label>
+                    <span className="text-[11px] text-[#525960]">
+                      Min 10 characters ({formData.message.trim().length}/10)
+                    </span>
+                  </div>
                   <textarea
                     id="message"
                     required
+                    minLength={10}
+                    maxLength={3000}
                     rows={5}
                     value={formData.message}
                     onChange={(e) => setFormData({ ...formData, message: e.target.value })}
                     placeholder="Share any details, dates, dietary requirements, or specific requests..."
                     className="w-full px-4 py-3 rounded-xl border border-[#e6dece] text-sm text-[#191c1f] focus:outline-none focus:ring-2 focus:ring-[#8a3243]/30 focus:border-[#8a3243] bg-[#faf8f5]/50 resize-y"
                   />
+                  {formData.message && formData.message.trim().length < 10 && (
+                    <p className="text-[11px] text-amber-700 mt-1">
+                      Please enter at least 10 characters ({10 - formData.message.trim().length} more needed).
+                    </p>
+                  )}
                 </div>
 
                 <div>

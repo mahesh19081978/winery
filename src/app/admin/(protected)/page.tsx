@@ -364,7 +364,7 @@ export default async function AdminDashboardPage() {
             </div>
           </SectionCard>
 
-          {/* Quick Actions (Strictly labeled Coming Soon for Phase 5.1+) */}
+          {/* Quick Actions */}
           <SectionCard
             title="Operational Quick Actions"
             description="Estate administration workflows and shortcuts"
@@ -374,25 +374,29 @@ export default async function AdminDashboardPage() {
                 title="New Reservation"
                 description="Book guests directly into cellar slots"
                 icon={PlusCircle}
-                isAvailable={false}
+                href="/admin/front-desk"
+                isAvailable={true}
               />
               <QuickAction
                 title="Add Guest Profile"
-                description="Create or import guest history & preferences"
+                description="View and manage guest profiles & wine preferences"
                 icon={UserPlus}
-                isAvailable={false}
+                href="/admin/guests"
+                isAvailable={true}
               />
               <QuickAction
                 title="Register New Wine"
                 description="Add vintage, varietals, and tasting notes"
                 icon={WineIcon}
-                isAvailable={false}
+                href="/admin/wines/new"
+                isAvailable={true}
               />
               <QuickAction
                 title="Create Estate Event"
                 description="Schedule vineyard dinners and tastings"
                 icon={CalendarPlus}
-                isAvailable={false}
+                href="/admin/events/new"
+                isAvailable={true}
               />
             </div>
           </SectionCard>

@@ -381,7 +381,7 @@ function OperationalBookingCard({
                 </div>
                 {tastingSession.records.length === 0 ? (
                   <p className="mt-3 rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs text-stone-500">
-                    No tasting records yet. Staff tasting-record entry is coming soon; existing record creation remains guarded by explicit vintage validation.
+                    No tasting records logged yet for this session. Use the Tasting Session detail to review or record wine flights.
                   </p>
                 ) : (
                   <div className="mt-3 space-y-2">

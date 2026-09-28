@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { useRouter } from 'next/navigation';
 import { Menu, Search, Bell, LogOut, User } from 'lucide-react';
 import { UserRole } from '@prisma/client';
 
@@ -11,6 +12,8 @@ interface AdminTopHeaderProps {
 }
 
 export function AdminTopHeader({ onToggleSidebar, adminEmail, adminRole }: AdminTopHeaderProps) {
+  const router = useRouter();
+
   return (
     <header className="h-16 bg-white border-b border-stone-200/80 sticky top-0 z-30 flex items-center justify-between px-4 sm:px-6 lg:px-8 shadow-2xs">
       {/* Left: Mobile Toggle & Quick Search */}
@@ -23,34 +26,31 @@ export function AdminTopHeader({ onToggleSidebar, adminEmail, adminRole }: Admin
           <Menu className="w-5 h-5" />
         </button>
 
-        {/* Search Input Placeholder */}
+        {/* Search Input */}
         <div className="relative w-full max-w-xs hidden sm:block">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
           <input
             type="text"
-            placeholder="Search bookings, guests, wines..."
-            disabled
-            className="w-full pl-9 pr-3 py-1.5 text-xs bg-stone-50 border border-stone-200 rounded-lg text-stone-700 placeholder-stone-400 focus:outline-none cursor-not-allowed"
+            placeholder="Search VINORA estate portal..."
+            readOnly
+            onClick={() => router.push('/admin/front-desk')}
+            className="w-full pl-9 pr-3 py-1.5 text-xs bg-stone-50 border border-stone-200 rounded-lg text-stone-700 placeholder-stone-400 focus:outline-none cursor-pointer hover:bg-stone-100 transition"
           />
-          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] uppercase font-mono px-1 rounded bg-stone-200/70 text-stone-500">
-            Soon
-          </span>
         </div>
       </div>
 
       {/* Right: Notifications, Admin Info, Logout */}
       <div className="flex items-center gap-3 sm:gap-4">
-        {/* Notification Bell Placeholder */}
+        {/* Notification Bell */}
         <div className="relative">
-          <button
-            type="button"
-            disabled
-            className="p-2 rounded-lg text-stone-500 hover:text-stone-700 hover:bg-stone-100 transition cursor-not-allowed relative"
-            title="Notifications (Coming Soon)"
+          <a
+            href="/admin/notifications"
+            className="p-2 rounded-lg text-stone-600 hover:text-stone-900 hover:bg-stone-100 transition relative block"
+            title="Notifications"
           >
             <Bell className="w-4 h-4" />
-            <span className="w-2 h-2 rounded-full bg-[#aa853e] absolute top-1.5 right-1.5" />
-          </button>
+            <span className="w-2 h-2 rounded-full bg-[#aa853e] absolute top-1.5 right-1.5 ring-2 ring-white" />
+          </a>
         </div>
 
         <div className="h-6 w-px bg-stone-200 hidden sm:block" />

@@ -9,8 +9,30 @@ import { X, ZoomIn } from 'lucide-react';
 const CATEGORIES = ['All', 'Vineyard', 'Cellar', 'Wine', 'Food', 'Events', 'Sunset'] as const;
 
 export default function GalleryPage() {
+  const [items, setItems] = useState<GalleryItem[]>(mockGalleryItems);
   const [selectedCategory, setSelectedCategory] = useState<typeof CATEGORIES[number]>('All');
   const [activeLightboxItem, setActiveLightboxItem] = useState<GalleryItem | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchGallery = async () => {
+      try {
+        const res = await fetch('/api/gallery');
+        if (res.ok) {
+          const json = await res.json();
+          if (!cancelled && json.data?.images && json.data.images.length > 0) {
+            setItems(json.data.images);
+          }
+        }
+      } catch {
+        // Fall back gracefully to mock items
+      }
+    };
+    fetchGallery();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -25,9 +47,9 @@ export default function GalleryPage() {
   }, [activeLightboxItem]);
 
   const filteredItems = useMemo(() => {
-    if (selectedCategory === 'All') return mockGalleryItems;
-    return mockGalleryItems.filter((item) => item.category === selectedCategory);
-  }, [selectedCategory]);
+    if (selectedCategory === 'All') return items;
+    return items.filter((item) => item.category === selectedCategory);
+  }, [items, selectedCategory]);
 
   return (
     <div className="w-full pt-20">

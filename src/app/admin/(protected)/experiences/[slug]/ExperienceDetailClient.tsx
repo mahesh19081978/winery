@@ -411,26 +411,25 @@ export function ExperienceDetailClient({ experience }: { experience: ExperienceD
             )}
           </SectionCard>
 
-          {/* Coming Soon Notice */}
+          {/* Management Actions */}
           <SectionCard title="Management Actions" description="Experience configuration operations">
             <div className="space-y-2">
-              <div className="p-3 rounded-lg border border-stone-200/60 bg-stone-50/70 opacity-85 cursor-not-allowed">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-stone-600">Edit Experience</span>
-                  <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-stone-200 text-stone-600">
-                    Coming Soon
-                  </span>
+              <Link
+                href="/admin/availability"
+                className="block p-3 rounded-lg border border-stone-200/80 bg-white hover:bg-[#faf8f5] transition-colors group"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-stone-900 group-hover:text-[#6c2432]">Manage Availability</span>
+                  <StatusBadge status="ACTIVE" size="sm" />
                 </div>
-                <p className="text-[11px] text-stone-500 mt-0.5">Modify experience details, pricing, and content</p>
-              </div>
-              <div className="p-3 rounded-lg border border-stone-200/60 bg-stone-50/70 opacity-85 cursor-not-allowed">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-stone-600">Manage Availability</span>
-                  <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-stone-200 text-stone-600">
-                    Coming Soon
-                  </span>
+                <p className="text-[11px] text-stone-500 mt-0.5">Configure availability rules and time slot overrides in Availability module</p>
+              </Link>
+              <div className="p-3 rounded-lg border border-stone-200/60 bg-stone-50/50">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-stone-700">Content Status</span>
+                  <StatusBadge status="PUBLISHED" variant="success" size="sm" />
                 </div>
-                <p className="text-[11px] text-stone-500 mt-0.5">Configure availability rules and time slot overrides</p>
+                <p className="text-[11px] text-stone-500 mt-0.5">Experience configuration is synchronized with the live booking engine</p>
               </div>
             </div>
           </SectionCard>

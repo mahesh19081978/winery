@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { prisma } from '@/lib/db';
 import { getEmailProvider } from '@/lib/email';
 import { GuestRateLimiter } from '@/lib/auth/guest-rate-limit';
 
@@ -45,6 +46,28 @@ export async function POST(request: NextRequest) {
 
     const categoryTitle = CATEGORY_LABELS[validated.category] || validated.category;
     const estateConciergeEmail = process.env.ESTATE_CONCIERGE_EMAIL || 'concierge@domaine-elysee.com';
+
+    // Find default active winery
+    const winery = await prisma.winery.findFirst({
+      select: { id: true },
+    });
+    if (!winery) {
+      throw new Error('Estate winery configuration not found');
+    }
+
+    // Persist inquiry to database
+    await prisma.contactInquiry.create({
+      data: {
+        wineryId: winery.id,
+        name: validated.name,
+        email: validated.email,
+        phone: validated.phone || null,
+        subject: validated.subject,
+        category: validated.category,
+        message: validated.message,
+        status: 'NEW',
+      },
+    });
 
     // 1. Send notification to estate concierge
     const conciergeHtml = `<!doctype html>
@@ -141,8 +164,10 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: unknown) {
     if (error instanceof z.ZodError) {
+      const firstIssue = error.issues[0];
+      const errorMessage = firstIssue ? firstIssue.message : 'Validation failed';
       return NextResponse.json(
-        { success: false, error: 'Validation failed', details: error.issues },
+        { success: false, error: errorMessage, details: error.issues },
         { status: 400 }
       );
     }
