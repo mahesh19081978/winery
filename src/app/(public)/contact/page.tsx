@@ -178,7 +178,7 @@ export default function ContactPage() {
                   <div>
                     <h3 className="font-serif text-lg font-medium">Inquiry Submitted Successfully</h3>
                     <p className="text-xs mt-1 text-emerald-700 leading-relaxed">
-                      Thank you for contacting VINORA. An acknowledgment email has been placed in your inbox, and our concierge team will respond shortly.
+                      Your inquiry has been submitted successfully. Thank you for contacting VINORA. We’ve received your message and our concierge team will respond shortly.
                     </p>
                     <button
                       type="button"

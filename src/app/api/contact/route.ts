@@ -146,6 +146,7 @@ export async function POST(request: NextRequest) {
     await Promise.all([
       emailProvider.send({
         to: estateConciergeEmail,
+        replyTo: validated.email,
         subject: `[Concierge Inquiry] ${validated.subject} — ${validated.name}`,
         html: conciergeHtml,
         text: conciergeText,
