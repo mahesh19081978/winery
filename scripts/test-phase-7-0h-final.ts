@@ -51,6 +51,7 @@ process.env.RAZORPAY_WEBHOOK_SECRET = TEST_WEBHOOK_SECRET;
 const TEST_DOMAIN = '@70h.test.com';
 const IDEMPOTENCY_AMOUNT_KEY = 'idem_70h_amount_0001';
 const IDEMPOTENCY_MARKER = 'idem_70h_marker_0001';
+let lastGatewayOrderArgs: Record<string, unknown> | null = null;
 
 function generateWebhookSignature(rawBody: string, secret = TEST_WEBHOOK_SECRET): string {
   return crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
@@ -231,7 +232,6 @@ async function runTests() {
   let mockRefundCounter = 0;
   let gatewayRefundCalls = 0;
   let shouldSimulateRefundFailure = false;
-  let lastGatewayOrderArgs: Record<string, unknown> | null = null;
 
   (razorpayClient.orders as unknown as { create: (args: Record<string, unknown>) => Promise<unknown> }).create =
     async (args: Record<string, unknown>) => {
