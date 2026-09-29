@@ -15,6 +15,13 @@ import {
 import { SectionCard, StatCard } from '@/components/admin/UIComponents';
 import { useIsMounted } from '@/hooks/useIsMounted';
 
+interface AISettings {
+  isEnabled: boolean;
+  provider: string;
+  modelName: string;
+  apiKeyEncrypted: string;
+}
+
 interface WinerySettings {
   id: string;
   name: string;
@@ -34,6 +41,7 @@ interface WinerySettings {
   currency: string;
   status: string;
   createdAt: string;
+  aiSettings?: AISettings | null;
 }
 
 export function SettingsClient() {
@@ -42,6 +50,11 @@ export function SettingsClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [savedNotice, setSavedNotice] = useState(false);
+  
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [aiProvider, setAiProvider] = useState('GEMINI');
+  const [aiModel, setAiModel] = useState('gemini-3.1-flash-lite');
+  const [aiApiKey, setAiApiKey] = useState('');
 
   const fetchSettings = async () => {
     setLoading(true);
@@ -50,7 +63,14 @@ export function SettingsClient() {
       const res = await fetch('/api/admin/settings');
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to load estate settings');
-      setWinery(json.data.winery);
+      const data = json.data.winery;
+      setWinery(data);
+      if (data?.aiSettings) {
+        setAiEnabled(data.aiSettings.isEnabled);
+        setAiProvider(data.aiSettings.provider);
+        setAiModel(data.aiSettings.modelName);
+        setAiApiKey(data.aiSettings.apiKeyEncrypted || '');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error fetching settings');
     } finally {
@@ -68,7 +88,14 @@ export function SettingsClient() {
         const json = await res.json();
         if (!cancelled) {
           if (!res.ok) throw new Error(json.error || 'Failed to load estate settings');
-          setWinery(json.data.winery);
+          const data = json.data.winery;
+          setWinery(data);
+          if (data?.aiSettings) {
+            setAiEnabled(data.aiSettings.isEnabled);
+            setAiProvider(data.aiSettings.provider);
+            setAiModel(data.aiSettings.modelName);
+            setAiApiKey(data.aiSettings.apiKeyEncrypted || '');
+          }
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Error fetching settings');
@@ -82,10 +109,33 @@ export function SettingsClient() {
     };
   }, []);
 
-  const handleSimulatedSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSavedNotice(true);
-    setTimeout(() => setSavedNotice(false), 3000);
+    if (!winery) return;
+    
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          wineryId: winery.id,
+          aiSettings: {
+            isEnabled: aiEnabled,
+            provider: aiProvider,
+            modelName: aiModel,
+            apiKey: aiApiKey
+          }
+        })
+      });
+      
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to save');
+      
+      setSavedNotice(true);
+      setTimeout(() => setSavedNotice(false), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save settings');
+    }
   };
 
   return (
@@ -172,7 +222,7 @@ export function SettingsClient() {
           No estate record found in current database tenant.
         </div>
       ) : (
-        <form onSubmit={handleSimulatedSave} className="space-y-6">
+        <form onSubmit={handleSave} className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Primary Details (7 cols) */}
             <div className="lg:col-span-7 xl:col-span-8 space-y-6">
@@ -286,6 +336,67 @@ export function SettingsClient() {
                         className="w-full px-3 py-2 text-xs border border-stone-200 rounded-lg bg-stone-50/50 focus:bg-white focus:outline-none"
                       />
                     </div>
+                  </div>
+                </div>
+              </SectionCard>
+              
+              <SectionCard
+                title="AI Wine Concierge"
+                description="Configure the AI assistant for guest inquiries"
+              >
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id="aiEnabled"
+                      checked={aiEnabled}
+                      onChange={(e) => setAiEnabled(e.target.checked)}
+                      className="w-4 h-4 text-[#aa853e] bg-stone-100 border-stone-300 rounded focus:ring-[#aa853e]"
+                    />
+                    <label htmlFor="aiEnabled" className="text-sm font-medium text-stone-800">
+                      Enable AI Concierge
+                    </label>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-mono font-medium text-stone-700 uppercase mb-1">
+                        AI Provider
+                      </label>
+                      <select
+                        value={aiProvider}
+                        onChange={(e) => setAiProvider(e.target.value)}
+                        className="w-full px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-[#aa853e]"
+                      >
+                        <option value="GEMINI">Google Gemini</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-mono font-medium text-stone-700 uppercase mb-1">
+                        AI Model
+                      </label>
+                      <select
+                        value={aiModel}
+                        onChange={(e) => setAiModel(e.target.value)}
+                        className="w-full px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-[#aa853e]"
+                      >
+                        <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite</option>
+                        <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                      </select>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-xs font-mono font-medium text-stone-700 uppercase mb-1">
+                      API Key
+                    </label>
+                    <input
+                      type="password"
+                      value={aiApiKey}
+                      onChange={(e) => setAiApiKey(e.target.value)}
+                      placeholder="Enter API Key"
+                      className="w-full px-3 py-2 text-xs border border-stone-200 rounded-lg bg-stone-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#aa853e]"
+                    />
                   </div>
                 </div>
               </SectionCard>

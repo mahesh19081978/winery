@@ -70,57 +70,9 @@ export function ConciergeProvider({ children }: { children: React.ReactNode }) {
     setVoiceState('idle');
   };
 
-  const generateConciergeResponse = (userText: string): { text: string; suggestions?: string[]; actionLink?: { label: string; href: string } } => {
-    const lower = userText.toLowerCase();
 
-    if (lower.includes('dry red') || lower.includes('cabernet') || lower.includes('syrah')) {
-      return {
-        text: 'For lovers of structured, noble dry reds, our 2024 Domaine Élysée Cabernet Sauvignon and 2023 Val de Rêve Grand Cru Syrah are exceptional. They showcase velvet tannins, cassis, and black pepper minerals from our south-facing Parcel 7.',
-        suggestions: ['View Cabernet Sauvignon', 'Explore Subterranean Cellar Tour', 'Book an Experience'],
-        actionLink: { label: 'Explore Red Wines', href: '/wines' }
-      };
-    }
 
-    if (lower.includes('experience') || lower.includes('tasting') || lower.includes('which tasting')) {
-      return {
-        text: 'For a first visit, our Signature Estate Wine Tasting ($65) offers a comprehensive 5-wine flight. If you desire something extraordinary, the Subterranean Cellar Tour ($95) lets you sample unreleased vintages directly from French oak barriques.',
-        suggestions: ['Book Signature Tasting', 'Explore All Experiences', 'Tell me about the Picnic'],
-        actionLink: { label: 'Browse Experiences', href: '/experiences' }
-      };
-    }
-
-    if (lower.includes('saturday') || lower.includes('book') || lower.includes('reserve')) {
-      return {
-        text: 'We host tastings and vineyard experiences daily with prime slots at 10:00 AM, 12:00 PM, 2:00 PM, and 4:00 PM. Saturday sessions often fill quickly, so we encourage early reservation.',
-        suggestions: ['Start a Reservation', 'See Available Experiences', 'Directions & Hours'],
-        actionLink: { label: 'Go to Booking Engine', href: '/book' }
-      };
-    }
-
-    if (lower.includes('event') || lower.includes('jazz') || lower.includes('harvest') || lower.includes('music')) {
-      return {
-        text: 'We have our celebrated Wine & Jazz Evening coming up on October 16 on the Grand Lawn, followed by the black-tie Harvest Solstice Gala on October 24.',
-        suggestions: ['View Wine & Jazz Tickets', 'Explore All Events'],
-        actionLink: { label: 'View Upcoming Events', href: '/events' }
-      };
-    }
-
-    if (lower.includes('white') || lower.includes('chardonnay') || lower.includes('sparkling') || lower.includes('rose')) {
-      return {
-        text: 'Our 2024 Vieilles Vignes Chardonnay delivers crystalline lemon curd and flinty wet-stone minerality, while the Blanc de Blancs Millésimé has rested 42 months in our underground chalk caverns.',
-        suggestions: ['View Blanc de Blancs', 'View Rosé Botanique', 'Book a Tasting Flight'],
-        actionLink: { label: 'View Wine Collection', href: '/wines' }
-      };
-    }
-
-    return {
-      text: 'Our estate team would be delighted to welcome you. Would you like assistance selecting a wine, reserving an experience, or planning your route to the estate in the valley?',
-      suggestions: ['Book an Experience', 'Explore Wines', 'Directions to Estate', 'View Events'],
-      actionLink: { label: 'Plan Your Visit', href: '/visit' }
-    };
-  };
-
-  const sendMessage = (text: string) => {
+  const sendMessage = async (text: string) => {
     const userMsg: ChatMessage = {
       id: 'msg-' + Date.now(),
       sender: 'user',
@@ -130,19 +82,39 @@ export function ConciergeProvider({ children }: { children: React.ReactNode }) {
 
     setMessages((prev) => [...prev, userMsg]);
 
-    // Simulate concierge response delay
-    setTimeout(() => {
-      const resp = generateConciergeResponse(text);
+    try {
+      const history = messages.map(m => ({
+        role: m.sender === 'user' ? 'user' : 'assistant',
+        content: m.text
+      }));
+      
+      const res = await fetch('/api/concierge/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, history })
+      });
+      
+      const data = await res.json();
+      
       const botMsg: ChatMessage = {
         id: 'msg-' + (Date.now() + 1),
         sender: 'concierge',
-        text: resp.text,
+        text: data.text || 'Our estate team would be delighted to welcome you.',
         time: 'Just now',
-        suggestions: resp.suggestions,
-        actionLink: resp.actionLink
+        suggestions: data.suggestions,
+        actionLink: data.actionLink
       };
       setMessages((prev) => [...prev, botMsg]);
-    }, 700);
+    } catch (error) {
+      console.error('Concierge request failed:', error);
+      const botMsg: ChatMessage = {
+        id: 'msg-' + (Date.now() + 1),
+        sender: 'concierge',
+        text: 'Apologies, our concierge is momentarily indisposed. Please try again later.',
+        time: 'Just now'
+      };
+      setMessages((prev) => [...prev, botMsg]);
+    }
   };
 
   return (

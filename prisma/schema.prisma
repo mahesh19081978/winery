@@ -155,8 +155,24 @@ model Winery {
   closures           WineryClosure[]
   availabilityRules  AvailabilityRule[]
   contactInquiries   ContactInquiry[]
+  aiSettings         AISettings?
 
   @@map("wineries")
+}
+
+model AISettings {
+  id               String   @id @default(uuid())
+  wineryId         String   @unique
+  isEnabled        Boolean  @default(false)
+  provider         String   @default("GEMINI")
+  modelName        String   @default("gemini-2.5-flash")
+  apiKeyEncrypted  String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  winery           Winery   @relation(fields: [wineryId], references: [id], onDelete: Cascade)
+
+  @@map("ai_settings")
 }
 
 // ----------------------------------------------------
