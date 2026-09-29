@@ -44,10 +44,16 @@ export async function POST(request: NextRequest) {
     const message = error instanceof Error ? error.message : 'Failed to create event booking';
     // Map known business errors to appropriate status
     if (message.includes('not found')) {
-      return NextResponse.json({ success: false, error: message }, { status: 404 });
+      return NextResponse.json({ success: false, error: message, code: 'EVENT_NOT_FOUND' }, { status: 404 });
     }
     if (message.includes('Insufficient capacity')) {
-      return NextResponse.json({ success: false, error: message }, { status: 409 });
+      return NextResponse.json({ success: false, error: message, code: 'INSUFFICIENT_CAPACITY' }, { status: 409 });
+    }
+    if (message.includes('status: cancelled')) {
+      return NextResponse.json({ success: false, error: message, code: 'EVENT_CANCELLED' }, { status: 400 });
+    }
+    if (message.includes('status: completed')) {
+      return NextResponse.json({ success: false, error: message, code: 'EVENT_PAST' }, { status: 400 });
     }
     if (message.includes('does not belong') || message.includes('not bookable') || message.includes('Duplicate ticket')) {
       return NextResponse.json({ success: false, error: message }, { status: 400 });

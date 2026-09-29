@@ -17,7 +17,7 @@ export function StatusBadge({ status, variant = 'default', size = 'sm' }: Status
     style = 'bg-emerald-50 text-emerald-800 border-emerald-200/80';
   } else if (variant === 'warning' || ['PENDING', 'UPCOMING', 'LIMITED'].includes(normalized)) {
     style = 'bg-amber-50 text-amber-800 border-amber-200/80';
-  } else if (variant === 'danger' || ['CANCELLED', 'REJECTED', 'CLOSED', 'BLOCKED', 'NO_SHOW'].includes(normalized)) {
+  } else if (variant === 'danger' || ['CANCELLED', 'REJECTED', 'CLOSED', 'BLOCKED', 'NO_SHOW', 'SOLD_OUT'].includes(normalized)) {
     style = 'bg-rose-50 text-rose-800 border-rose-200/80';
   } else if (variant === 'info' || ['COMPLETED', 'FINISHED'].includes(normalized)) {
     style = 'bg-sky-50 text-sky-800 border-sky-200/80';

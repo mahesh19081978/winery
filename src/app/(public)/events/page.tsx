@@ -6,6 +6,8 @@ import Link from 'next/link';
 import EventCard from '@/components/events/EventCard';
 import { Calendar, Loader2 } from 'lucide-react';
 
+import { deriveEventAvailability } from '@/lib/events/availability';
+
 interface ApiEvent {
   id: string;
   slug: string;
@@ -23,10 +25,12 @@ interface ApiEvent {
   ticketTypes: { id: string; name: string; price: string | number; capacity: number; soldCount: number }[];
 }
 
-function mapAvailability(av: string): 'Available' | 'Few Seats Left' | 'Sold Out' {
-  if (av === 'SOLD_OUT') return 'Sold Out';
-  if (av === 'FEW_SEATS_LEFT') return 'Few Seats Left';
-  return 'Available';
+function mapAvailability(event: ApiEvent): 'Available' | 'Few Seats Left' | 'Sold Out' {
+  const isCompleted = new Date() > new Date(event.eventDate);
+  if (isCompleted || event.status === 'CANCELLED') return 'Sold Out';
+
+  const derived = deriveEventAvailability(event.ticketTypes);
+  return derived === 'SOLD_OUT' ? 'Sold Out' : 'Available';
 }
 
 export default function EventsPage() {
@@ -55,8 +59,8 @@ export default function EventsPage() {
     return () => { cancelled = true; };
   }, []);
 
-  const upcomingEvents = events.filter((e) => !e.isPast && e.status !== 'COMPLETED' && e.status !== 'CANCELLED');
-  const pastEvents = events.filter((e) => e.isPast || e.status === 'COMPLETED');
+  const upcomingEvents = events.filter((e) => e.status !== 'CANCELLED' && new Date(e.eventDate) > new Date());
+  const pastEvents = events.filter((e) => e.status !== 'CANCELLED' && new Date(e.eventDate) <= new Date());
 
   return (
     <div className="w-full pt-20">
@@ -142,7 +146,7 @@ export default function EventsPage() {
                   price: priceNum,
                   shortDescription: event.shortDescription,
                   description: '',
-                  availability: mapAvailability(event.availability),
+                  availability: mapAvailability(event),
                   availableTickets: event.ticketTypes.reduce((sum, tt) => sum + Math.max(0, tt.capacity - tt.soldCount), 0),
                   schedule: event.schedules,
                   winesServed: [],

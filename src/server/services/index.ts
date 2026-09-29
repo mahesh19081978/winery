@@ -963,9 +963,12 @@ export class EventBookingService {
     if (!event) {
       throw new EventBookingError(`Event ${input.eventId} not found`, 404);
     }
-    if (event.status === 'CANCELLED' || event.status === 'COMPLETED' || event.isPast) {
-      throw new EventBookingError(`Event '${event.title}' is not bookable (status: ${event.status})`, 400);
+    const isCompleted = new Date() > new Date(event.eventDate);
+    if (event.status === 'CANCELLED' || isCompleted) {
+      const reason = event.status === 'CANCELLED' ? 'cancelled' : 'completed';
+      throw new EventBookingError(`Event '${event.title}' is not bookable (status: ${reason})`, 400);
     }
+
 
     // Validate schedule exists and belongs to event
     const schedule = await prisma.eventSchedule.findUnique({

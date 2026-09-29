@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db';
 import { BookingStatus, PaymentStatus, ReviewStatus, Prisma, NotificationChannel, NotificationType } from '@prisma/client';
+import { deriveEventAvailability } from '@/lib/events/availability';
 
 const VALID_BOOKING_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   [BookingStatus.PENDING]: [BookingStatus.CONFIRMED, BookingStatus.CANCELLED],
@@ -382,7 +383,7 @@ export class ExperienceRepository {
 
 export class EventRepository {
   static async findAll() {
-    return prisma.event.findMany({
+    const events = await prisma.event.findMany({
       include: {
         schedules: { orderBy: { sortOrder: 'asc' } },
         faqs: { orderBy: { sortOrder: 'asc' } },
@@ -390,10 +391,19 @@ export class EventRepository {
       },
       orderBy: { eventDate: 'asc' },
     });
+
+    const now = new Date();
+    return events.map(e => {
+      const isPast = e.status !== 'CANCELLED' && new Date(e.eventDate) < now;
+      const availability = deriveEventAvailability(e.ticketTypes);
+      return isPast
+        ? { ...e, status: 'COMPLETED' as const, isPast: true, availability }
+        : { ...e, availability };
+    });
   }
 
   static async findBySlug(slug: string) {
-    return prisma.event.findFirst({
+    const e = await prisma.event.findFirst({
       where: { slug },
       include: {
         schedules: { orderBy: { sortOrder: 'asc' } },
@@ -405,6 +415,12 @@ export class EventRepository {
         },
       },
     });
+    if (!e) return null;
+    const isPast = e.status !== 'CANCELLED' && new Date(e.eventDate) < new Date();
+    const availability = deriveEventAvailability(e.ticketTypes);
+    return isPast
+      ? { ...e, status: 'COMPLETED' as const, isPast: true, availability }
+      : { ...e, availability };
   }
 
   static async findAllAdmin(filters: {
@@ -465,8 +481,17 @@ export class EventRepository {
       prisma.event.count({ where }),
     ]);
 
+    const now = new Date();
+    const mappedEvents = events.map(event => {
+      const isPast = event.status !== 'CANCELLED' && new Date(event.eventDate) < now;
+      const availability = deriveEventAvailability(event.ticketTypes);
+      return isPast
+        ? { ...event, status: 'COMPLETED' as const, isPast: true, availability }
+        : { ...event, availability };
+    });
+
     return {
-      events,
+      events: mappedEvents,
       pagination: {
         page,
         pageSize,
@@ -477,7 +502,7 @@ export class EventRepository {
   }
 
   static async findByIdAdmin(id: string) {
-    return prisma.event.findUnique({
+    const e = await prisma.event.findUnique({
       where: { id },
       include: {
         schedules: { orderBy: { sortOrder: 'asc' } },
@@ -502,6 +527,12 @@ export class EventRepository {
         _count: { select: { eventBookings: true, reviews: true } },
       },
     });
+    if (!e) return null;
+    const isPast = e.status !== 'CANCELLED' && new Date(e.eventDate) < new Date();
+    const availability = deriveEventAvailability(e.ticketTypes);
+    return isPast
+      ? { ...e, status: 'COMPLETED' as const, isPast: true, availability }
+      : { ...e, availability };
   }
 
   static async create(data: Prisma.EventCreateInput) {
@@ -2353,7 +2384,17 @@ export class EventBookingRepository {
   }) {
     return prisma.$transaction(
       async (tx) => {
-      // Deterministic lock order to reduce deadlock risk
+      // 1. Lock the parent Event row to prevent concurrent overselling across different ticket types
+      await tx.$queryRaw`SELECT id FROM "events" WHERE id = ${data.eventId} FOR UPDATE`;
+
+      const currentEvent = await tx.event.findUnique({
+        where: { id: data.eventId },
+      });
+      if (!currentEvent) {
+        throw new Error(`Event ${data.eventId} not found`);
+      }
+
+      // Deterministic lock order for ticket types to reduce deadlock risk
       const sortedTickets = [...data.tickets].sort((a, b) =>
         a.eventTicketTypeId.localeCompare(b.eventTicketTypeId)
       );

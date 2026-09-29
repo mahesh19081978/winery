@@ -77,20 +77,24 @@ function formatEventDate(dateStr: string): string {
     return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
   } catch { return dateStr; }
 }
-function mapAvailabilityBadge(av: string): string {
-  if (av === 'SOLD_OUT') return 'Sold Out';
-  if (av === 'FEW_SEATS_LEFT') return 'Few Seats Left';
-  return 'Available';
+import { deriveEventAvailability } from '@/lib/events/availability';
+
+function mapAvailabilityBadge(event: ApiEvent): string {
+  if (event.status === 'CANCELLED') return 'Cancelled';
+  const isCompleted = new Date() > new Date(event.eventDate);
+  if (isCompleted) return 'Completed';
+
+  const derived = deriveEventAvailability(event.ticketTypes);
+  return derived === 'SOLD_OUT' ? 'Sold Out' : 'Available';
 }
 function isEventBookable(event: ApiEvent): { bookable: boolean; reason?: string } {
-  if (event.isPast) return { bookable: false, reason: 'This event has already taken place.' };
   if (event.status === 'CANCELLED') return { bookable: false, reason: 'This event has been cancelled.' };
-  if (event.status === 'COMPLETED') return { bookable: false, reason: 'This event is completed.' };
-  if (event.availability === 'SOLD_OUT') {
-    // Check if all ticket types sold out
-    const allSoldOut = event.ticketTypes.length > 0 && event.ticketTypes.every((tt) => tt.soldCount >= tt.capacity);
-    if (allSoldOut) return { bookable: false, reason: 'This event is sold out.' };
-  }
+  const isCompleted = new Date() > new Date(event.eventDate);
+  if (isCompleted) return { bookable: false, reason: 'This event has already taken place.' };
+  
+  const derived = deriveEventAvailability(event.ticketTypes);
+  if (derived === 'SOLD_OUT') return { bookable: false, reason: 'This event is sold out.' };
+  
   return { bookable: true };
 }
 
@@ -362,7 +366,7 @@ export default function EventDetailPage() {
             <ArrowLeft className="w-4 h-4" />
             <span>Back to Events Calendar</span>
           </Link>
-          <StatusBadge status={mapAvailabilityBadge(event.availability)} />
+          <StatusBadge status={mapAvailabilityBadge(event)} />
         </div>
       </div>
 
@@ -802,7 +806,7 @@ export default function EventDetailPage() {
                   price: priceNum,
                   shortDescription: evt.shortDescription,
                   description: '',
-                  availability: mapAvailabilityBadge(evt.availability),
+                  availability: mapAvailabilityBadge(evt),
                   availableTickets: evt.ticketTypes.reduce((sum, tt) => sum + Math.max(0, tt.capacity - tt.soldCount), 0),
                   schedule: evt.schedules,
                   winesServed: [],
