@@ -1,36 +1,34 @@
-import { NextResponse } from 'next/server';
-import { AuthService } from '@/lib/auth';
-import { prisma } from '@/lib/db';
+import { NextRequest, NextResponse } from 'next/server';
+import { StaffService } from '@/server/services';
+import { StaffCreateSchema } from '@/server/validators';
+import { staffErrorResponse } from './staff-error';
 
 export async function GET() {
   try {
-    const session = await AuthService.getSession();
-    if (!session || !AuthService.isStaffRole(session.role)) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const staffMembers = await prisma.user.findMany({
-      where: {
-        role: { not: 'GUEST' },
-      },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+    const data = await StaffService.list();
 
     return NextResponse.json({
       success: true,
-      data: {
-        staff: staffMembers,
-      },
+      data,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to fetch staff members';
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    return staffErrorResponse(error, 'Failed to fetch staff members');
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    await StaffService.authorizeManage();
+    const body = await request.json();
+    const validated = StaffCreateSchema.parse(body);
+
+    const staff = await StaffService.create(validated);
+
+    return NextResponse.json(
+      { success: true, data: { staff }, message: 'User created successfully' },
+      { status: 201 }
+    );
+  } catch (error) {
+    return staffErrorResponse(error, 'Failed to create user');
   }
 }

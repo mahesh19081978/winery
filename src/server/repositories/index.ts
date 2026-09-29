@@ -2567,7 +2567,123 @@ export class UserRepository {
       },
     });
   }
+
+  // --- Staff & Roles User Management (Phase 12A) ---
+  // Explicit select: passwordHash is never part of a staff DTO.
+  static readonly staffSelect = {
+    id: true,
+    name: true,
+    email: true,
+    role: true,
+    isActive: true,
+    wineryId: true,
+    createdAt: true,
+    updatedAt: true,
+    winery: { select: { id: true, name: true, slug: true } },
+  } satisfies Prisma.UserSelect;
+
+  static async findStaffList(scope: { wineryId: string | null }) {
+    return prisma.user.findMany({
+      where: {
+        role: { not: 'GUEST' },
+        ...(scope.wineryId ? { wineryId: scope.wineryId } : {}),
+      },
+      select: UserRepository.staffSelect,
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  static async findStaffById(id: string) {
+    return prisma.user.findUnique({
+      where: { id },
+      select: { ...UserRepository.staffSelect, guestProfile: { select: { id: true } } },
+    });
+  }
+
+  static async findStaffByEmail(email: string) {
+    return prisma.user.findUnique({
+      where: { email },
+      select: { id: true, email: true },
+    });
+  }
+
+  static async createStaff(data: {
+    email: string;
+    name: string;
+    passwordHash: string;
+    role: import('@prisma/client').UserRole;
+    wineryId: string | null;
+    isActive: boolean;
+  }) {
+    return prisma.user.create({
+      data: {
+        email: data.email,
+        name: data.name,
+        passwordHash: data.passwordHash,
+        role: data.role,
+        wineryId: data.wineryId,
+        isActive: data.isActive,
+      },
+      select: UserRepository.staffSelect,
+    });
+  }
+
+  static async updateStaff(
+    id: string,
+    data: {
+      name?: string;
+      email?: string;
+      role?: import('@prisma/client').UserRole;
+      wineryId?: string | null;
+      isActive?: boolean;
+    }
+  ) {
+    return prisma.user.update({
+      where: { id },
+      data: {
+        ...(data.name !== undefined ? { name: data.name } : {}),
+        ...(data.email !== undefined ? { email: data.email } : {}),
+        ...(data.role !== undefined ? { role: data.role } : {}),
+        ...(data.wineryId !== undefined ? { wineryId: data.wineryId } : {}),
+        ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
+      },
+      select: UserRepository.staffSelect,
+    });
+  }
+
+  static async setStaffPassword(id: string, passwordHash: string) {
+    return prisma.user.update({
+      where: { id },
+      data: { passwordHash },
+      select: { id: true },
+    });
+  }
+
+  static async deleteStaff(id: string) {
+    return prisma.user.delete({
+      where: { id },
+      select: { id: true },
+    });
+  }
+
+  static async findExistingWineryIds(ids: string[]) {
+    if (ids.length === 0) return [];
+    const rows = await prisma.winery.findMany({
+      where: { id: { in: ids } },
+      select: { id: true },
+    });
+    return rows.map((r) => r.id);
+  }
+
+  static async listWineryOptions(scopeWineryId: string | null = null) {
+    return prisma.winery.findMany({
+      where: scopeWineryId ? { id: scopeWineryId } : {},
+      select: { id: true, name: true, slug: true },
+      orderBy: { name: 'asc' },
+    });
+  }
 }
+
 
 export class NotificationRepository {
   static async create(data: {

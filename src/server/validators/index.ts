@@ -503,3 +503,73 @@ export const PaymentRefundSchema = z.object({
   idempotencyKey: z.string().trim().min(8, 'Idempotency key must be at least 8 characters').max(255).optional(),
 });
 export type PaymentRefundInput = z.infer<typeof PaymentRefundSchema>;
+
+// --- Staff & Roles User Management (Phase 12A) ---
+export const STAFF_MANAGEABLE_ROLES = [
+  'SUPER_ADMIN',
+  'ADMIN',
+  'MANAGER',
+  'RECEPTION',
+  'WINE_STAFF',
+  'EVENT_MANAGER',
+  'TELECALLER',
+] as const;
+
+export const StaffRoleSchema = z.enum(STAFF_MANAGEABLE_ROLES);
+export type StaffRoleInput = z.infer<typeof StaffRoleSchema>;
+
+export const StaffPasswordSchema = z
+  .string()
+  .min(8, 'Password must be at least 8 characters')
+  .max(100, 'Password cannot exceed 100 characters')
+  .refine((v) => /[A-Za-z]/.test(v), 'Password must contain at least one letter')
+  .refine((v) => /[0-9]/.test(v), 'Password must contain at least one number');
+
+export const StaffCreateSchema = z
+  .object({
+    name: z.string().trim().min(2, 'Name must be at least 2 characters').max(100, 'Name cannot exceed 100 characters'),
+    email: z
+      .string()
+      .trim()
+      .email('Valid email is required')
+      .transform((v) => v.toLowerCase()),
+    password: StaffPasswordSchema,
+    confirmPassword: z.string().min(1, 'Password confirmation is required'),
+    role: StaffRoleSchema,
+    wineryId: z.string().trim().min(1, 'Winery is required').nullable().optional(),
+    isActive: z.boolean().default(true),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  });
+
+export type StaffCreateInput = z.infer<typeof StaffCreateSchema>;
+
+export const StaffUpdateSchema = z.object({
+  name: z.string().trim().min(2, 'Name must be at least 2 characters').max(100, 'Name cannot exceed 100 characters').optional(),
+  email: z
+    .string()
+    .trim()
+    .email('Valid email is required')
+    .transform((v) => v.toLowerCase())
+    .optional(),
+  role: StaffRoleSchema.optional(),
+  wineryId: z.string().trim().min(1, 'Winery is required').nullable().optional(),
+  isActive: z.boolean().optional(),
+});
+
+export type StaffUpdateInput = z.infer<typeof StaffUpdateSchema>;
+
+export const StaffPasswordChangeSchema = z
+  .object({
+    password: StaffPasswordSchema,
+    confirmPassword: z.string().min(1, 'Password confirmation is required'),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  });
+
+export type StaffPasswordChangeInput = z.infer<typeof StaffPasswordChangeSchema>;
+

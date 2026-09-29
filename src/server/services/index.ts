@@ -18,6 +18,7 @@ import {
   NotificationRepository,
   PaymentRepository,
   WebhookRepository,
+  UserRepository,
 } from '../repositories';
 import {
   BookingCreateSchema,
@@ -50,9 +51,12 @@ import {
   PaymentFailureInput,
   PaymentRefundInput,
   PaymentBookingType,
+  StaffCreateInput,
+  StaffUpdateInput,
+  StaffPasswordChangeInput,
 } from '../validators';
 import { prisma } from '@/lib/db';
-import { BookingStatus, PaymentStatus, ReviewStatus, Prisma, NotificationChannel, NotificationType } from '@prisma/client';
+import { BookingStatus, PaymentStatus, ReviewStatus, Prisma, NotificationChannel, NotificationType, UserRole } from '@prisma/client';
 import { sendGuestNotificationEmail } from '@/lib/email';
 import type { GuestSessionPayload } from '@/lib/auth/guest';
 import { getRazorpayClient, verifyPaymentSignature, toSubunits, createRazorpayRefund } from '@/lib/razorpay';
@@ -2904,6 +2908,10 @@ export class AdminAuthService {
       throw new Error('Invalid email or password');
     }
 
+    if (!user.isActive) {
+      throw new Error('Access denied: account has been deactivated. Please contact an administrator.');
+    }
+
     if (!AuthService.isStaffRole(user.role)) {
       throw new Error('Access denied: user role is not authorized for admin operations');
     }
@@ -2940,6 +2948,33 @@ export class AdminAuthService {
     }
 
     return session;
+  }
+
+  /**
+   * Resolves the admin session and re-validates it against the database so that
+   * deactivation, role changes and winery reassignment take effect immediately
+   * instead of waiting for the 8h JWT to expire.
+   */
+  static async getActiveSession() {
+    const { AuthService } = await import('@/lib/auth');
+    const session = await AuthService.getSession();
+    if (!session || !AuthService.isStaffRole(session.role)) return null;
+
+    const user = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { role: true, wineryId: true, isActive: true },
+    });
+
+    if (!user || !user.isActive || !AuthService.isStaffRole(user.role)) {
+      return null;
+    }
+
+    return {
+      userId: session.userId,
+      email: session.email,
+      role: user.role,
+      wineryId: user.wineryId,
+    };
   }
 
   static async provisionInitialAdmin() {
@@ -2986,6 +3021,288 @@ export class AdminAuthService {
         role: adminUser.role,
       },
     };
+  }
+}
+
+// ----------------------------------------------------
+// Staff & Roles User Management (Phase 12A)
+// ----------------------------------------------------
+const STAFF_MANAGE_ROLES: UserRole[] = [UserRole.SUPER_ADMIN, UserRole.ADMIN];
+
+export interface StaffActor {
+  userId: string;
+  email: string;
+  role: UserRole;
+  wineryId: string | null;
+}
+
+export class StaffService {
+  private static deny(message: string, statusCode: number): never {
+    throw new EventBookingError(message, statusCode);
+  }
+
+  static canManageStaff(role: UserRole): boolean {
+    return STAFF_MANAGE_ROLES.includes(role);
+  }
+
+  /**
+   * Resolves the acting administrator from the session and re-reads the account
+   * from the database so stale JWT claims can never be used for authorization.
+   */
+  static async getActor(): Promise<StaffActor> {
+    const { AuthService } = await import('@/lib/auth');
+    const session = await AuthService.getSession();
+    if (!session || !AuthService.isStaffRole(session.role)) {
+      this.deny('Unauthorized', 401);
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { id: true, email: true, role: true, wineryId: true, isActive: true },
+    });
+
+    if (!user || !user.isActive) {
+      this.deny('Session is no longer active. Please sign in again.', 401);
+    }
+    if (!AuthService.isStaffRole(user.role)) {
+      this.deny('Access denied: user role is not authorized for admin operations', 403);
+    }
+
+    return { userId: user.id, email: user.email, role: user.role, wineryId: user.wineryId };
+  }
+
+  /**
+   * Route-level guard for mutating staff endpoints. Callers run it before reading
+   * the request body so anonymous or under-privileged requests always fail with a
+   * status code instead of leaking validation feedback to unauthenticated callers.
+   */
+  static async authorizeManage(): Promise<StaffActor> {
+    const actor = await this.getActor();
+    this.requireManager(actor);
+    return actor;
+  }
+
+  /** SUPER_ADMIN sees every winery; everyone else is pinned to their own winery. */
+  private static scopeOf(actor: StaffActor): { wineryId: string | null } {
+    if (actor.role === UserRole.SUPER_ADMIN) return { wineryId: null };
+    if (!actor.wineryId) this.deny('Winery context missing', 400);
+    return { wineryId: actor.wineryId };
+  }
+
+  private static requireManager(actor: StaffActor): void {
+    if (!this.canManageStaff(actor.role)) {
+      this.deny('You are not authorized to manage staff accounts', 403);
+    }
+  }
+
+  /** Loads a staff user while enforcing the winery tenant boundary (IDOR guard). */
+  private static async loadTarget(actor: StaffActor, id: string) {
+    const target = await UserRepository.findStaffById(id);
+    if (!target || target.role === UserRole.GUEST) {
+      this.deny('User not found', 404);
+    }
+    if (actor.role !== UserRole.SUPER_ADMIN) {
+      if (!actor.wineryId) this.deny('Winery context missing', 400);
+      if (target.wineryId !== actor.wineryId) {
+        this.deny('Unauthorized: user belongs to another winery', 403);
+      }
+      if (target.role === UserRole.SUPER_ADMIN) {
+        this.deny('Unauthorized: only a Super Admin can modify a Super Admin account', 403);
+      }
+    }
+    return target;
+  }
+
+  private static assertAssignableRole(actor: StaffActor, role: UserRole): void {
+    if (role === UserRole.GUEST) {
+      this.deny('Guest accounts are not managed through staff management', 400);
+    }
+    if (role === UserRole.SUPER_ADMIN && actor.role !== UserRole.SUPER_ADMIN) {
+      this.deny('Only a Super Admin can grant the Super Admin role', 403);
+    }
+  }
+
+  private static async assertWineryExists(wineryId: string | null): Promise<string | null> {
+    if (!wineryId) return null;
+    const [existing] = await UserRepository.findExistingWineryIds([wineryId]);
+    if (!existing) this.deny('Selected winery does not exist', 400);
+    return existing;
+  }
+
+  /** Non-super administrators are always pinned to their own winery. */
+  private static async resolveCreateWinery(
+    actor: StaffActor,
+    requested: string | null | undefined
+  ): Promise<string | null> {
+    if (actor.role === UserRole.SUPER_ADMIN) {
+      return this.assertWineryExists(requested ?? null);
+    }
+    if (!actor.wineryId) this.deny('Winery context missing', 400);
+    if (requested !== undefined && requested !== null && requested !== actor.wineryId) {
+      this.deny('You can only create users in your own winery', 403);
+    }
+    return actor.wineryId;
+  }
+
+  static async list() {
+    const actor = await this.getActor();
+    const scope = this.scopeOf(actor);
+    const staff = await UserRepository.findStaffList(scope);
+    // SUPER_ADMIN may assign any winery; everyone else only sees their own.
+    const wineries = await UserRepository.listWineryOptions(scope.wineryId);
+
+    return {
+      staff,
+      wineries,
+      canManage: this.canManageStaff(actor.role),
+      actor: { userId: actor.userId, role: actor.role, wineryId: actor.wineryId },
+    };
+  }
+
+  static async getById(id: string) {
+    const actor = await this.getActor();
+    const target = await this.loadTarget(actor, id);
+    return {
+      id: target.id,
+      name: target.name,
+      email: target.email,
+      role: target.role,
+      isActive: target.isActive,
+      wineryId: target.wineryId,
+      createdAt: target.createdAt,
+      updatedAt: target.updatedAt,
+      winery: target.winery,
+    };
+  }
+
+  static async create(input: StaffCreateInput) {
+    const actor = await this.getActor();
+    this.requireManager(actor);
+    this.assertAssignableRole(actor, input.role);
+
+    const existing = await UserRepository.findStaffByEmail(input.email);
+    if (existing) this.deny('A user with this email already exists', 409);
+
+    const wineryId = await this.resolveCreateWinery(actor, input.wineryId);
+
+    const { AuthService } = await import('@/lib/auth');
+    const passwordHash = await AuthService.hashPassword(input.password);
+
+    try {
+      return await UserRepository.createStaff({
+        email: input.email,
+        name: input.name,
+        passwordHash,
+        role: input.role,
+        wineryId,
+        isActive: input.isActive,
+      });
+    } catch (error) {
+      if ((error as { code?: string })?.code === 'P2002') {
+        this.deny('A user with this email already exists', 409);
+      }
+      throw error;
+    }
+  }
+
+  static async update(id: string, input: StaffUpdateInput) {
+    const actor = await this.getActor();
+    this.requireManager(actor);
+    const target = await this.loadTarget(actor, id);
+
+    if (input.role !== undefined) {
+      this.assertAssignableRole(actor, input.role);
+    }
+
+    const isSelf = target.id === actor.userId;
+    if (isSelf) {
+      if (input.role !== undefined && input.role !== target.role) {
+        this.deny('You cannot change your own role', 400);
+      }
+      if (input.isActive === false) {
+        this.deny('You cannot deactivate your own account', 400);
+      }
+      if (input.wineryId !== undefined && input.wineryId !== target.wineryId) {
+        this.deny('You cannot change your own winery assignment', 400);
+      }
+    }
+
+    let wineryId: string | null | undefined;
+    if (input.wineryId !== undefined) {
+      if (actor.role !== UserRole.SUPER_ADMIN) {
+        if (input.wineryId !== actor.wineryId) {
+          this.deny('You can only assign users to your own winery', 403);
+        }
+        wineryId = actor.wineryId;
+      } else {
+        wineryId = await this.assertWineryExists(input.wineryId);
+      }
+    }
+
+    if (input.email !== undefined && input.email !== target.email) {
+      const clash = await UserRepository.findStaffByEmail(input.email);
+      if (clash && clash.id !== target.id) this.deny('A user with this email already exists', 409);
+    }
+
+    const data: {
+      name?: string;
+      email?: string;
+      role?: UserRole;
+      wineryId?: string | null;
+      isActive?: boolean;
+    } = {};
+    if (input.name !== undefined) data.name = input.name;
+    if (input.email !== undefined) data.email = input.email;
+    if (input.role !== undefined) data.role = input.role;
+    if (wineryId !== undefined) data.wineryId = wineryId;
+    if (input.isActive !== undefined) data.isActive = input.isActive;
+
+    if (Object.keys(data).length === 0) this.deny('No changes provided', 400);
+
+    try {
+      return await UserRepository.updateStaff(id, data);
+    } catch (error) {
+      if ((error as { code?: string })?.code === 'P2002') {
+        this.deny('A user with this email already exists', 409);
+      }
+      throw error;
+    }
+  }
+
+  static async changePassword(id: string, input: StaffPasswordChangeInput) {
+    const actor = await this.getActor();
+    this.requireManager(actor);
+    const target = await this.loadTarget(actor, id);
+
+    const { AuthService } = await import('@/lib/auth');
+    const passwordHash = await AuthService.hashPassword(input.password);
+    await UserRepository.setStaffPassword(target.id, passwordHash);
+
+    return { id: target.id };
+  }
+
+  /**
+   * Hard delete is only allowed for staff accounts with no guest history
+   * (bookings, reviews, conversations all hang off GuestProfile). Everything
+   * else must be deactivated so historical records are preserved.
+   */
+  static async remove(id: string) {
+    const actor = await this.getActor();
+    this.requireManager(actor);
+    const target = await this.loadTarget(actor, id);
+
+    if (target.id === actor.userId) {
+      this.deny('You cannot delete your own account', 400);
+    }
+    if (target.guestProfile) {
+      this.deny(
+        'This user has guest history. Deactivate the account instead of deleting it.',
+        409
+      );
+    }
+
+    await UserRepository.deleteStaff(target.id);
+    return { id: target.id };
   }
 }
 

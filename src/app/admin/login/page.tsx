@@ -1,17 +1,26 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import logoMark from '../../../../public/logo-mark.png';
 import { Lock, Mail, ShieldAlert, ArrowRight } from 'lucide-react';
 
-export default function AdminLoginPage() {
+const REDIRECT_ERROR_MESSAGES: Record<string, string> = {
+  account_inactive:
+    'Your account is no longer active. Please contact an administrator to restore access.',
+  unauthorized_role: 'Your role is not authorized to access the admin portal.',
+};
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectError = REDIRECT_ERROR_MESSAGES[searchParams.get('error') || ''] || null;
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const displayError = error || redirectError;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,10 +75,10 @@ export default function AdminLoginPage() {
         </div>
 
         {/* Error Notification */}
-        {error && (
+        {displayError && (
           <div className="mb-6 p-4 rounded-lg bg-red-950/50 border border-red-800/60 text-red-300 text-sm flex items-start gap-3">
             <ShieldAlert className="w-5 h-5 flex-shrink-0 text-red-400 mt-0.5" />
-            <span>{error}</span>
+            <span>{displayError}</span>
           </div>
         )}
 
@@ -126,5 +135,13 @@ export default function AdminLoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function AdminLoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   );
 }
