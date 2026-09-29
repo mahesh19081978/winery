@@ -155,6 +155,7 @@ model Winery {
   closures           WineryClosure[]
   availabilityRules  AvailabilityRule[]
   contactInquiries   ContactInquiry[]
+  conversations      Conversation[]
   aiSettings         AISettings?
 
   @@map("wineries")
@@ -894,18 +895,22 @@ model GalleryImage {
 
 // ----------------------------------------------------
 // 11. AI Concierge & Telecaller Foundation
-// ----------------------------------------------------
 model Conversation {
   id             String              @id @default(uuid())
+  wineryId       String              @default("bd1034e9-36ef-463b-a576-019e1193621f")
   guestProfileId String?
+  sessionId      String?
   channel        ConversationChannel @default(WEB_CHAT)
   startedAt      DateTime            @default(now())
   endedAt        DateTime?
   metadata       Json?
 
+  winery         Winery              @relation(fields: [wineryId], references: [id], onDelete: Cascade)
   guestProfile   GuestProfile?       @relation(fields: [guestProfileId], references: [id], onDelete: SetNull)
   messages       ConversationMessage[]
 
+  @@index([wineryId])
+  @@index([sessionId])
   @@index([guestProfileId])
   @@map("conversations")
 }
@@ -917,6 +922,7 @@ model ConversationMessage {
   content        String       @db.Text
   toolCallName   String?
   toolCallData   Json?
+  metadata       Json?
   timestamp      DateTime     @default(now())
 
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)

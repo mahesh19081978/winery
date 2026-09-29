@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 
 export interface ChatMessage {
   id: string;
@@ -48,6 +48,39 @@ export function ConciergeProvider({ children }: { children: React.ReactNode }) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [voiceState, setVoiceState] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle');
 
+  // Load history from API on mount
+  useEffect(() => {
+    async function loadHistory() {
+      try {
+        const res = await fetch('/api/concierge/chat');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.messages && data.messages.length > 0) {
+            interface RawHistoryMessage {
+              id: string;
+              sender: 'user' | 'concierge';
+              text: string;
+              time?: string;
+              suggestions?: string[];
+              actionLink?: { label: string; href: string };
+            }
+            setMessages(data.messages.map((m: RawHistoryMessage) => ({
+              id: m.id,
+              sender: m.sender,
+              text: m.text,
+              time: m.time ? new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now',
+              suggestions: m.suggestions,
+              actionLink: m.actionLink
+            })));
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load concierge history:', error);
+      }
+    }
+    loadHistory();
+  }, []);
+
   const openConcierge = (initialQuery?: string) => {
     setIsOpen(true);
     if (initialQuery) {
@@ -70,37 +103,42 @@ export function ConciergeProvider({ children }: { children: React.ReactNode }) {
     setVoiceState('idle');
   };
 
-
-
   const sendMessage = async (text: string) => {
     const userMsg: ChatMessage = {
       id: 'msg-' + Date.now(),
       sender: 'user',
       text,
-      time: 'Just now'
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
     setMessages((prev) => [...prev, userMsg]);
 
     try {
-      const history = messages.map(m => ({
-        role: m.sender === 'user' ? 'user' : 'assistant',
-        content: m.text
-      }));
-      
       const res = await fetch('/api/concierge/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, history })
+        body: JSON.stringify({ message: text }) // Removed history, server handles it
       });
       
       const data = await res.json();
       
+      if (!res.ok) {
+         // handle rate limit or error
+         setMessages((prev) => [...prev, {
+            id: 'msg-' + (Date.now() + 1),
+            sender: 'concierge',
+            text: data.text || 'Apologies, our concierge is momentarily indisposed. Please try again later.',
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            suggestions: data.suggestions
+         }]);
+         return;
+      }
+
       const botMsg: ChatMessage = {
         id: 'msg-' + (Date.now() + 1),
         sender: 'concierge',
         text: data.text || 'Our estate team would be delighted to welcome you.',
-        time: 'Just now',
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         suggestions: data.suggestions,
         actionLink: data.actionLink
       };
