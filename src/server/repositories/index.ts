@@ -2402,17 +2402,25 @@ export class EventBookingRepository {
 
       // Row-level lock on ticket types (PostgreSQL FOR UPDATE)
       if (ticketTypeIds.length > 0) {
-        // Prisma does not expose FOR UPDATE directly; use raw query for lock
-        // Use IN clause with ordered ids; lock in deterministic order
         await tx.$queryRaw`SELECT id FROM "event_ticket_types" WHERE id IN (${Prisma.join(ticketTypeIds)}) ORDER BY id FOR UPDATE`;
       }
 
-      // Re-fetch ticket types inside transaction to get current soldCount
-      const currentTicketTypes = await tx.eventTicketType.findMany({
-        where: { id: { in: ticketTypeIds } },
+      // Re-fetch ALL ticket types for this event to calculate total sold tickets
+      const allEventTicketTypes = await tx.eventTicketType.findMany({
+        where: { eventId: data.eventId },
       });
 
-      const typeMap = new Map(currentTicketTypes.map((tt) => [tt.id, tt]));
+      const totalSoldEventTickets = allEventTicketTypes.reduce((sum, tt) => sum + tt.soldCount, 0);
+      const totalRequested = sortedTickets.reduce((sum, t) => sum + t.quantity, 0);
+      const remainingEventCapacity = currentEvent.maxCapacity - totalSoldEventTickets;
+
+      if (remainingEventCapacity < totalRequested) {
+        throw new Error(
+          `Insufficient capacity for event. Available: ${remainingEventCapacity}, Requested: ${totalRequested}`
+        );
+      }
+
+      const typeMap = new Map(allEventTicketTypes.map((tt) => [tt.id, tt]));
 
       // Validate capacity inside locked transaction
       for (const t of sortedTickets) {

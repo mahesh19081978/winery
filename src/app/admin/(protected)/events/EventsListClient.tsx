@@ -322,7 +322,9 @@ export function EventsListClient() {
                         <div className="font-medium text-stone-900">{event.title}</div>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           <StatusBadge status={event.status} size="sm" />
-                          <StatusBadge status={event.availability} size="sm" />
+                          {event.status !== 'COMPLETED' && event.status !== 'CANCELLED' && (
+                            <StatusBadge status={event.availability} size="sm" />
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3.5">

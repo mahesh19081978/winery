@@ -27,8 +27,10 @@ export interface TicketTypeSummary {
  * as available (nothing has been sold).
  */
 export function deriveEventAvailability(
-  ticketTypes: TicketTypeSummary[]
+  ticketTypes: TicketTypeSummary[],
+  options?: { isCompleted?: boolean; isCancelled?: boolean }
 ): DerivedAvailability {
+  if (options?.isCompleted || options?.isCancelled) return 'SOLD_OUT';
   if (ticketTypes.length === 0) return 'AVAILABLE';
 
   const totalCapacity = ticketTypes.reduce((sum, tt) => sum + tt.capacity, 0);

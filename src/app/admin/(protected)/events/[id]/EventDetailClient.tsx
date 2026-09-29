@@ -267,7 +267,9 @@ export function EventDetailClient({ event: initial }: { event: EventData }) {
             <div className="mt-1 flex flex-wrap items-center gap-3">
               <h1 className="font-serif text-2xl font-medium text-stone-900 sm:text-3xl">{event.title}</h1>
               <StatusBadge status={event.status} size="md" />
-              <StatusBadge status={event.availability} size="md" />
+              {event.status !== 'COMPLETED' && event.status !== 'CANCELLED' && (
+                <StatusBadge status={event.availability} size="md" />
+              )}
               {refreshing && <Loader2 className="h-4 w-4 animate-spin text-stone-400" />}
             </div>
           </div>
