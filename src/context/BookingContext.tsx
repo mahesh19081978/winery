@@ -1,7 +1,7 @@
 'use client';
 
-import React, { createContext, useContext, useState } from 'react';
-import { mockExperiences } from '@/data/experiences';
+import React, { createContext, useCallback, useContext, useState } from 'react';
+import type { Experience } from '@/types';
 
 export interface BookingFormState {
   experienceId: string;
@@ -19,12 +19,13 @@ interface BookingContextType {
   currentBooking: BookingFormState;
   updateBooking: (data: Partial<BookingFormState>) => void;
   resetBookingForm: () => void;
+  setExperienceCatalog: (experiences: Experience[]) => void;
   calculatePricing: () => { basePrice: number; taxAmount: number; totalPrice: number };
   getExperienceSlug: () => string;
 }
 
 const defaultFormState: BookingFormState = {
-  experienceId: mockExperiences[0].id,
+  experienceId: '',
   date: '',
   time: '',
   adults: 2,
@@ -39,18 +40,27 @@ const BookingContext = createContext<BookingContextType | undefined>(undefined);
 
 export function BookingProvider({ children }: { children: React.ReactNode }) {
   const [currentBooking, setCurrentBooking] = useState<BookingFormState>(defaultFormState);
+  const [experiences, setExperiences] = useState<Experience[]>([]);
 
-  const updateBooking = (data: Partial<BookingFormState>) => {
+  const updateBooking = useCallback((data: Partial<BookingFormState>) => {
     setCurrentBooking((prev) => ({ ...prev, ...data }));
-  };
+  }, []);
 
-  const resetBookingForm = () => {
+  const resetBookingForm = useCallback(() => {
     setCurrentBooking(defaultFormState);
-  };
+  }, []);
+
+  const setExperienceCatalog = useCallback((catalog: Experience[]) => {
+    setExperiences(catalog);
+  }, []);
+
+  const findSelectedExperience = (): Experience | undefined =>
+    experiences.find((e) => e.id === currentBooking.experienceId) ||
+    experiences.find((e) => e.slug === currentBooking.experienceId);
 
   const calculatePricing = () => {
-    const selectedExp = mockExperiences.find((e) => e.id === currentBooking.experienceId) || mockExperiences[0];
-    const expPrice = selectedExp ? selectedExp.price : 65;
+    const selectedExp = findSelectedExperience();
+    const expPrice = selectedExp ? selectedExp.price : 0;
     const basePrice = (currentBooking.adults * expPrice) + (currentBooking.children * (expPrice * 0.4));
     const taxAmount = Number((basePrice * 0.09).toFixed(2));
     const totalPrice = Number((basePrice + taxAmount).toFixed(2));
@@ -58,8 +68,8 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
   };
 
   const getExperienceSlug = () => {
-    const selectedExp = mockExperiences.find((e) => e.id === currentBooking.experienceId) || mockExperiences[0];
-    return selectedExp.slug;
+    const selectedExp = findSelectedExperience();
+    return selectedExp ? selectedExp.slug : '';
   };
 
   return (
@@ -68,6 +78,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         currentBooking,
         updateBooking,
         resetBookingForm,
+        setExperienceCatalog,
         calculatePricing,
         getExperienceSlug
       }}
