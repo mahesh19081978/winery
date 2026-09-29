@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useGuest } from '@/context/GuestContext';
@@ -15,19 +15,46 @@ import {
   ArrowLeft,
   Sliders,
   Bell,
+  ChevronDown,
+  Grape,
+  Ticket,
+  ClipboardList,
+  CircleUser,
+  type LucideIcon,
 } from 'lucide-react';
 
-const ACCOUNT_NAV = [
+type NavLink = { label: string; href: string; icon: LucideIcon };
+type NavEntry = { label: string; icon: LucideIcon; href?: string; children?: NavLink[] };
+
+const ACCOUNT_NAV: NavEntry[] = [
   { label: 'Overview', href: '/app', icon: Compass },
-  { label: 'My Bookings', href: '/app/bookings', icon: Calendar },
-  { label: 'My Wine Journey', href: '/app/journey', icon: BookOpen },
-  { label: 'My Tastings', href: '/app/tastings', icon: Wine },
-  { label: 'My Wines', href: '/app/wines', icon: Sparkles },
-  { label: 'Events', href: '/app/events', icon: Calendar },
-  { label: 'My Reviews', href: '/app/reviews', icon: MessageSquare },
-  { label: 'Notifications', href: '/app/notifications', icon: Bell },
-  { label: 'My Wine Profile', href: '/app/wine-profile', icon: Sliders },
-  { label: 'Profile', href: '/app/profile', icon: User },
+  {
+    label: 'Cellar',
+    icon: Grape,
+    children: [
+      { label: 'My Wines', href: '/app/wines', icon: Sparkles },
+      { label: 'My Wine Journey', href: '/app/journey', icon: BookOpen },
+      { label: 'My Tastings', href: '/app/tastings', icon: Wine },
+      { label: 'My Reviews', href: '/app/reviews', icon: MessageSquare },
+    ],
+  },
+  {
+    label: 'Visit',
+    icon: Calendar,
+    children: [
+      { label: 'My Bookings', href: '/app/bookings', icon: ClipboardList },
+      { label: 'Events', href: '/app/events', icon: Ticket },
+    ],
+  },
+  {
+    label: 'Account',
+    icon: User,
+    children: [
+      { label: 'Notifications', href: '/app/notifications', icon: Bell },
+      { label: 'My Wine Profile', href: '/app/wine-profile', icon: Sliders },
+      { label: 'Profile', href: '/app/profile', icon: CircleUser },
+    ],
+  },
 ];
 
 export default function GuestAccountLayout({ children }: { children: React.ReactNode }) {
@@ -40,6 +67,35 @@ export default function GuestAccountLayout({ children }: { children: React.React
       router.replace('/login');
     }
   }, [isLoading, isAuthenticated, router]);
+
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  const isActivePath = (href: string) =>
+    pathname === href || (href !== '/app' && pathname.startsWith(href + '/'));
+
+  // Close any open submenu when the route changes (render-phase adjustment)
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (prevPathname !== pathname) {
+    setPrevPathname(pathname);
+    setOpenMenu(null);
+  }
+
+  useEffect(() => {
+    if (!openMenu) return;
+    const handleMouseDown = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setOpenMenu(null);
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenMenu(null);
+    };
+    document.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [openMenu]);
 
   if (isLoading || !isAuthenticated) {
     return (
@@ -81,31 +137,80 @@ export default function GuestAccountLayout({ children }: { children: React.React
         </div>
       </div>
 
-      {/* Account Navigation Bar (Horizontal Scroll / Desktop Tabs) */}
-      <div className="bg-white border-b border-[#e6dece] sticky top-16 z-20 backdrop-blur-md bg-white/95">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
-          <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-4 bg-gradient-to-r from-white to-transparent sm:hidden z-10" />
-          <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-4 bg-gradient-to-l from-white to-transparent sm:hidden z-10" />
-          <nav className="flex items-center space-x-1 sm:space-x-2 overflow-x-auto py-2 scrollbar-none px-1">
-            {ACCOUNT_NAV.map((item) => {
-              const Icon = item.icon;
-              const isActive =
-                pathname === item.href ||
-                (item.href !== '/app' && pathname.startsWith(item.href + '/'));
+      {/* Account Navigation Bar — grouped tabs with dropdown submenus */}
+      <div className="border-b border-[#e6dece] sticky top-16 z-20 backdrop-blur-md bg-white/95">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <nav className="flex flex-wrap items-center gap-1 sm:gap-2 py-2" aria-label="Account">
+            {ACCOUNT_NAV.map((entry) => {
+              const Icon = entry.icon;
+              const isActive = entry.href
+                ? isActivePath(entry.href)
+                : (entry.children ?? []).some((child) => isActivePath(child.href));
 
+              const pillClass = (active: boolean) =>
+                `flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-semibold uppercase tracking-wider transition-all whitespace-nowrap ${
+                  active
+                    ? 'bg-[#2d1117] text-[#faf8f5] shadow-sm'
+                    : 'text-[#525960] hover:bg-[#f4f0e8] hover:text-[#191c1f]'
+                }`;
+
+              if (entry.href) {
+                return (
+                  <Link key={entry.href} href={entry.href} className={pillClass(isActive)}>
+                    <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-[#c5a059]' : 'text-[#8a3243]'}`} />
+                    <span>{entry.label}</span>
+                  </Link>
+                );
+              }
+
+              const isOpen = openMenu === entry.label;
               return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-semibold uppercase tracking-wider transition-all shrink-0 ${
-                    isActive
-                      ? 'bg-[#2d1117] text-[#faf8f5] shadow-sm'
-                      : 'text-[#525960] hover:bg-[#f4f0e8] hover:text-[#191c1f]'
-                  }`}
-                >
-                  <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-[#c5a059]' : 'text-[#8a3243]'}`} />
-                  <span>{item.label}</span>
-                </Link>
+                <div key={entry.label} className="relative" ref={isOpen ? menuRef : undefined}>
+                  <button
+                    type="button"
+                    aria-haspopup="menu"
+                    aria-expanded={isOpen}
+                    onClick={() => setOpenMenu(isOpen ? null : entry.label)}
+                    className={pillClass(isActive)}
+                  >
+                    <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-[#c5a059]' : 'text-[#8a3243]'}`} />
+                    <span>{entry.label}</span>
+                    <ChevronDown
+                      className={`w-3 h-3 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+                    />
+                  </button>
+
+                  {isOpen && (
+                    <div
+                      role="menu"
+                      className="absolute left-0 top-full mt-2 z-30 min-w-[230px] rounded-xl border border-[#e6dece] bg-white py-1.5 shadow-[0_12px_32px_rgba(45,17,23,0.14)]"
+                    >
+                      {entry.children?.map((child) => {
+                        const ChildIcon = child.icon;
+                        const childActive = isActivePath(child.href);
+                        return (
+                          <Link
+                            key={child.href}
+                            href={child.href}
+                            role="menuitem"
+                            className={`flex items-center gap-2.5 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider transition-colors ${
+                              childActive
+                                ? 'bg-[#f4f0e8] text-[#2d1117]'
+                                : 'text-[#525960] hover:bg-[#f4f0e8] hover:text-[#191c1f]'
+                            }`}
+                          >
+                            <ChildIcon
+                              className={`w-3.5 h-3.5 shrink-0 ${
+                                childActive ? 'text-[#c5a059]' : 'text-[#8a3243]'
+                              }`}
+                            />
+                            <span>{child.label}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               );
             })}
           </nav>
