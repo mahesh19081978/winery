@@ -16,6 +16,7 @@ import {
   Star,
   ChevronLeft,
   ChevronRight,
+  Plus,
 } from 'lucide-react';
 import { SectionCard, StatusBadge } from '@/components/admin/UIComponents';
 import EmptyState from '@/components/common/EmptyState';
@@ -151,6 +152,13 @@ export function ExperiencesListClient() {
               {pagination.total} total
             </span>
           </div>
+          <Link
+            href="/admin/experiences/new"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#461822] px-3 py-1.5 text-xs font-medium text-white transition hover:bg-[#6c2432]"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Create Experience
+          </Link>
         </div>
       </div>
 

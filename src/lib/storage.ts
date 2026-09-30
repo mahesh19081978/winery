@@ -47,6 +47,67 @@ export async function uploadGalleryFile(file: File): Promise<StorageUploadResult
   };
 }
 
+export async function uploadExperienceFile(file: File): Promise<StorageUploadResult> {
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+  const filename = `experience-${Date.now()}-${randomUUID().slice(0, 8)}.${ext}`;
+
+  if (token) {
+    const blob = await put(`experiences/${filename}`, file, {
+      access: 'public',
+      token,
+      contentType: file.type,
+    });
+    return {
+      url: blob.url,
+      filename,
+    };
+  }
+
+  const bytes = await file.arrayBuffer();
+  const buffer = Buffer.from(bytes);
+  const uploadDir = join(process.cwd(), 'public', 'uploads', 'experiences');
+
+  if (!existsSync(uploadDir)) {
+    await mkdir(uploadDir, { recursive: true });
+  }
+
+  const filePath = join(uploadDir, filename);
+  await writeFile(filePath, buffer);
+
+  return {
+    url: `/uploads/experiences/${filename}`,
+    filename,
+  };
+}
+
+export async function deleteExperienceFile(imageUrl: string): Promise<void> {
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+
+  if (imageUrl.includes('blob.vercel-storage.com')) {
+    if (token) {
+      try {
+        await del(imageUrl, { token });
+      } catch (err) {
+        console.error('Failed to delete blob from Vercel Blob storage:', err);
+      }
+    }
+    return;
+  }
+
+  if (imageUrl.startsWith('/uploads/experiences/')) {
+    try {
+      const filename = imageUrl.replace('/uploads/experiences/', '');
+      const filePath = join(process.cwd(), 'public', 'uploads', 'experiences', filename);
+      if (existsSync(filePath)) {
+        await unlink(filePath);
+      }
+    } catch (err) {
+      console.error('Failed to delete local experience file:', err);
+    }
+  }
+}
+
 /**
  * Deletes an image from storage (Vercel Blob if blob url and token, or local fallback).
  * Never throws an unhandled error so image record deletion can succeed even if storage file is gone.

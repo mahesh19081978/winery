@@ -321,6 +321,11 @@ export class WineService {
 }
 
 export class ExperienceService {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  static async createExperience(data: any) {
+    return ExperienceRepository.create(data);
+  }
+
   static async getAllExperiences() {
     return ExperienceRepository.findAll();
   }
@@ -349,6 +354,14 @@ export class ExperienceService {
       throw new Error(`Experience with slug '${slug}' not found`);
     }
     return experience;
+  }
+
+  static async updateExperienceAdmin(slug: string, data: Record<string, unknown>, includedWines?: unknown[], images?: unknown[], timelines?: unknown[], faqs?: unknown[]) {
+    const experience = await ExperienceRepository.findBySlugAdmin(slug);
+    if (!experience) {
+      throw new Error(`Experience with slug '${slug}' not found`);
+    }
+    return ExperienceRepository.updateExperienceAdmin(experience.id, data, includedWines, images, timelines, faqs);
   }
 }
 

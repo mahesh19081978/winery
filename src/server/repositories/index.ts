@@ -255,6 +255,10 @@ export class WineVintageRepository {
 }
 
 export class ExperienceRepository {
+  static async create(data: import('@prisma/client').Prisma.ExperienceCreateInput) {
+    return prisma.experience.create({ data });
+  }
+
   static async findAll() {
     return prisma.experience.findMany({
       where: { isActive: true },
@@ -376,6 +380,81 @@ export class ExperienceRepository {
           take: 50,
         },
         _count: { select: { bookingItems: true, reviews: true } },
+      },
+    });
+  }
+  static async updateExperienceAdmin(id: string, data: Record<string, unknown>, includedWines?: unknown[], images?: unknown[], timelines?: unknown[], faqs?: unknown[]) {
+    // Separate the scalar data from relations if needed
+    const { ...scalarData } = data;
+
+    const updatePayload: Prisma.ExperienceUpdateInput = { ...scalarData };
+
+    if (images && Array.isArray(images)) {
+      updatePayload.images = {
+        deleteMany: {},
+        createMany: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          data: images.map((image: any, index) => ({
+            url: String(image.url),
+            altText: image.altText ? String(image.altText) : null,
+            isPrimary: image.isPrimary !== undefined ? Boolean(image.isPrimary) : index === 0,
+            sortOrder: image.sortOrder !== undefined ? Number(image.sortOrder) : index,
+          })),
+        },
+      };
+    }
+
+    if (includedWines && Array.isArray(includedWines)) {
+      updatePayload.includedWines = {
+        deleteMany: {},
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        create: includedWines.map((w: any, index) => ({
+          wine: { connect: { id: String(w.wineId) } },
+          notes: w.notes ? String(w.notes) : null,
+          sortOrder: index,
+        })),
+      };
+    }
+
+    if (timelines && Array.isArray(timelines)) {
+      updatePayload.timelines = {
+        deleteMany: {},
+        createMany: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          data: timelines.map((t: any, index) => ({
+            timeRange: String(t.timeRange),
+            title: String(t.title),
+            description: t.description ? String(t.description) : '',
+            sortOrder: t.sortOrder !== undefined ? Number(t.sortOrder) : index,
+          })),
+        },
+      };
+    }
+
+    if (faqs && Array.isArray(faqs)) {
+      updatePayload.faqs = {
+        deleteMany: {},
+        createMany: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          data: faqs.map((f: any, index) => ({
+            question: String(f.question),
+            answer: String(f.answer),
+            sortOrder: f.sortOrder !== undefined ? Number(f.sortOrder) : index,
+          })),
+        },
+      };
+    }
+
+    return prisma.experience.update({
+      where: { id },
+      data: updatePayload,
+      include: {
+        images: true,
+        faqs: true,
+        timelines: true,
+        includedWines: {
+          include: { wine: true },
+        },
       },
     });
   }

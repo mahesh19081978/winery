@@ -15,6 +15,7 @@ import {
   BookOpen,
 } from 'lucide-react';
 import { SectionCard, StatusBadge } from '@/components/admin/UIComponents';
+import { ExperienceImageManager } from './ExperienceImageManager';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -108,6 +109,14 @@ export function ExperienceDetailClient({ experience }: { experience: ExperienceD
               )}
             </div>
           </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/admin/experiences/${experience.slug}/edit`}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-[#461822] rounded-lg hover:bg-[#6c2432] transition"
+          >
+            Edit Experience
+          </Link>
         </div>
       </div>
 
@@ -260,26 +269,13 @@ export function ExperienceDetailClient({ experience }: { experience: ExperienceD
           </SectionCard>
 
           {/* Images */}
-          {experience.images.length > 0 && (
-            <SectionCard title="Images" description={`Configured experience images (${experience.images.length})`}>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {experience.images.map((img) => (
-                  <div key={img.id} className="relative rounded-lg overflow-hidden border border-stone-200/80 bg-stone-100 aspect-[4/3]">
-                    <img
-                      src={img.url}
-                      alt={img.altText || experience.title}
-                      className="w-full h-full object-cover"
-                    />
-                    {img.isPrimary && (
-                      <span className="absolute top-2 left-2 text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-[#6c2432] text-white">
-                        Primary
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </SectionCard>
-          )}
+          <SectionCard title="Experience Image" description="Primary image shown on cards and detail pages">
+            <ExperienceImageManager
+              slug={experience.slug}
+              images={experience.images}
+              title={experience.title}
+            />
+          </SectionCard>
 
           {/* FAQs */}
           {experience.faqs.length > 0 && (

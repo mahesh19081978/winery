@@ -2,7 +2,9 @@ import React from 'react';
 import { notFound } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
-import { mockExperiences } from '@/data/experiences';
+import { ExperienceService } from '@/server/services';
+import { toExperienceView } from '@/lib/experiences';
+import { Experience } from '@/types';
 import ExperienceCard from '@/components/experiences/ExperienceCard';
 import RatingStars from '@/components/common/RatingStars';
 import FAQ from '@/components/common/FAQ';
@@ -20,15 +22,17 @@ interface PageProps {
   params: Promise<{ slug: string }>;
 }
 
-export async function generateStaticParams() {
-  return mockExperiences.map((exp) => ({
-    slug: exp.slug
-  }));
-}
+export const dynamic = 'force-dynamic';
 
 export async function generateMetadata({ params }: PageProps) {
   const { slug } = await params;
-  const exp = mockExperiences.find((e) => e.slug === slug);
+  let exp: Experience | undefined;
+  try {
+    const dbExp = await ExperienceService.getExperienceBySlug(slug);
+    exp = toExperienceView(dbExp);
+  } catch {
+    exp = undefined;
+  }
   if (!exp) return { title: 'Experience Not Found | VINORA' };
   return {
     title: `${exp.title} | VINORA Experiences`,
@@ -43,13 +47,20 @@ export async function generateMetadata({ params }: PageProps) {
 
 export default async function ExperienceDetailPage({ params }: PageProps) {
   const { slug } = await params;
-  const exp = mockExperiences.find((e) => e.slug === slug);
 
-  if (!exp) {
+  let exp: Experience;
+  try {
+    const dbExp = await ExperienceService.getExperienceBySlug(slug);
+    exp = toExperienceView(dbExp);
+  } catch {
     notFound();
   }
 
-  const relatedExperiences = mockExperiences.filter((e) => e.id !== exp.id).slice(0, 3);
+  const allDbExperiences = await ExperienceService.getAllExperiences();
+  const relatedExperiences = allDbExperiences
+    .map(toExperienceView)
+    .filter((e) => e.id !== exp.id)
+    .slice(0, 3);
 
   return (
     <div className="w-full pt-20">
@@ -263,6 +274,14 @@ export default async function ExperienceDetailPage({ params }: PageProps) {
                   <div className="flex items-center justify-between py-2 border-b border-[#e6dece]">
                     <span>Duration</span>
                     <span className="font-semibold text-[#191c1f]">{exp.duration}</span>
+                  </div>
+                  <div className="flex items-center justify-between py-2 border-b border-[#e6dece]">
+                    <span>Group Size</span>
+                    <span className="font-semibold text-[#191c1f]">
+                      {exp.minGuests === exp.maxGuests 
+                        ? `${exp.maxGuests} Guests` 
+                        : `${exp.minGuests}–${exp.maxGuests} Guests`}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between py-2 border-b border-[#e6dece]">
                     <span>Wines Sampled</span>

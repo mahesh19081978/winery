@@ -52,6 +52,9 @@ export interface Experience {
   category: 'Tasting' | 'Tour' | 'Culinary' | 'Private';
   duration: string;
   price: number;
+  capacity?: number;
+  minGuests?: number;
+  maxGuests?: number;
   shortDescription: string;
   description: string;
   rating: number;
