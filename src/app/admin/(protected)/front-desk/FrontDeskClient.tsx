@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { SectionCard, StatCard, StatusBadge } from '@/components/admin/UIComponents';
 import EmptyState from '@/components/common/EmptyState';
+import { RecordPaymentModal } from '@/components/admin/bookings/RecordPaymentModal';
 
 type BookingStatus = 'PENDING' | 'CONFIRMED' | 'CHECKED_IN' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
 
@@ -84,6 +85,7 @@ interface FrontDeskBooking {
     notes: string | null;
     createdAt: string;
   }[];
+  payments: { amount: string | number; status: string; provider: string; createdAt: string; refundAmount?: string | number | null }[];
   tastingSessions: {
     id: string;
     sessionDate: string;
@@ -126,6 +128,39 @@ interface FrontDeskData {
 }
 
 type DialogAction = 'CHECKED_IN' | 'COMPLETED';
+
+function getPaymentAmounts(booking: FrontDeskBooking) {
+  const total = Number(booking.totalPrice) || 0;
+  const paid = (booking.payments || []).reduce((sum, p) => {
+    let paymentVal = 0;
+    if (p.status === 'PAID') {
+      paymentVal = Number(p.amount) || 0;
+    } else if (p.status === 'PARTIALLY_REFUNDED') {
+      paymentVal = (Number(p.amount) || 0) - (Number(p.refundAmount) || 0);
+    }
+    return sum + paymentVal;
+  }, 0);
+  const outstanding = Math.max(0, total - paid);
+  return { total, paid, outstanding };
+}
+
+function PaymentStatusBadge({ booking }: { booking: FrontDeskBooking }) {
+  const { total, paid, outstanding } = getPaymentAmounts(booking);
+  
+  if (total === 0) {
+    return <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-800">COMPLIMENTARY</span>;
+  }
+  
+  if (outstanding === 0) {
+    return <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-800">PAID</span>;
+  }
+  
+  if (paid > 0) {
+    return <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800">PARTIALLY PAID</span>;
+  }
+  
+  return <span className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-800">PAYMENT PENDING</span>;
+}
 
 function getExperienceTitle(booking: FrontDeskBooking) {
   return booking.items[0]?.experience?.title || booking.items[0]?.title || 'Estate Experience';
@@ -239,17 +274,12 @@ function BookingQuickFacts({ booking }: { booking: FrontDeskBooking }) {
 function OperationalBookingCard({
   booking,
   onAction,
-  onStartTasting,
-  startingSession,
-}: {
+  onRecordPayment,
+  }: {
   booking: FrontDeskBooking;
   onAction: (booking: FrontDeskBooking, action: DialogAction) => void;
-  onStartTasting: (booking: FrontDeskBooking) => void;
-  startingSession: string;
-}) {
-  const tastingSession = booking.tastingSessions[0];
-  const checkedInAt = getStatusTime(booking, 'CHECKED_IN');
-
+  onRecordPayment: (booking: FrontDeskBooking) => void;
+    }) {
   return (
     <div className="rounded-xl border border-stone-200/80 bg-white p-4 hover:bg-[#faf8f5]/40 transition">
       <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
@@ -262,22 +292,20 @@ function OperationalBookingCard({
               {booking.bookingNumber}
             </Link>
             <StatusBadge status={booking.status} size="sm" />
-            {tastingSession && (
-              <Link
-                href={`/admin/tastings/${tastingSession.id}`}
-                className="inline-flex items-center gap-1 rounded-full border border-[#461822]/10 bg-[#461822]/5 px-2 py-0.5 text-[10px] font-medium text-[#6c2432] hover:bg-[#461822]/10"
-              >
-                <GlassWater className="w-3 h-3" />
-                Tasting active
-              </Link>
-            )}
+              <PaymentStatusBadge booking={booking} />
+              
           </div>
           <h3 className="font-serif text-base font-medium text-stone-900">{booking.guestProfile.name}</h3>
           <p className="text-xs text-stone-500 mt-0.5">{getExperienceTitle(booking)}</p>
           <div className="mt-3">
             <BookingQuickFacts booking={booking} />
-          </div>
-          {(booking.dietaryRequirements || booking.specialRequests || booking.guestProfile.notes) && (
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-2 border-t border-stone-100 pt-3">
+              <div><p className="text-[10px] uppercase font-mono tracking-wider text-stone-500">Total</p><p className="text-xs font-medium text-stone-900">{booking.currency} {getPaymentAmounts(booking).total.toFixed(2)}</p></div>
+              <div><p className="text-[10px] uppercase font-mono tracking-wider text-stone-500">Paid</p><p className="text-xs font-medium text-stone-900">{booking.currency} {getPaymentAmounts(booking).paid.toFixed(2)}</p></div>
+              <div><p className="text-[10px] uppercase font-mono tracking-wider text-stone-500">Outstanding</p><p className="text-xs font-semibold text-rose-700">{booking.currency} {getPaymentAmounts(booking).outstanding.toFixed(2)}</p></div>
+            </div>
+            {(booking.dietaryRequirements || booking.specialRequests || booking.guestProfile.notes) && (
             <div className="mt-3 grid gap-2 text-xs">
               {booking.dietaryRequirements && (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
@@ -311,9 +339,18 @@ function OperationalBookingCard({
             className="inline-flex items-center justify-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-medium text-stone-700 hover:bg-stone-50"
           >
             <FileText className="w-3.5 h-3.5" />
-            Booking
-          </Link>
-          {booking.status === 'CONFIRMED' && (
+              Booking
+            </Link>
+            {getPaymentAmounts(booking).outstanding > 0 && (
+              <button
+                type="button"
+                onClick={() => onRecordPayment(booking)}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#6c2432] px-3 py-2 text-xs font-semibold text-white hover:bg-[#461822]"
+              >
+                Record Payment
+              </button>
+            )}
+            {booking.status === 'CONFIRMED' && (
             <button
               type="button"
               onClick={() => onAction(booking, 'CHECKED_IN')}
@@ -323,102 +360,10 @@ function OperationalBookingCard({
               Check In
             </button>
           )}
-          {booking.status === 'CHECKED_IN' && !tastingSession && (
-            <button
-              type="button"
-              onClick={() => onStartTasting(booking)}
-              disabled={startingSession === booking.bookingNumber}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#6c2432] px-3 py-2 text-xs font-semibold text-white hover:bg-[#461822] disabled:opacity-60"
-            >
-              {startingSession === booking.bookingNumber ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <GlassWater className="w-3.5 h-3.5" />
-              )}
-              Start Tasting
-            </button>
-          )}
-          {booking.status === 'CHECKED_IN' && (
-            <button
-              type="button"
-              onClick={() => onAction(booking, 'COMPLETED')}
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
-            >
-              <CircleCheck className="w-3.5 h-3.5" />
-              Complete Visit
-            </button>
-          )}
-        </div>
+          </div>
       </div>
 
-      {booking.status === 'CHECKED_IN' && (
-        <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4 border-t border-stone-100 pt-4">
-          <div className="lg:col-span-2">
-            <div className="flex items-center justify-between gap-3 mb-2">
-              <p className="text-[10px] uppercase font-mono tracking-wider text-stone-500">
-                Tasting Workspace
-              </p>
-              {checkedInAt && <span className="text-[10px] font-mono text-stone-400">Checked in {formatDateTime(checkedInAt)}</span>}
-            </div>
-            {tastingSession ? (
-              <div className="rounded-lg border border-stone-200 bg-[#faf8f5]/60 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-medium text-stone-900">
-                      Session started {formatDateTime(tastingSession.sessionDate)}
-                    </p>
-                    <p className="text-xs text-stone-500">
-                      {tastingSession.records.length} wine{tastingSession.records.length !== 1 ? 's' : ''} recorded
-                    </p>
-                  </div>
-                  <Link
-                    href={`/admin/tastings/${tastingSession.id}`}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#461822]/10 bg-white px-3 py-1.5 text-xs font-medium text-[#6c2432] hover:bg-[#461822]/5"
-                  >
-                    Open Tasting
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </Link>
-                </div>
-                {tastingSession.records.length === 0 ? (
-                  <p className="mt-3 rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs text-stone-500">
-                    No tasting records logged yet for this session. Use the Tasting Session detail to review or record wine flights.
-                  </p>
-                ) : (
-                  <div className="mt-3 space-y-2">
-                    {tastingSession.records.map((record) => (
-                      <div key={record.id} className="rounded-lg border border-stone-200 bg-white p-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-medium text-stone-900">{record.wineNameSnapshot}</p>
-                            <p className="text-[11px] text-stone-500">
-                              {record.wineVintage.wine.category} · Vintage {record.vintageYear}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-1 text-xs font-mono text-stone-800">
-                            <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-                            {Number(record.rating).toFixed(1)}
-                          </div>
-                        </div>
-                        {record.notes && <p className="mt-2 text-xs italic text-stone-600">{record.notes}</p>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-4 text-center">
-                <GlassWater className="w-6 h-6 text-stone-300 mx-auto mb-2" />
-                <p className="text-xs text-stone-500">No tasting session has been started for this checked-in booking.</p>
-              </div>
-            )}
-          </div>
-          <div>
-            <p className="text-[10px] uppercase font-mono tracking-wider text-stone-500 mb-2">Timeline</p>
-            <MiniTimeline booking={booking} />
-          </div>
-        </div>
-      )}
-    </div>
+      </div>
   );
 }
 
@@ -429,18 +374,16 @@ function BookingTable({
   emptyTitle,
   emptyDescription,
   onAction,
-  onStartTasting,
-  startingSession,
-}: {
+  onRecordPayment,
+  }: {
   title: string;
   description: string;
   bookings: FrontDeskBooking[];
   emptyTitle: string;
   emptyDescription: string;
   onAction: (booking: FrontDeskBooking, action: DialogAction) => void;
-  onStartTasting: (booking: FrontDeskBooking) => void;
-  startingSession: string;
-}) {
+  onRecordPayment: (booking: FrontDeskBooking) => void;
+    }) {
   return (
     <SectionCard title={title} description={description}>
       {bookings.length === 0 ? (
@@ -456,9 +399,8 @@ function BookingTable({
               key={booking.id}
               booking={booking}
               onAction={onAction}
-              onStartTasting={onStartTasting}
-              startingSession={startingSession}
-            />
+              onRecordPayment={onRecordPayment}
+              />
           ))}
         </div>
       )}
@@ -511,9 +453,15 @@ function ActionDialog({
                 <p className="text-xs text-stone-500">{getExperienceTitle(booking)}</p>
               </div>
               <StatusBadge status={booking.status} size="sm" />
+              <PaymentStatusBadge booking={booking} />
             </div>
             <div className="mt-3">
               <BookingQuickFacts booking={booking} />
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-2 border-t border-stone-100 pt-3">
+              <div><p className="text-[10px] uppercase font-mono tracking-wider text-stone-500">Total</p><p className="text-xs font-medium text-stone-900">{booking.currency} {getPaymentAmounts(booking).total.toFixed(2)}</p></div>
+              <div><p className="text-[10px] uppercase font-mono tracking-wider text-stone-500">Paid</p><p className="text-xs font-medium text-stone-900">{booking.currency} {getPaymentAmounts(booking).paid.toFixed(2)}</p></div>
+              <div><p className="text-[10px] uppercase font-mono tracking-wider text-stone-500">Outstanding</p><p className="text-xs font-semibold text-rose-700">{booking.currency} {getPaymentAmounts(booking).outstanding.toFixed(2)}</p></div>
             </div>
           </div>
 
@@ -594,7 +542,7 @@ export function FrontDeskClient() {
   const [dialogAction, setDialogAction] = useState<DialogAction | null>(null);
   const [actionError, setActionError] = useState('');
   const [updating, setUpdating] = useState(false);
-  const [startingSession, setStartingSession] = useState('');
+  const [paymentModalBooking, setPaymentModalBooking] = useState<FrontDeskBooking | null>(null);
 
   const loadFrontDesk = useCallback(async (quiet = false) => {
     if (quiet) setRefreshing(true);
@@ -627,6 +575,10 @@ export function FrontDeskClient() {
   }, [loadFrontDesk]);
 
   const selectedSummary = useMemo(() => data?.summary, [data]);
+
+  const openPaymentModal = (booking: FrontDeskBooking) => setPaymentModalBooking(booking);
+  const closePaymentModal = () => setPaymentModalBooking(null);
+  const handlePaymentSuccess = async () => { closePaymentModal(); await loadFrontDesk(true); router.refresh(); };
 
   const openAction = (booking: FrontDeskBooking, action: DialogAction) => {
     setDialogBooking(booking);
@@ -671,34 +623,6 @@ export function FrontDeskClient() {
       setActionError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setUpdating(false);
-    }
-  };
-
-  const startTasting = async (booking: FrontDeskBooking) => {
-    setStartingSession(booking.bookingNumber);
-    setError('');
-
-    try {
-      const response = await fetch('/api/admin/tastings/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bookingNumber: booking.bookingNumber,
-          notes: `Started from Front Desk for ${getExperienceTitle(booking)}`,
-        }),
-      });
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to start tasting');
-      }
-
-      await loadFrontDesk(true);
-      router.push(`/admin/tastings/${result.data.id}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setStartingSession('');
     }
   };
 
@@ -763,9 +687,8 @@ export function FrontDeskClient() {
             emptyTitle="No arrivals waiting"
             emptyDescription="There are no pending or confirmed bookings for today."
             onAction={openAction}
-            onStartTasting={startTasting}
-            startingSession={startingSession}
-          />
+            onRecordPayment={openPaymentModal}
+            />
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             <BookingTable
@@ -775,9 +698,8 @@ export function FrontDeskClient() {
               emptyTitle="No upcoming arrivals"
               emptyDescription="No later arrivals are scheduled for the remainder of today."
               onAction={openAction}
-              onStartTasting={startTasting}
-              startingSession={startingSession}
-            />
+              onRecordPayment={openPaymentModal}
+              />
 
             <BookingTable
               title="Currently Checked-In"
@@ -786,23 +708,12 @@ export function FrontDeskClient() {
               emptyTitle="No active checked-in visits"
               emptyDescription="Checked-in guests will appear here once arrivals are processed."
               onAction={openAction}
-              onStartTasting={startTasting}
-              startingSession={startingSession}
-            />
+              onRecordPayment={openPaymentModal}
+              />
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <BookingTable
-              title="Completed Today"
-              description="Visits completed through the booking status workflow"
-              bookings={data.completed}
-              emptyTitle="No completed visits yet"
-              emptyDescription="Completed visits move here after staff confirms completion."
-              onAction={openAction}
-              onStartTasting={startTasting}
-              startingSession={startingSession}
-            />
-
+          
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             <BookingTable
               title="No-Shows"
               description="Bookings already marked with the existing NO_SHOW status"
@@ -810,8 +721,7 @@ export function FrontDeskClient() {
               emptyTitle="No no-shows today"
               emptyDescription="Bookings marked NO_SHOW will appear here."
               onAction={openAction}
-              onStartTasting={startTasting}
-              startingSession={startingSession}
+              onRecordPayment={openPaymentModal}
             />
           </div>
         </>
@@ -819,12 +729,22 @@ export function FrontDeskClient() {
 
       <ActionDialog
         booking={dialogBooking}
+
         action={dialogAction}
         error={actionError}
         updating={updating}
         onClose={closeAction}
         onConfirm={confirmAction}
       />
+      {paymentModalBooking && (
+        <RecordPaymentModal
+          bookingNumber={paymentModalBooking.bookingNumber}
+          bookingType="EXPERIENCE"
+          outstandingAmount={getPaymentAmounts(paymentModalBooking).outstanding}
+          onClose={closePaymentModal}
+          onSuccess={handlePaymentSuccess}
+        />
+      )}
     </div>
   );
 }

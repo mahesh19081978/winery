@@ -1185,6 +1185,10 @@ export class FrontDeskRepository {
         },
         attendees: true,
         statusHistory: { orderBy: { createdAt: 'asc' } },
+        payments: {
+          select: { amount: true, status: true, provider: true, createdAt: true, refundAmount: true },
+          orderBy: { createdAt: 'desc' },
+        },
         tastingSessions: {
           include: {
             records: {
