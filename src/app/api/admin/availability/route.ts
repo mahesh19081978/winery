@@ -10,9 +10,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    const winery = await prisma.winery.findFirst({ where: { slug: 'domaine-elysee' } });
-    if (!winery) {
-      return NextResponse.json({ success: false, error: 'Winery not found' }, { status: 500 });
+    let wineryId = session.wineryId;
+    if (!wineryId) {
+      const defaultWinery = await prisma.winery.findFirst();
+      if (!defaultWinery) {
+        return NextResponse.json({ success: false, error: 'No winery found in system' }, { status: 500 });
+      }
+      wineryId = defaultWinery.id;
     }
 
     const { searchParams } = new URL(request.url);
@@ -27,11 +31,11 @@ export async function GET(request: NextRequest) {
           { status: 400 }
         );
       }
-      const schedule = await AvailabilityService.getScheduleView(winery.id, startDate, endDate);
+      const schedule = await AvailabilityService.getScheduleView(wineryId, startDate, endDate);
       return NextResponse.json({ success: true, data: schedule });
     }
 
-    const overview = await AvailabilityService.getAvailabilityOverview(winery.id);
+    const overview = await AvailabilityService.getAvailabilityOverview(wineryId);
     return NextResponse.json({ success: true, data: overview });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to fetch availability';

@@ -384,13 +384,14 @@ model Experience {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
-  winery            Winery             @relation(fields: [wineryId], references: [id], onDelete: Cascade)
+  winery            Winery               @relation(fields: [wineryId], references: [id], onDelete: Cascade)
   images            ExperienceImage[]
   faqs              ExperienceFAQ[]
   timelines         ExperienceTimeline[]
   includedWines     ExperienceWine[]
   availabilityRules AvailabilityRule[]
   timeSlotOverrides TimeSlotOverride[]
+  experienceClosures ExperienceClosure[]
   bookingItems      BookingItem[]
   reviews           Review[]
 
@@ -466,19 +467,18 @@ model ExperienceWine {
 model AvailabilityRule {
   id           String     @id @default(uuid())
   wineryId     String
-  experienceId String?
+  experienceId String
   dayOfWeek    Int        // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-  startTime    String     // HH:mm (e.g. "10:00") in winery timezone
-  endTime      String     // HH:mm (e.g. "17:00")
-  slotInterval Int        @default(60) // minutes
+  time         String     @map("startTime") // HH:mm (e.g. "10:00")
   capacity     Int        @default(12)
   isActive     Boolean    @default(true)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  winery       Winery      @relation(fields: [wineryId], references: [id], onDelete: Cascade)
-  experience   Experience? @relation(fields: [experienceId], references: [id], onDelete: Cascade)
+  winery       Winery     @relation(fields: [wineryId], references: [id], onDelete: Cascade)
+  experience   Experience @relation(fields: [experienceId], references: [id], onDelete: Cascade)
 
+  @@unique([experienceId, dayOfWeek, time])
   @@index([wineryId, dayOfWeek])
   @@map("availability_rules")
 }
@@ -513,6 +513,20 @@ model WineryClosure {
 
   @@index([wineryId, startDate, endDate])
   @@map("winery_closures")
+}
+
+model ExperienceClosure {
+  id           String     @id @default(uuid())
+  experienceId String
+  date         DateTime   @db.Date
+  reason       String?
+  createdAt    DateTime   @default(now())
+
+  experience   Experience @relation(fields: [experienceId], references: [id], onDelete: Cascade)
+
+  @@unique([experienceId, date])
+  @@index([experienceId, date])
+  @@map("experience_closures")
 }
 
 // ----------------------------------------------------

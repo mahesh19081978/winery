@@ -636,6 +636,21 @@ export class AvailabilityService {
       };
     }
 
+    // 1b. Check experience-specific closures
+    const expClosures = await AvailabilityRepository.getExperienceClosures(
+      experience.id,
+      date
+    );
+    if (expClosures.length > 0) {
+      return {
+        date: dateStr,
+        isClosed: true,
+        closureReason: expClosures[0].reason || 'Private event',
+        status: 'CLOSED',
+        availableSlots: [],
+      };
+    }
+
     // 2. Determine day of week (0 = Sunday, 6 = Saturday)
     const dayOfWeek = date.getUTCDay();
 
@@ -681,14 +696,8 @@ export class AvailabilityService {
     const slotsMap = new Map<string, { capacity: number; isBlocked?: boolean; reason?: string }>();
 
     for (const rule of matchingRules) {
-      const startMin = parseTimeToMinutes(rule.startTime);
-      const endMin = parseTimeToMinutes(rule.endTime);
-      const interval = rule.slotInterval > 0 ? rule.slotInterval : 60;
-
-      for (let m = startMin; m + interval <= endMin; m += interval) {
-        const timeLabel = formatMinutesToTimeString(m);
-        slotsMap.set(timeLabel, { capacity: rule.capacity });
-      }
+      // rule.time is the precise explicit theater-style session start time
+      slotsMap.set(rule.time, { capacity: rule.capacity });
     }
 
     // Apply TimeSlotOverrides (can introduce extra slots, alter capacity, or block)
@@ -740,12 +749,13 @@ export class AvailabilityService {
   }
 
   static async getAvailabilityOverview(wineryId: string) {
-    const [rules, overrides, closures] = await Promise.all([
+    const [rules, overrides, closures, expClosures] = await Promise.all([
       AvailabilityRepository.findAllRules(wineryId),
       AvailabilityRepository.findAllOverrides(wineryId),
       AvailabilityRepository.findAllClosures(wineryId),
+      AvailabilityRepository.findAllExperienceClosures(wineryId),
     ]);
-    return { rules, overrides, closures };
+    return { rules, overrides, closures, expClosures };
   }
 
   static async getScheduleView(wineryId: string, startDate: string, endDate: string) {

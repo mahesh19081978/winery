@@ -332,11 +332,12 @@ export class ExperienceRepository {
       where.isActive = filters.isActive;
     }
 
-    const [experiences, total] = await Promise.all([
+    const [dbExperiences, total] = await Promise.all([
       prisma.experience.findMany({
         where,
         include: {
           images: true,
+          availabilityRules: { select: { time: true, capacity: true } },
           _count: { select: { bookingItems: true, reviews: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -347,7 +348,7 @@ export class ExperienceRepository {
     ]);
 
     return {
-      experiences,
+      experiences: dbExperiences,
       pagination: {
         page,
         pageSize,
@@ -690,12 +691,21 @@ export class AvailabilityRepository {
     });
   }
 
+  static async getExperienceClosures(experienceId: string, date: Date) {
+    return prisma.experienceClosure.findMany({
+      where: {
+        experienceId,
+        date,
+      },
+    });
+  }
+
   static async getExperienceRules(wineryId: string, experienceId: string) {
     return prisma.availabilityRule.findMany({
       where: {
         wineryId,
         isActive: true,
-        OR: [{ experienceId }, { experienceId: null }],
+        experienceId,
       },
       orderBy: { dayOfWeek: 'asc' },
     });
@@ -728,7 +738,7 @@ export class AvailabilityRepository {
       include: {
         experience: { select: { id: true, title: true, slug: true } },
       },
-      orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }],
+      orderBy: [{ dayOfWeek: 'asc' }, { time: 'asc' }],
     });
   }
 
@@ -749,6 +759,20 @@ export class AvailabilityRepository {
     return prisma.wineryClosure.findMany({
       where: { wineryId },
       orderBy: { startDate: 'desc' },
+      take: 100,
+    });
+  }
+
+  static async findAllExperienceClosures(wineryId: string) {
+    return prisma.experienceClosure.findMany({
+      where: {
+        experience: { wineryId },
+      },
+      include: {
+        experience: { select: { id: true, title: true, slug: true } },
+      },
+      orderBy: { date: 'desc' },
+      take: 100,
     });
   }
 
@@ -784,7 +808,25 @@ export class AvailabilityRepository {
       },
     });
 
-    return { experiences, bookings, closures };
+    const expClosures = await prisma.experienceClosure.findMany({
+      where: {
+        experience: { wineryId },
+        date: { gte: startDate, lte: endDate },
+      },
+    });
+
+    const rules = await prisma.availabilityRule.findMany({
+      where: { wineryId, isActive: true },
+    });
+
+    const overrides = await prisma.timeSlotOverride.findMany({
+      where: {
+        experience: { wineryId },
+        date: { gte: startDate, lte: endDate },
+      },
+    });
+
+    return { experiences, bookings, closures, expClosures, rules, overrides };
   }
 }
 
@@ -2812,6 +2854,18 @@ export class UserRepository {
   }
 }
 
+
+/**
+ * Slices a large reference list into bounded chunks so a single statement never
+ * exceeds the database parameter limit when a tenant scope holds many bookings.
+ */
+function chunkItems<T>(items: T[], size = 1000): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
 
 export class NotificationRepository {
   static async create(data: {

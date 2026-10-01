@@ -25,20 +25,12 @@ import { openRazorpayCheckout } from '@/lib/payment/razorpay-client';
 
 const STEPS = [
   'Experience',
+  'Guests',
   'Date',
   'Time',
-  'Guests',
   'Details',
   'Review',
   'Confirmed'
-];
-
-const TIME_SLOTS = [
-  '10:00 AM',
-  '12:00 PM',
-  '2:00 PM',
-  '4:00 PM',
-  '6:00 PM'
 ];
 
 interface ServerBooking {
@@ -142,12 +134,65 @@ function BookingContent({ experiences, legacyIdToSlug }: BookingContentProps) {
   }, [guestLoading, isAuthenticated, profile, currentBooking, updateBooking]);
 
   const [step, setStep] = useState(1);
+  const [stepError, setStepError] = useState<string | null>(null);
   const [createdBooking, setCreatedBooking] = useState<ServerBooking | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const [paymentMethod, setPaymentMethod] = useState<'ONLINE' | 'PAY_ON_ARRIVAL'>('ONLINE');
   const [paymentNotice, setPaymentNotice] = useState<string | null>(null);
+
+  const [availableSlots, setAvailableSlots] = useState<Array<{
+    time: string;
+    capacity: number;
+    bookedGuests: number;
+    remainingCapacity: number;
+    isAvailable: boolean;
+    reason?: string;
+  }>>([]);
+  const [isLoadingAvailability, setIsLoadingAvailability] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+
+  const selectedExp =
+    experiences.find((e) => e.id === currentBooking.experienceId) ||
+    paramExperience ||
+    experiences[0];
+
+  useEffect(() => {
+    if (currentBooking.date && selectedExp) {
+      const slug = getExperienceSlug() || selectedExp.slug;
+      if (!slug || !currentBooking.date) return;
+
+      const fetchAvailability = async () => {
+        setIsLoadingAvailability(true);
+        setAvailabilityError(null);
+        try {
+          const res = await fetch(`/api/availability?experience=${slug}&date=${currentBooking.date}`);
+          const data = await res.json();
+          if (data.success && data.data) {
+            setAvailableSlots(data.data.availableSlots || []);
+            if (data.data.isClosed) {
+              setAvailabilityError(`Winery is closed: ${data.data.closureReason || 'No availability'}`);
+            }
+          } else {
+            setAvailableSlots([]);
+            setAvailabilityError(data.error || 'Failed to fetch availability.');
+          }
+        } catch (err) {
+          setAvailableSlots([]);
+          setAvailabilityError('Network error while fetching availability.');
+        } finally {
+          setIsLoadingAvailability(false);
+        }
+      };
+
+      fetchAvailability();
+    } else {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setAvailableSlots([]);
+    }
+  }, [currentBooking.date, selectedExp, getExperienceSlug]);
+
 
   const invalidExperienceParam = Boolean(experienceParam) && !paramExperience && experiences.length > 0;
 
@@ -182,11 +227,6 @@ function BookingContent({ experiences, legacyIdToSlug }: BookingContentProps) {
     );
   }
 
-  const selectedExp =
-    experiences.find((e) => e.id === currentBooking.experienceId) ||
-    paramExperience ||
-    experiences[0];
-
   const handleSelectExperience = (exp: Experience) => {
     updateBooking({ experienceId: exp.id });
     if (experienceParam !== exp.slug) {
@@ -207,7 +247,31 @@ function BookingContent({ experiences, legacyIdToSlug }: BookingContentProps) {
     return { iso, dayName, monthName, dayNum };
   });
 
+
+
   const handleNext = async () => {
+    setStepError(null);
+
+    // Validation
+    if (step === 1 && !currentBooking.experienceId) { setStepError('Please select an experience to continue.'); return; }
+    if (step === 2 && (currentBooking.adults + currentBooking.children) < 1) { setStepError('Please select at least 1 guest to continue.'); return; }
+    if (step === 3 && !currentBooking.date) { setStepError('Please select a date to continue.'); return; }
+    if (step === 4 && !currentBooking.time) { setStepError('Please choose a time slot to continue.'); return; }
+    if (step === 5) {
+       if (!currentBooking.guestName || currentBooking.guestName.trim().length < 3) {
+          setStepError('Please enter a valid guest name (minimum 3 characters).');
+          return;
+       }
+       if (!currentBooking.guestEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(currentBooking.guestEmail)) {
+          setStepError('Please enter a valid email address.');
+          return;
+       }
+       if (!currentBooking.guestPhone || currentBooking.guestPhone.trim().length < 7) {
+          setStepError('Please enter a valid phone number.');
+          return;
+       }
+    }
+
     if (step < 6) {
       setStep(step + 1);
     } else if (step === 6) {
@@ -219,6 +283,8 @@ function BookingContent({ experiences, legacyIdToSlug }: BookingContentProps) {
     setIsSubmitting(true);
     setSubmitError(null);
     setPaymentNotice(null);
+      setStepError(null);
+      setStepError(null);
 
     try {
       let bookingToPay = createdBooking;
@@ -303,6 +369,7 @@ function BookingContent({ experiences, legacyIdToSlug }: BookingContentProps) {
       setStep(step - 1);
       setSubmitError(null);
       setPaymentNotice(null);
+      setStepError(null);
     }
   };
 
@@ -397,12 +464,12 @@ function BookingContent({ experiences, legacyIdToSlug }: BookingContentProps) {
             </div>
           )}
 
-          {/* STEP 2: CHOOSE DATE */}
-          {step === 2 && (
+          {/* STEP 3: CHOOSE DATE */}
+          {step === 3 && (
             <div className="space-y-6">
               <div>
                 <h2 className="font-serif text-2xl text-[#191c1f] mb-1">
-                  Step 2 — Select Date
+                  Step 3 — Select Date
                 </h2>
                 <p className="text-xs sm:text-sm text-[#525960]">
                   Choose an upcoming date for your reservation at the estate. Past dates are unavailable.
@@ -446,52 +513,12 @@ function BookingContent({ experiences, legacyIdToSlug }: BookingContentProps) {
             </div>
           )}
 
-          {/* STEP 3: CHOOSE TIME */}
-          {step === 3 && (
+          {/* STEP 2: GUESTS */}
+          {step === 2 && (
             <div className="space-y-6">
               <div>
                 <h2 className="font-serif text-2xl text-[#191c1f] mb-1">
-                  Step 3 — Choose Time Slot
-                </h2>
-                <p className="text-xs sm:text-sm text-[#525960]">
-                  Available tasting sessions for {selectedExp.title} on {currentBooking.date || 'your selected date'}.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-5 gap-4">
-                {TIME_SLOTS.map((slot) => {
-                  const isSelected = currentBooking.time === slot;
-                  return (
-                    <button
-                      key={slot}
-                      type="button"
-                      onClick={() => updateBooking({ time: slot })}
-                      className={`py-5 px-4 rounded-2xl border text-center transition-all ${
-                        isSelected
-                          ? 'bg-[#2d1117] text-[#c5a059] border-[#2d1117] font-bold shadow-md ring-2 ring-[#c5a059]/30'
-                          : 'bg-[#faf8f5] border-[#e6dece] text-[#191c1f] hover:border-[#8a3243]'
-                      }`}
-                    >
-                      <Clock className="w-5 h-5 mx-auto mb-2 text-[#8a3243]" />
-                      <span className="text-sm font-semibold tracking-wide block">
-                        {slot}
-                      </span>
-                      <span className="text-[10px] text-emerald-700 font-medium block mt-1">
-                        Available
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* STEP 4: GUESTS */}
-          {step === 4 && (
-            <div className="space-y-6">
-              <div>
-                <h2 className="font-serif text-2xl text-[#191c1f] mb-1">
-                  Step 4 — Select Guest Party Size
+                  Step 2 — Select Guest Party Size
                 </h2>
                 <p className="text-xs sm:text-sm text-[#525960]">
                   Please specify the number of guests in your party.
@@ -557,6 +584,83 @@ function BookingContent({ experiences, legacyIdToSlug }: BookingContentProps) {
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* STEP 4: CHOOSE TIME */}
+          {step === 4 && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="font-serif text-2xl text-[#191c1f] mb-1">
+                  Step 4 — Choose Time Slot
+                </h2>
+                <p className="text-xs sm:text-sm text-[#525960]">
+                  Available tasting sessions for {selectedExp.title} on {currentBooking.date || 'your selected date'}.
+                </p>
+              </div>
+
+              {isLoadingAvailability ? (
+                <div className="p-12 text-center text-[#525960] flex flex-col items-center">
+                  <Loader2 className="w-8 h-8 animate-spin mb-4 text-[#8a3243]" />
+                  <p>Checking live availability...</p>
+                </div>
+              ) : availabilityError ? (
+                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-start gap-3 text-xs text-amber-900">
+                  <AlertCircle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+                  <p>{availabilityError}</p>
+                </div>
+              ) : availableSlots.length === 0 ? (
+                <div className="p-8 text-center bg-gray-50 border border-gray-200 rounded-2xl">
+                  <Clock className="w-8 h-8 text-gray-400 mx-auto mb-3" />
+                  <h3 className="font-serif text-lg text-gray-900 mb-1">No Time Slots Available</h3>
+                  <p className="text-sm text-gray-500">There are no available sessions for this date.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                  {availableSlots.map((slot) => {
+                    const isSelected = currentBooking.time === slot.time;
+                    const totalGuests = currentBooking.adults + currentBooking.children;
+                    const isSoldOut = slot.remainingCapacity === 0;
+                    const notEnoughSeats = slot.remainingCapacity > 0 && slot.remainingCapacity < totalGuests;
+                    const isSelectable = !isSoldOut && !notEnoughSeats;
+
+                    return (
+                      <button
+                        key={slot.time}
+                        type="button"
+                        disabled={!isSelectable}
+                        onClick={() => updateBooking({ time: slot.time })}
+                        className={`py-4 px-3 rounded-2xl border text-center transition-all flex flex-col items-center justify-between min-h-[110px] ${
+                          isSelected
+                            ? 'bg-[#2d1117] text-[#c5a059] border-[#2d1117] font-bold shadow-md ring-2 ring-[#c5a059]/30'
+                            : !isSelectable
+                            ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed opacity-80'
+                            : 'bg-[#faf8f5] border-[#e6dece] text-[#191c1f] hover:border-[#8a3243] cursor-pointer'
+                        }`}
+                      >
+                        <Clock className={`w-5 h-5 mb-1 ${!isSelectable && !isSelected ? 'text-gray-400' : 'text-[#8a3243]'}`} />
+                        <span className="text-sm font-semibold tracking-wide block">
+                          {slot.time}
+                        </span>
+                        
+                        {isSoldOut ? (
+                          <span className="text-[10px] text-red-600 font-bold block mt-1 uppercase">
+                            SOLD OUT
+                          </span>
+                        ) : notEnoughSeats ? (
+                          <span className="text-[10px] text-orange-600 font-medium block mt-1 leading-tight">
+                            Only {slot.remainingCapacity} seats remaining
+                          </span>
+                        ) : (
+                          <span className={`text-[10px] font-medium block mt-1 ${isSelected ? 'text-[#c5a059]' : 'text-emerald-700'}`}>
+                            {slot.remainingCapacity} seats remaining
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
@@ -775,6 +879,7 @@ function BookingContent({ experiences, legacyIdToSlug }: BookingContentProps) {
                       setPaymentMethod('PAY_ON_ARRIVAL');
                       setSubmitError(null);
                       setPaymentNotice(null);
+      setStepError(null);
                     }}
                     className={`cursor-pointer p-4 rounded-2xl border-2 transition-all flex items-start gap-3.5 ${
                       paymentMethod === 'PAY_ON_ARRIVAL'
@@ -935,7 +1040,16 @@ function BookingContent({ experiences, legacyIdToSlug }: BookingContentProps) {
             </div>
           )}
 
-          {/* Stepper Bottom Controls (Steps 1 to 6) */}
+          
+            {/* Step Error Notification */}
+            {stepError && (
+              <div className="mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm flex items-center gap-2 animate-in fade-in duration-300">
+                <AlertCircle className="w-4 h-4" />
+                {stepError}
+              </div>
+            )}
+            
+            {/* Stepper Bottom Controls (Steps 1 to 6) */}
           {step < 7 && (
             <div className="pt-8 mt-8 border-t border-[#e6dece] flex items-center justify-between">
               {step > 1 ? (

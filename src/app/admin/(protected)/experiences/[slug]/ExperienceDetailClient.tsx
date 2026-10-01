@@ -62,9 +62,7 @@ interface ExperienceData {
   availabilityRules: {
     id: string;
     dayOfWeek: number;
-    startTime: string;
-    endTime: string;
-    slotInterval: number;
+    time: string;
     capacity: number;
     isActive: boolean;
   }[];
@@ -364,9 +362,7 @@ export function ExperienceDetailClient({ experience }: { experience: ExperienceD
                       <StatusBadge status={rule.isActive ? 'ACTIVE' : 'INACTIVE'} size="sm" />
                     </div>
                     <div className="flex items-center gap-3 text-[11px] text-stone-600 font-mono">
-                      <span>{rule.startTime} – {rule.endTime}</span>
-                      <span>•</span>
-                      <span>{rule.slotInterval}min slots</span>
+                      <span>{rule.time}</span>
                       <span>•</span>
                       <span>{rule.capacity} pax</span>
                     </div>

@@ -463,6 +463,51 @@ export const guestNotificationBatchActionSchema = z.object({
 });
 export type GuestNotificationBatchActionInput = z.infer<typeof guestNotificationBatchActionSchema>;
 
+// --- Admin Notification Dispatch Log (Phase 12B) ---
+
+/** Channels accepted by the admin log filter. Mirrors the NotificationChannel enum. */
+export const ADMIN_NOTIFICATION_CHANNELS = ['EMAIL', 'SMS', 'WHATSAPP', 'PUSH'] as const;
+
+/** Types accepted by the admin log filter. Mirrors the NotificationType enum. */
+export const ADMIN_NOTIFICATION_TYPES = [
+  'BOOKING_CONFIRMATION',
+  'BOOKING_REMINDER',
+  'BOOKING_MODIFICATION',
+  'BOOKING_CANCELLATION',
+  'EVENT_REMINDER',
+  'REVIEW_REQUEST',
+] as const;
+
+/**
+ * Coerces a raw query-string value into a bounded integer.
+ * Missing or malformed input falls back to `fallback` instead of failing the request,
+ * and out-of-range input is clamped into `[min, max]`.
+ */
+const safeIntegerQuery = (fallback: number, min: number, max?: number) =>
+  z.preprocess((value) => {
+    if (value === undefined || value === null || value === '') return fallback;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return fallback;
+    const truncated = Math.trunc(parsed);
+    if (truncated < min) return min;
+    if (max !== undefined && truncated > max) return max;
+    return truncated;
+  }, z.number().int().min(min).max(max ?? Number.MAX_SAFE_INTEGER));
+
+/**
+ * Query contract for GET /api/admin/notifications.
+ * Filter values that are empty or unknown are dropped rather than rejected so a stale
+ * bookmarked URL can never break the admin log.
+ */
+export const adminNotificationListQuerySchema = z.object({
+  page: safeIntegerQuery(1, 1),
+  pageSize: safeIntegerQuery(50, 1, 50),
+  search: z.string().trim().max(200).optional().catch(undefined),
+  channel: z.enum(ADMIN_NOTIFICATION_CHANNELS).optional().catch(undefined),
+  type: z.enum(ADMIN_NOTIFICATION_TYPES).optional().catch(undefined),
+});
+export type AdminNotificationListQuery = z.infer<typeof adminNotificationListQuerySchema>;
+
 // --- Payment Foundation (Phase 7.0B) ---
 export const PaymentBookingTypeEnum = z.enum(['EXPERIENCE', 'EVENT']);
 export type PaymentBookingType = z.infer<typeof PaymentBookingTypeEnum>;
