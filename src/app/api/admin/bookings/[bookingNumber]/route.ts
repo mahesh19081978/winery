@@ -1,17 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AuthService } from '@/lib/auth';
 import { BookingService } from '@/server/services';
 import { BookingStatusUpdateSchema } from '@/server/validators';
+import { requireApiPermission } from '@/lib/auth/permissions';
 
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ bookingNumber: string }> }
 ) {
   try {
-    const session = await AuthService.getSession();
-    if (!session || !AuthService.isStaffRole(session.role)) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const guard = await requireApiPermission('bookings.manage', request);
+    if (!guard.ok) return guard.response;
+    const session = guard.session;
 
     const { bookingNumber } = await context.params;
     const body = await request.json();

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, CalendarDays, Clock, Users, Mail, Phone, MapPin, Ticket, AlertCircle, Loader2, XCircle } from 'lucide-react';
 import { SectionCard, StatusBadge } from '@/components/admin/UIComponents';
+import { RecordPaymentModal } from '@/components/admin/bookings/RecordPaymentModal';
 
 interface DetailBooking {
   id: string;
@@ -17,9 +18,17 @@ interface DetailBooking {
   guestProfile: { id: string; name: string; phone: string | null; user: { email: string; id: string } };
   tickets: { id: string; quantity: number; unitPrice: number | string; eventTicketTypeId: string | null; ticketType: { id: string; name: string; price: number | string; capacity: number; soldCount: number } | null }[];
   statusHistory: { id: string; fromStatus: string; toStatus: string; changedBy: string | null; notes: string | null; createdAt: string }[];
+  payments: { id: string; amount: number; currency: string; status: string; provider?: string | null; paymentMethod?: string | null; createdAt: string }[];
 }
 
-export function EventBookingDetailClient({ bookingNumber }: { bookingNumber: string }) {
+export function EventBookingDetailClient({
+  bookingNumber,
+  permissions = [],
+}: {
+  bookingNumber: string;
+  permissions?: string[];
+}) {
+  const canRecordPayment = permissions.includes('payments.record');
   const [booking, setBooking] = useState<DetailBooking | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +36,7 @@ export function EventBookingDetailClient({ bookingNumber }: { bookingNumber: str
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
 
   const fetchBooking = useCallback(async () => {
     setLoading(true);
@@ -93,6 +103,11 @@ export function EventBookingDetailClient({ bookingNumber }: { bookingNumber: str
 
   const isCancellable = booking.status === 'CONFIRMED' || booking.status === 'PENDING';
   const totalTickets = booking.tickets.reduce((s, t) => s + t.quantity, 0);
+
+  const totalPaid = booking.payments
+    .filter((p) => p.status === 'PAID')
+    .reduce((sum, p) => sum + Number(p.amount), 0);
+  const outstanding = Number(booking.totalPrice) - totalPaid;
 
   return (
     <div className="space-y-6">
@@ -237,6 +252,62 @@ export function EventBookingDetailClient({ bookingNumber }: { bookingNumber: str
               <span className="text-lg font-serif font-medium text-stone-900">${Number(booking.totalPrice).toFixed(2)}</span>
             </div>
           </SectionCard>
+                      <SectionCard title="Financial Summary" description="Payment breakdown and status">
+              <div className="space-y-3">
+                <div className="border-t border-stone-200 pt-3 flex items-center justify-between">
+                  <span className="text-sm font-medium text-stone-900">Total</span>
+                  <span className="text-lg font-serif font-medium text-stone-900">$</span>
+                </div>
+                <div className="border-t border-stone-100 pt-3 mt-3">
+                  <div className="flex items-center justify-between text-xs mb-2">
+                    <span className="text-stone-600">Paid</span>
+                    <span className="font-mono font-medium text-emerald-700">$</span>
+                  </div>
+                  {outstanding > 0 && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-stone-600">Outstanding</span>
+                      <span className="font-mono font-medium text-amber-700">$</span>
+                    </div>
+                  )}
+                  {outstanding <= 0 && (
+                    <div className="flex items-center justify-between text-xs font-medium mt-2 p-2 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg">
+                      <span>Payment Status</span>
+                      <span>PAID IN FULL</span>
+                    </div>
+                  )}
+                </div>
+
+                {outstanding > 0 && canRecordPayment && (
+                  <div className="pt-3">
+                    <button
+                      onClick={() => setShowPaymentModal(true)}
+                      className="w-full py-2 bg-[#6c2432] text-white text-xs font-medium rounded-lg hover:bg-[#461822] transition"
+                    >
+                      Record Payment
+                    </button>
+                  </div>
+                )}
+
+                {booking.payments.length > 0 && (
+                  <div className="border-t border-stone-100 pt-3 mt-3">
+                    <p className="text-[10px] uppercase font-mono tracking-wider text-stone-500 mb-2">Payment Records</p>
+                    <div className="space-y-2">
+                      {booking.payments.map((payment) => (
+                        <div key={payment.id} className="flex items-center justify-between p-2 rounded-lg bg-stone-50 border border-stone-200/60">
+                          <div className="flex items-center gap-2">
+                            <div>
+                              <p className="text-xs font-medium text-stone-900">$</p>
+                              <p className="text-[10px] text-stone-500">{payment.provider || 'Unknown'} ? {payment.paymentMethod || 'N/A'}</p>
+                            </div>
+                          </div>
+                          <StatusBadge status={payment.status} size="sm" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </SectionCard>
         </div>
 
         <div className="space-y-6">
@@ -304,7 +375,23 @@ export function EventBookingDetailClient({ bookingNumber }: { bookingNumber: str
             </div>
           </SectionCard>
         </div>
-      </div>
+            {showPaymentModal && (
+        <RecordPaymentModal
+          bookingNumber={booking.bookingNumber}
+          bookingType="EVENT"
+          outstandingAmount={outstanding}
+          onClose={() => setShowPaymentModal(false)}
+          onSuccess={() => {
+            setShowPaymentModal(false);
+            fetchBooking();
+          }}
+        />
+      )}
+    </div>
     </div>
   );
 }
+
+
+
+

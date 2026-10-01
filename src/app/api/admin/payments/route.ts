@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PaymentStatus } from '@prisma/client';
 import { AuthService } from '@/lib/auth';
+import { can } from '@/lib/auth/permissions';
 import { PaymentService } from '@/server/services';
 
 const BOOKING_TYPES = ['EXPERIENCE', 'EVENT'] as const;
@@ -11,7 +12,7 @@ export async function GET(request: NextRequest) {
     if (!session) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
-    if (!AuthService.isStaffRole(session.role)) {
+    if (!can(session.role, 'payments.view')) {
       return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
     }
 

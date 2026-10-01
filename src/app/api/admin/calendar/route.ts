@@ -1,13 +1,11 @@
 import { NextResponse } from 'next/server';
-import { AuthService } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { requireApiPermission } from '@/lib/auth/permissions';
 
 export async function GET() {
   try {
-    const session = await AuthService.getSession();
-    if (!session || !AuthService.isStaffRole(session.role)) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const guard = await requireApiPermission('calendar.view');
+    if (!guard.ok) return guard.response;
 
     const [bookings, events, closures, rules] = await Promise.all([
       prisma.booking.findMany({

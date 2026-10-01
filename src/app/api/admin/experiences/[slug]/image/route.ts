@@ -1,18 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AuthService } from '@/lib/auth';
 import { ExperienceService } from '@/server/services';
 import { prisma } from '@/lib/db';
 import { Prisma } from '@prisma/client';
+import { requireApiPermission } from '@/lib/auth/permissions';
 
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const session = await AuthService.getSession();
-    if (!session || !AuthService.isStaffRole(session.role)) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const guard = await requireApiPermission('experiences.manage', request);
+    if (!guard.ok) return guard.response;
 
     const { slug } = await context.params;
     const body = await request.json() as { url?: string };

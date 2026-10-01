@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   CalendarDays,
@@ -26,8 +27,12 @@ import {
   Bell,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
+  Trash2,
+  X,
 } from 'lucide-react';
 import { SectionCard, StatCard, StatusBadge } from '@/components/admin/UIComponents';
+import type { Permission } from '@/lib/auth/permissions-client';
 
 interface GuestData {
   id: string;
@@ -263,8 +268,288 @@ function getEventBookingTicketSummary(eventBooking: GuestData['eventBookings'][n
     .join(', ');
 }
 
-export function GuestDetailClient({ guest }: { guest: GuestData }) {
+interface GuestDeletionCounts {
+  payments: number;
+  conversationMessages: number;
+  conversations: number;
+  callLogs: number;
+  voiceCalls: number;
+  reviews: number;
+  tastingRecords: number;
+  tastingSessions: number;
+  winePreferences: number;
+  bookingItems: number;
+  bookingStatusHistories: number;
+  bookingGuests: number;
+  eventBookingTickets: number;
+  eventBookingStatusHistories: number;
+  eventBookings: number;
+  bookings: number;
+  notifications: number;
+  contactInquiries: number;
+  guestProfile: number;
+  passwordResetTokens: number;
+  account: number;
+}
+
+interface GuestDeletionPayment {
+  id: string;
+  amount: string;
+  currency: string;
+  status: string;
+  provider: string | null;
+  paymentMethod: string | null;
+  reference: string | null;
+  createdAt: string;
+}
+
+interface GuestDeletionImpact {
+  guest: { id: string; name: string; phone: string | null; email: string; userId: string; accountRole: string };
+  counts: GuestDeletionCounts;
+  payments: GuestDeletionPayment[];
+  wineryIds: string[];
+}
+
+const DELETION_COUNT_LABELS: [string, keyof GuestDeletionCounts][] = [
+  ['Bookings', 'bookings'],
+  ['Booking items', 'bookingItems'],
+  ['Booking attendees', 'bookingGuests'],
+  ['Booking status history', 'bookingStatusHistories'],
+  ['Event bookings', 'eventBookings'],
+  ['Event tickets', 'eventBookingTickets'],
+  ['Event booking status history', 'eventBookingStatusHistories'],
+  ['Payment records', 'payments'],
+  ['Tasting sessions', 'tastingSessions'],
+  ['Tasting records', 'tastingRecords'],
+  ['Wine preferences', 'winePreferences'],
+  ['Reviews', 'reviews'],
+  ['Conversations', 'conversations'],
+  ['Conversation messages', 'conversationMessages'],
+  ['Voice calls', 'voiceCalls'],
+  ['Call logs', 'callLogs'],
+  ['Notifications', 'notifications'],
+  ['Contact inquiries', 'contactInquiries'],
+  ['Password reset tokens', 'passwordResetTokens'],
+  ['Guest profile', 'guestProfile'],
+  ['User account', 'account'],
+];
+
+function DeleteGuestDialog({ guest, onClose }: { guest: GuestData; onClose: () => void }) {
+  const router = useRouter();
+  const [impact, setImpact] = useState<GuestDeletionImpact | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [confirmText, setConfirmText] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/admin/guests/${guest.id}/deletion-impact`);
+        const json = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!res.ok) {
+          setPreviewError(json.error || 'Failed to load what will be deleted');
+        } else {
+          setImpact(json.data);
+        }
+      } catch {
+        if (!cancelled) setPreviewError('Failed to load what will be deleted');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [guest.id]);
+
+  const confirmed = confirmText === 'DELETE';
+  const visibleCounts = impact
+    ? DELETION_COUNT_LABELS.filter(([, key]) =>
+        key === 'guestProfile' || key === 'account' ? true : impact.counts[key] > 0
+      )
+    : [];
+
+  const handleDelete = async () => {
+    if (!confirmed || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/guests/${guest.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmation: confirmText }),
+      });
+      const json = await res.json().catch(() => ({}) as { error?: string });
+      if (!res.ok) {
+        setError(json.error || 'Deletion failed');
+        setSubmitting(false);
+        return;
+      }
+      router.push('/admin/guests');
+      router.refresh();
+    } catch {
+      setError('Deletion failed');
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-stone-900/50 backdrop-blur-[2px]"
+      />
+      <div className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl bg-white border border-rose-200 shadow-2xl">
+        <div className="flex items-start justify-between gap-4 p-5 border-b border-rose-100 bg-rose-50/70">
+          <div className="flex items-start gap-3">
+            <span className="p-2 rounded-lg bg-rose-100 text-rose-600">
+              <AlertTriangle className="w-5 h-5" />
+            </span>
+            <div>
+              <h2 className="font-serif text-lg font-medium text-stone-900">
+                Delete Guest &amp; All Related Data
+              </h2>
+              <p className="text-xs text-stone-600 mt-1">
+                {guest.name} &middot; {guest.user.email}
+                {guest.phone ? ` · ${guest.phone}` : ''}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-5 text-sm">
+          <div className="p-4 rounded-xl border border-rose-200 bg-rose-50/50 text-stone-700 text-xs leading-relaxed">
+            This permanently and irreversibly deletes the guest profile, their user account and
+            every record linked to them: bookings, event bookings, payments, tasting history,
+            wine preferences, reviews, conversations and messages, notifications and CRM notes.
+            Shared records (wines, experiences, events, availability rules and winery
+            configuration) are <span className="font-medium">not</span> deleted. This cannot be
+            undone.
+          </div>
+
+          {loading && <p className="text-xs text-stone-500">Loading what will be deleted&hellip;</p>}
+
+          {previewError && (
+            <p className="text-xs text-amber-700">{previewError} &mdash; you can still proceed.</p>
+          )}
+
+          {impact && (
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-[10px] uppercase font-mono tracking-wider text-stone-500 mb-2">
+                  Records to be deleted
+                </h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {visibleCounts.map(([label, key]) => (
+                    <div
+                      key={key}
+                      className="flex items-center justify-between px-3 py-2 rounded-lg border border-stone-200 bg-[#faf8f5]"
+                    >
+                      <span className="text-[11px] text-stone-600">{label}</span>
+                      <span className="font-mono text-[11px] font-medium text-stone-900">
+                        {impact.counts[key]}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-[10px] uppercase font-mono tracking-wider text-stone-500 mb-2">
+                  Payment records linked to this guest ({impact.payments.length})
+                </h3>
+                {impact.payments.length === 0 ? (
+                  <p className="text-xs text-stone-500">No payment records are linked to this guest.</p>
+                ) : (
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                    {impact.payments.map((p) => (
+                      <div
+                        key={p.id}
+                        className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-stone-200 bg-white text-[11px]"
+                      >
+                        <span className="font-mono text-stone-500 truncate">{p.reference || p.id.slice(0, 8)}</span>
+                        <span className="font-mono text-stone-700">
+                          {p.currency} {Number(p.amount).toFixed(2)}
+                        </span>
+                        <span className="font-mono text-stone-500">{p.status}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <label htmlFor="guest-delete-confirmation" className="block text-xs font-medium text-stone-700">
+              Type <span className="font-mono font-semibold text-rose-600">DELETE</span> to confirm
+            </label>
+            <input
+              id="guest-delete-confirmation"
+              type="text"
+              autoComplete="off"
+              spellCheck={false}
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder="DELETE"
+              className="w-full px-3 py-2 rounded-lg border border-stone-300 bg-white font-mono text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-rose-500/40 focus:border-rose-500"
+            />
+          </div>
+
+          {error && (
+            <p className="text-xs text-rose-600 flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5" /> {error}
+            </p>
+          )}
+        </div>
+
+        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 p-5 border-t border-stone-200 bg-[#faf8f5]/60">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={submitting}
+            className="px-4 py-2 rounded-lg border border-stone-300 text-xs font-medium text-stone-700 hover:bg-stone-100 transition disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={!confirmed || submitting}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-medium text-white bg-rose-600 hover:bg-rose-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            {submitting ? 'Deleting…' : 'Permanently delete guest'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function GuestDetailClient({
+  guest,
+  permissions,
+}: {
+  guest: GuestData;
+  permissions: Permission[];
+}) {
   const [activeTab, setActiveTab] = useState<TabId>('profile');
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const canDeleteGuest = permissions.includes('guest.delete');
 
   const completedBookings = guest.bookings.filter((b) => b.status === 'COMPLETED').length;
   const uniqueWinesTasted = new Set(guest.tastingRecords.map((r) => r.wineVintage.wine.name)).size;
@@ -1045,6 +1330,36 @@ export function GuestDetailClient({ guest }: { guest: GuestData }) {
           </SectionCard>
         </div>
       </div>
+
+      {canDeleteGuest && (
+        <SectionCard
+          title="Danger Zone"
+          description="Irreversible account and data erasure"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl border border-rose-200 bg-rose-50/40">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-stone-900">Delete Guest &amp; All Related Data</p>
+              <p className="text-xs text-stone-600 leading-relaxed">
+                Permanently removes {guest.name}&rsquo;s profile, account, bookings, event bookings,
+                payments, tasting history, reviews, conversations and notifications in one atomic
+                transaction. Shared wines, experiences and events are untouched.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowDeleteDialog(true)}
+              className="inline-flex items-center justify-center gap-2 shrink-0 px-4 py-2 rounded-lg text-xs font-medium text-white bg-rose-600 hover:bg-rose-700 transition"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete guest
+            </button>
+          </div>
+        </SectionCard>
+      )}
+
+      {showDeleteDialog && (
+        <DeleteGuestDialog guest={guest} onClose={() => setShowDeleteDialog(false)} />
+      )}
     </div>
   );
 }

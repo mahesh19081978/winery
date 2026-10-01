@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { AuthService } from '@/lib/auth';
+import { can } from '@/lib/auth/permissions';
 import { PaymentService, PaymentError } from '@/server/services';
 import { PaymentRefundSchema } from '@/server/validators';
 import { resolvePaymentOwnershipContext } from '@/lib/auth/payment';
 
 export async function POST(request: NextRequest) {
   try {
+    const adminSession = await AuthService.getSession();
+    if (adminSession && !can(adminSession.role, 'payments.refund')) {
+      return NextResponse.json({ success: false, error: 'Forbidden: insufficient permissions to refund' }, { status: 403 });
+    }
+
     let body: unknown;
     try {
       body = await request.json();

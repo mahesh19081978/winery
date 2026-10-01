@@ -1,6 +1,7 @@
 import React from 'react';
 import { notFound } from 'next/navigation';
 import { ExperienceService } from '@/server/services';
+import { requirePagePermission } from '@/lib/auth/permissions';
 import { ExperienceDetailClient } from './ExperienceDetailClient';
 
 export default async function AdminExperienceDetailPage({
@@ -8,6 +9,7 @@ export default async function AdminExperienceDetailPage({
 }: {
   params: Promise<{ slug: string }>;
 }) {
+  const session = await requirePagePermission('experiences.view');
   const { slug } = await params;
 
   let experience;
@@ -18,6 +20,10 @@ export default async function AdminExperienceDetailPage({
   }
 
   if (!experience) {
+    notFound();
+  }
+
+  if (session.role !== 'SUPER_ADMIN' && session.wineryId && experience.wineryId !== session.wineryId) {
     notFound();
   }
 

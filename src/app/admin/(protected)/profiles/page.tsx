@@ -1,4 +1,5 @@
 import React from 'react';
+import { requirePagePermission } from '@/lib/auth/permissions';
 import { WineProfilesClient } from './WineProfilesClient';
 
 export const metadata = {
@@ -6,6 +7,8 @@ export const metadata = {
   description: 'Sommelier concierge view of guest wine preferences, favorite varietals, and palate profiles',
 };
 
-export default function AdminWineProfilesPage() {
+export default async function AdminWineProfilesPage() {
+  await requirePagePermission('profiles.view');
+
   return <WineProfilesClient />;
 }

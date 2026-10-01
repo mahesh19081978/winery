@@ -1,4 +1,5 @@
 import React from 'react';
+import { requirePagePermission } from '@/lib/auth/permissions';
 import { SettingsClient } from './SettingsClient';
 
 export const metadata = {
@@ -6,6 +7,8 @@ export const metadata = {
   description: 'Global winery configuration, localized operational hours, terroir details, and notification defaults',
 };
 
-export default function AdminSettingsPage() {
+export default async function AdminSettingsPage() {
+  await requirePagePermission('settings.view');
+
   return <SettingsClient />;
 }

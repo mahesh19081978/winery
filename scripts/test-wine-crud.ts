@@ -1,5 +1,6 @@
 import { prisma } from '../src/lib/db';
 import { WineService } from '../src/server/services';
+import { AuthService, ADMIN_AUTH_COOKIE_NAME } from '../src/lib/auth';
 import type { WineCreateInput, WineVintageCreateInput } from '../src/server/validators';
 import { toPublicWine } from '../src/lib/wine-map';
 
@@ -38,12 +39,49 @@ async function main() {
     const winesSlugRoute = fs.readFileSync('src/app/api/admin/wines/[slug]/route.ts', 'utf8');
     const vintageRoute = fs.readFileSync('src/app/api/admin/wines/[slug]/vintages/route.ts', 'utf8');
     const vintageIdRoute = fs.readFileSync('src/app/api/admin/wines/[slug]/vintages/[vintageId]/route.ts', 'utf8');
-    assert(winesRoute.includes('401') && winesRoute.includes('403') && winesRoute.includes('isStaffRole'), '1. unauth Wine list 401 + GUEST 403 authCheck present');
+    // The 401/403 + isStaffRole logic now lives in the centralized guard
+    // (src/lib/auth/permissions.ts); each route must be wired to it.
+    const permsRoute = fs.readFileSync('src/lib/auth/permissions.ts', 'utf8');
+    const guarded = (src: string, perm: string) => src.includes(`requireApiPermission('${perm}'`);
+    const permsCentralized = permsRoute.includes('401') && permsRoute.includes('403') && permsRoute.includes('isStaffRole');
+    assert(guarded(winesRoute, 'wines.manage') && permsCentralized, '1. Wine list guarded (wines.manage -> centralized 401/403)');
     assert(winesRoute.includes('WineCreateSchema') && winesRoute.includes('POST'), '2. unauth Wine create 401 (POST with authCheck)');
-    assert(winesSlugRoute.includes('401') && winesSlugRoute.includes('403') && winesSlugRoute.includes('PATCH'), '3/4. unauth Wine update/delete 401/403');
-    assert(vintageRoute.includes('401') && vintageRoute.includes('403'), '5. unauth Vintage create 401');
-    assert(vintageIdRoute.includes('401') && vintageIdRoute.includes('403') && vintageIdRoute.includes('PATCH') && vintageIdRoute.includes('DELETE'), '5b. unauth Vintage update/delete 401');
-    assert(winesSlugRoute.includes('isStaffRole') && winesRoute.includes('isStaffRole'), '6. GUEST → 403 via isStaffRole');
+    assert(guarded(winesSlugRoute, 'wines.manage') && winesSlugRoute.includes('PATCH') && winesSlugRoute.includes('DELETE'), '3/4. Wine update/delete guarded (wines.manage -> 401/403)');
+    assert(guarded(vintageRoute, 'vintages.manage'), '5. Vintage create guarded (vintages.manage -> 401)');
+    assert(guarded(vintageIdRoute, 'vintages.manage') && vintageIdRoute.includes('PATCH') && vintageIdRoute.includes('DELETE'), '5b. Vintage update/delete guarded (vintages.manage -> 401)');
+
+    // Live HTTP behaviour against the dev server: unauthenticated -> 401,
+    // GUEST-role admin token -> 403 (isStaffRole check in the guard).
+    const BASE = process.env.TEST_BASE_URL || 'http://localhost:3000';
+    const guestToken = await AuthService.createSessionToken({
+      userId: '00000000-0000-0000-0000-000000000001',
+      email: 'guest-role@wine-crud.test',
+      role: 'GUEST',
+      wineryId: null,
+    });
+    const guestCookie = `${ADMIN_AUTH_COOKIE_NAME}=${guestToken}`;
+    const call = (url: string, method: string, opts: { body?: string; guest?: boolean } = {}) => {
+      const headers: Record<string, string> = {};
+      if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
+      if (opts.guest) headers['Cookie'] = guestCookie;
+      return fetch(url, { method, headers, body: opts.body });
+    };
+    const slugProbe = 'wine-auth-probe-slug';
+
+    const uGet = await call(`${BASE}/api/admin/wines`, 'GET');
+    assert(uGet.status === 401, `1b. unauthenticated GET /api/admin/wines -> 401 (got ${uGet.status})`);
+    const uPatch = await call(`${BASE}/api/admin/wines/${slugProbe}`, 'PATCH', { body: '{}' });
+    assert(uPatch.status === 401, `3b. unauthenticated PATCH /api/admin/wines/[slug] -> 401 (got ${uPatch.status})`);
+    const uDelete = await call(`${BASE}/api/admin/wines/${slugProbe}`, 'DELETE');
+    assert(uDelete.status === 401, `4b. unauthenticated DELETE /api/admin/wines/[slug] -> 401 (got ${uDelete.status})`);
+    const uVintPost = await call(`${BASE}/api/admin/wines/${slugProbe}/vintages`, 'POST', { body: '{}' });
+    assert(uVintPost.status === 401, `5c. unauthenticated POST vintages -> 401 (got ${uVintPost.status})`);
+    const uVintPatch = await call(`${BASE}/api/admin/wines/${slugProbe}/vintages/probe`, 'PATCH', { body: '{}' });
+    assert(uVintPatch.status === 401, `5d. unauthenticated PATCH vintage -> 401 (got ${uVintPatch.status})`);
+    const uVintDelete = await call(`${BASE}/api/admin/wines/${slugProbe}/vintages/probe`, 'DELETE');
+    assert(uVintDelete.status === 401, `5e. unauthenticated DELETE vintage -> 401 (got ${uVintDelete.status})`);
+    const gGet = await call(`${BASE}/api/admin/wines`, 'GET', { guest: true });
+    assert(gGet.status === 403, `6. GUEST-role admin token -> 403 via isStaffRole (got ${gGet.status})`);
   } catch (e) { fail('AUTH file checks', e); }
 
   // 7. create valid Wine → 201

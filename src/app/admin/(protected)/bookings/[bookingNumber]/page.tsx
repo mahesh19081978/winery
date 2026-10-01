@@ -1,7 +1,7 @@
 import React from 'react';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/db';
-import { AuthService } from '@/lib/auth';
+import { getPermissions, requirePagePermission } from '@/lib/auth/permissions';
 import { BookingDetailClient } from './BookingDetailClient';
 
 export default async function AdminBookingDetailPage({
@@ -9,7 +9,7 @@ export default async function AdminBookingDetailPage({
 }: {
   params: Promise<{ bookingNumber: string }>;
 }) {
-  const session = await AuthService.getSession();
+  const session = await requirePagePermission('bookings.view');
   const { bookingNumber } = await params;
 
   const booking = await prisma.booking.findUnique({
@@ -35,6 +35,10 @@ export default async function AdminBookingDetailPage({
     notFound();
   }
 
+  if (session.role !== 'SUPER_ADMIN' && booking.wineryId !== session.wineryId) {
+    notFound();
+  }
+
   const experiences = await prisma.experience.findMany({
     where: { isActive: true },
     select: { id: true, title: true },
@@ -45,8 +49,9 @@ export default async function AdminBookingDetailPage({
     <BookingDetailClient
       booking={JSON.parse(JSON.stringify(booking))}
       experiences={experiences}
-      adminEmail={session?.email || ''}
-      adminRole={session?.role || ''}
+      adminEmail={session.email || ''}
+      adminRole={session.role || ''}
+      permissions={getPermissions(session.role)}
     />
   );
 }

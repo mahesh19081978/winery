@@ -1,22 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AuthService } from '@/lib/auth';
 import { AdminReviewService } from '@/server/services';
 import { AdminReviewModerationSchema } from '@/server/validators';
+import { requireApiPermission } from '@/lib/auth/permissions';
 
-function authCheck(session: Awaited<ReturnType<typeof AuthService.getSession>>) {
-  if (!session) return { status: 401 as const, error: 'Unauthorized' };
-  if (!AuthService.isStaffRole(session.role)) return { status: 403 as const, error: 'Forbidden' };
-  return null;
-}
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await AuthService.getSession();
-    const auth = authCheck(session);
-    if (auth) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+    const guard = await requireApiPermission('reviews.view');
+    if (!guard.ok) return guard.response;
+    const session = guard.session;
 
     const { id } = await params;
     const review = await AdminReviewService.getById(id, session!);
@@ -41,9 +36,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await AuthService.getSession();
-    const auth = authCheck(session);
-    if (auth) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+    const guard = await requireApiPermission('reviews.moderate', request);
+    if (!guard.ok) return guard.response;
+    const session = guard.session;
 
     const { id } = await params;
 

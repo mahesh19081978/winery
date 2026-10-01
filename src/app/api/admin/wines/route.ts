@@ -1,19 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AuthService } from '@/lib/auth';
 import { WineService } from '@/server/services';
 import { WineCreateSchema } from '@/server/validators';
+import { requireApiPermission } from '@/lib/auth/permissions';
 
-function authCheck(session: Awaited<ReturnType<typeof AuthService.getSession>>) {
-  if (!session) return { status: 401 as const, error: 'Unauthorized' };
-  if (!AuthService.isStaffRole(session.role)) return { status: 403 as const, error: 'Forbidden' };
-  return null;
-}
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await AuthService.getSession();
-    const auth = authCheck(session);
-    if (auth) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+    const guard = await requireApiPermission('wines.manage');
+    if (!guard.ok) return guard.response;
 
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search') || undefined;
@@ -40,9 +34,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await AuthService.getSession();
-    const auth = authCheck(session);
-    if (auth) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+    const guard = await requireApiPermission('wines.manage');
+    if (!guard.ok) return guard.response;
 
     const body = await request.json();
     // Strip forbidden fields unconditionally

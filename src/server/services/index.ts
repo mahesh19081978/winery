@@ -19,6 +19,10 @@ import {
   PaymentRepository,
   WebhookRepository,
   UserRepository,
+  GuestDeletionRepository,
+  type GuestDeletionTarget,
+  type GuestDeletionImpact,
+  type GuestDeletionCounts,
 } from '../repositories';
 import {
   BookingCreateSchema,
@@ -27,6 +31,7 @@ import {
   EventBookingCreateRawInput,
   GuestProfileUpdateInput,
   GuestWineProfileUpdateInput,
+  GuestDeletionConfirmInput,
   TastingRecordCreateInput,
   ReviewCreateInput,
   TastingSessionCreateInput,
@@ -47,6 +52,7 @@ import {
   AdminReviewModerationInput,
   GuestNotificationListQuery,
   PaymentOrderCreateInput,
+  PaymentManualCreateInput,
   PaymentVerifyInput,
   PaymentFailureInput,
   PaymentRefundInput,
@@ -56,6 +62,7 @@ import {
   StaffPasswordChangeInput,
 } from '../validators';
 import { prisma } from '@/lib/db';
+import { can } from '@/lib/auth/permissions';
 import { BookingStatus, PaymentStatus, ReviewStatus, Prisma, NotificationChannel, NotificationType, UserRole } from '@prisma/client';
 import { sendGuestNotificationEmail } from '@/lib/email';
 import type { GuestSessionPayload } from '@/lib/auth/guest';
@@ -1616,6 +1623,114 @@ export class GuestService {
   }
 }
 
+/**
+ * Permanent, atomic erasure of a guest and every record the schema links to
+ * them. SUPER_ADMIN only (`guest.delete`), re-checked against the database so a
+ * stale JWT claim can never be used here.
+ */
+export interface GuestDeletionSession {
+  userId: string;
+  role: string;
+  wineryId: string | null;
+}
+
+export class GuestDeletionService {
+  private static deny(message: string, statusCode: number): never {
+    throw new EventBookingError(message, statusCode);
+  }
+
+  private static async authorizeActor(
+    session: GuestDeletionSession | null | undefined
+  ): Promise<{ id: string; role: UserRole; wineryId: string | null }> {
+    if (!session?.userId) this.deny('Unauthorized', 401);
+
+    const actor = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { id: true, role: true, wineryId: true, isActive: true },
+    });
+    if (!actor || !actor.isActive) this.deny('Session is no longer active', 401);
+    if (actor.role === UserRole.GUEST || !can(actor.role, 'guest.delete')) {
+      this.deny('Forbidden', 403);
+    }
+    return actor;
+  }
+
+  /**
+   * Loads the guest and enforces the tenant boundary from server-side data.
+   * The request never supplies a wineryId; SUPER_ADMIN keeps its existing
+   * cross-winery behaviour, everyone else must own every winery the guest
+   * touches.
+   */
+  private static async resolveTarget(
+    guestProfileId: string,
+    actor: { id: string; role: UserRole; wineryId: string | null }
+  ): Promise<GuestDeletionTarget> {
+    if (!guestProfileId || !guestProfileId.trim()) this.deny('Guest not found', 404);
+
+    let profile;
+    try {
+      profile = await GuestDeletionRepository.findTarget(prisma, guestProfileId);
+    } catch {
+      this.deny('Guest not found', 404);
+    }
+    if (!profile) this.deny('Guest not found', 404);
+    if (profile.user.role !== UserRole.GUEST) {
+      this.deny('Refusing to erase a non-guest account', 400);
+    }
+
+    const target: GuestDeletionTarget = {
+      guestProfileId: profile.id,
+      userId: profile.user.id,
+      email: profile.user.email.trim().toLowerCase(),
+    };
+
+    if (actor.role !== UserRole.SUPER_ADMIN) {
+      if (!actor.wineryId) this.deny('Winery context missing', 403);
+      const wineryIds = await GuestDeletionRepository.collectWineryIds(prisma, target);
+      if (wineryIds.some((id) => id !== actor.wineryId)) {
+        this.deny('Unauthorized: guest belongs to another winery', 403);
+      }
+    }
+
+    return target;
+  }
+
+  /** Read-only inventory used by the confirmation dialog (never mutates). */
+  static async preview(session: GuestDeletionSession, guestProfileId: string): Promise<GuestDeletionImpact> {
+    const actor = await this.authorizeActor(session);
+    const target = await this.resolveTarget(guestProfileId, actor);
+    return GuestDeletionRepository.collectImpact(prisma, target);
+  }
+
+  /**
+   * Deletes the guest and every linked record in ONE Prisma transaction.
+   * If any step fails the whole transaction rolls back and nothing is removed.
+   */
+  static async delete(
+    session: GuestDeletionSession,
+    guestProfileId: string,
+    input: GuestDeletionConfirmInput
+  ): Promise<{ impact: GuestDeletionImpact; deleted: GuestDeletionCounts }> {
+    const actor = await this.authorizeActor(session);
+
+    if (typeof input?.confirmation !== 'string' || input.confirmation.trim() !== 'DELETE') {
+      this.deny("Type DELETE to confirm this permanent deletion", 400);
+    }
+
+    const target = await this.resolveTarget(guestProfileId, actor);
+
+    return prisma.$transaction(
+      async (tx) => {
+        // Collected inside the transaction so the report matches exactly what is removed.
+        const impact = await GuestDeletionRepository.collectImpact(tx, target);
+        const deleted = await GuestDeletionRepository.executeDeletion(tx, target);
+        return { impact, deleted };
+      },
+      { timeout: 60_000, maxWait: 10_000 }
+    );
+  }
+}
+
 export class GuestWineProfileService {
   static async getWineProfile(guestProfileId: string) {
     const guest = await prisma.guestProfile.findUnique({
@@ -3052,9 +3167,6 @@ export class AdminAuthService {
 
 // ----------------------------------------------------
 // Staff & Roles User Management (Phase 12A)
-// ----------------------------------------------------
-const STAFF_MANAGE_ROLES: UserRole[] = [UserRole.SUPER_ADMIN, UserRole.ADMIN];
-
 export interface StaffActor {
   userId: string;
   email: string;
@@ -3068,7 +3180,7 @@ export class StaffService {
   }
 
   static canManageStaff(role: UserRole): boolean {
-    return STAFF_MANAGE_ROLES.includes(role);
+    return can(role, 'staff.manage');
   }
 
   /**
@@ -3557,6 +3669,10 @@ export interface PaymentOwnershipContext {
   guestProfileId?: string;
   email?: string;
   isStaff?: boolean;
+  /** Staff role of the acting administrator (used for tenant authorization). */
+  role?: UserRole | string | null;
+  /** Winer the acting staff member belongs to (null = unbound/platform staff). */
+  wineryId?: string | null;
 }
 
 export class PaymentService {
@@ -3575,7 +3691,7 @@ export class PaymentService {
       if (!booking) {
         throw new PaymentError(`Experience booking ${bookingNumber} not found`, 404);
       }
-      return { type: 'EXPERIENCE' as const, booking };
+      return { type: 'EXPERIENCE' as const, booking, wineryId: booking.wineryId };
     } else {
       const eventBooking = await prisma.eventBooking.findUnique({
         where: { bookingNumber },
@@ -3591,7 +3707,25 @@ export class PaymentService {
       if (!eventBooking) {
         throw new PaymentError(`Event booking ${bookingNumber} not found`, 404);
       }
-      return { type: 'EVENT' as const, booking: eventBooking };
+      return { type: 'EVENT' as const, booking: eventBooking, wineryId: eventBooking.event.wineryId };
+    }
+  }
+
+  /**
+   * Tenant boundary for staff payment actions. SUPER_ADMIN may operate across
+   * wineries; staff bound to a winery may only touch reservations of that
+   * winery; staff with no winery binding behave as platform-level staff
+   * (existing behaviour, no tenant to enforce).
+   */
+  private static assertStaffTenantScope(
+    context: PaymentOwnershipContext | undefined,
+    bookingWineryId?: string | null
+  ): void {
+    if (context?.isStaff !== true) return;
+    if (context.role === UserRole.SUPER_ADMIN) return;
+    if (!context.wineryId) return; // unbound/platform staff: no tenant to enforce
+    if (!bookingWineryId || bookingWineryId !== context.wineryId) {
+      throw new PaymentError('Forbidden: reservation belongs to another winery', 403);
     }
   }
 
@@ -3600,9 +3734,11 @@ export class PaymentService {
       guestProfileId: string;
       guestProfile?: { user?: { passwordHash?: string | null; email?: string } | null } | null;
     },
-    context?: PaymentOwnershipContext
+    context?: PaymentOwnershipContext,
+    bookingWineryId?: string | null
   ) {
     if (context?.isStaff === true) {
+      this.assertStaffTenantScope(context, bookingWineryId);
       return;
     }
 
@@ -3625,10 +3761,10 @@ export class PaymentService {
     input: PaymentOrderCreateInput,
     context?: PaymentOwnershipContext
   ) {
-    const { type, booking } = await this.fetchBooking(input.bookingType, input.bookingNumber);
+    const { type, booking, wineryId } = await this.fetchBooking(input.bookingType, input.bookingNumber);
 
     // 1. Ownership validation
-    this.validateBookingOwnership(booking, context);
+    this.validateBookingOwnership(booking, context, wineryId);
 
     // 2. Lifecycle status check
     if (booking.status === BookingStatus.CANCELLED) {
@@ -3638,9 +3774,14 @@ export class PaymentService {
       throw new PaymentError('Cannot create payment for a completed reservation', 400);
     }
 
-    // 3. Paid in full check
-    const hasPaid = booking.payments.some((p) => p.status === PaymentStatus.PAID);
-    if (hasPaid) {
+    // 3. Paid in full check (Outstanding balance)
+    const totalPaid = booking.payments
+      .filter((p) => p.status === PaymentStatus.PAID)
+      .reduce((sum, p) => sum + Number(p.amount), 0);
+    const totalAmountNum = Number(booking.totalPrice);
+    const outstandingAmount = totalAmountNum - totalPaid;
+
+    if (outstandingAmount <= 0) {
       throw new PaymentError('This reservation is already paid in full', 409);
     }
 
@@ -3673,7 +3814,7 @@ export class PaymentService {
 
     // 5. Active Pending Order reuse (within 15 minutes TTL)
     const existingPending = booking.payments.find(
-      (p) => p.status === PaymentStatus.PENDING && p.providerOrderId
+      (p) => p.status === PaymentStatus.PENDING && p.providerOrderId && Number(p.amount) === outstandingAmount
     );
     if (existingPending && existingPending.providerOrderId) {
       const ageMs = Date.now() - existingPending.createdAt.getTime();
@@ -3695,9 +3836,8 @@ export class PaymentService {
     }
 
     // 6. Server-side authoritative amount calculation
-    const totalAmountNum = Number(booking.totalPrice);
     const currency = 'currency' in booking && typeof booking.currency === 'string' ? booking.currency : 'USD';
-    const subunitAmount = toSubunits(totalAmountNum);
+    const subunitAmount = toSubunits(outstandingAmount);
 
     if (subunitAmount <= 0) {
       throw new PaymentError('Reservation total must be greater than zero to process payment', 400);
@@ -3727,7 +3867,7 @@ export class PaymentService {
 
     // 8. Create Payment Record with strict XOR integrity
     const paymentData: Prisma.PaymentCreateInput = {
-      amount: booking.totalPrice,
+      amount: outstandingAmount,
       currency,
       status: PaymentStatus.PENDING,
       provider: 'RAZORPAY',
@@ -3744,7 +3884,7 @@ export class PaymentService {
     return {
       paymentId: payment.id,
       orderId: razorpayOrderId,
-      amount: totalAmountNum,
+      amount: outstandingAmount,
       amountSubunits: subunitAmount,
       currency,
       bookingNumber: booking.bookingNumber,
@@ -3758,10 +3898,10 @@ export class PaymentService {
     input: PaymentVerifyInput,
     context?: PaymentOwnershipContext
   ) {
-    const { type, booking } = await this.fetchBooking(input.bookingType, input.bookingNumber);
+    const { type, booking, wineryId } = await this.fetchBooking(input.bookingType, input.bookingNumber);
 
     // 1. Ownership check
-    this.validateBookingOwnership(booking, context);
+    this.validateBookingOwnership(booking, context, wineryId);
 
     // 2. Cryptographic signature verification (HMAC-SHA256)
     const isValidSignature = verifyPaymentSignature({
@@ -3846,10 +3986,10 @@ export class PaymentService {
     input: PaymentFailureInput,
     context?: PaymentOwnershipContext
   ) {
-    const { type, booking } = await this.fetchBooking(input.bookingType, input.bookingNumber);
+    const { type, booking, wineryId } = await this.fetchBooking(input.bookingType, input.bookingNumber);
 
     // 1. Ownership check
-    this.validateBookingOwnership(booking, context);
+    this.validateBookingOwnership(booking, context, wineryId);
 
     // 2. Locate payment
     const payment = await PaymentRepository.findByProviderOrderId(input.providerOrderId);
@@ -3883,8 +4023,8 @@ export class PaymentService {
     bookingNumber: string,
     context?: PaymentOwnershipContext
   ) {
-    const { type, booking } = await this.fetchBooking(bookingType, bookingNumber);
-    this.validateBookingOwnership(booking, context);
+    const { type, booking, wineryId } = await this.fetchBooking(bookingType, bookingNumber);
+    this.validateBookingOwnership(booking, context, wineryId);
 
     if (type === 'EXPERIENCE') {
       return PaymentRepository.findManyByBookingId(booking.id);
@@ -4166,8 +4306,9 @@ export class PaymentService {
       throw new PaymentError('Only authorized winery staff can initiate payment refunds', 403);
     }
 
-    // 2. Fetch reservation
-    const { type, booking } = await this.fetchBooking(input.bookingType, input.bookingNumber);
+    // 2. Fetch reservation (plus tenant boundary for the acting staff)
+    const { type, booking, wineryId } = await this.fetchBooking(input.bookingType, input.bookingNumber);
+    this.assertStaffTenantScope(context, wineryId);
 
     // 3. Locate target payment
     let payment;
@@ -4216,7 +4357,7 @@ export class PaymentService {
       throw new PaymentError(`Cannot refund payment in ${payment.status} status. Only PAID payments can be refunded.`, 400);
     }
 
-    if (!payment.providerPaymentId) {
+    if (!payment.providerPaymentId && payment.provider !== 'MANUAL') {
       throw new PaymentError('Cannot refund payment: missing gateway payment ID (providerPaymentId)', 400);
     }
 
@@ -4234,34 +4375,40 @@ export class PaymentService {
     const isPartial = refundAmountNum < paymentAmountNum;
     const refundAmountSubunits = toSubunits(refundAmountNum);
 
-    // 7. Execute Razorpay Gateway Refund
-    let gatewayRefund;
-    try {
-      gatewayRefund = await createRazorpayRefund({
-        paymentId: payment.providerPaymentId,
-        amountSubunits: refundAmountSubunits,
-        notes: {
-          bookingNumber: booking.bookingNumber,
-          bookingType: input.bookingType,
-          reason: input.reason || 'Staff initiated refund',
-          staffEmail: context.email || 'staff',
-        },
-        receipt: `ref_${booking.bookingNumber}`,
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new PaymentError(`Gateway refund initiation failed: ${msg}`, 502);
+    // 7. Execute Razorpay Gateway Refund OR Direct Database Update for Manual Payments
+    let gatewayRefundId = `manual_ref_${Date.now()}`;
+    let gatewayRefundPayload: Prisma.InputJsonValue | null = null;
+
+    if (payment.provider !== 'MANUAL') {
+      try {
+        const gatewayRefund = await createRazorpayRefund({
+          paymentId: payment.providerPaymentId as string,
+          amountSubunits: refundAmountSubunits,
+          notes: {
+            bookingNumber: booking.bookingNumber,
+            bookingType: input.bookingType,
+            reason: input.reason || 'Staff initiated refund',
+            staffEmail: context.email || 'staff',
+          },
+          receipt: `ref_${booking.bookingNumber}`,
+        });
+        gatewayRefundId = gatewayRefund.id;
+        gatewayRefundPayload = JSON.parse(JSON.stringify(gatewayRefund)) as Prisma.InputJsonValue;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new PaymentError(`Gateway refund initiation failed: ${msg}`, 502);
+      }
     }
 
     // 8. Atomic transactional update
     const updatedPayment = await PaymentRepository.markPaymentRefundedWithTransaction({
       paymentId: payment.id,
-      refundId: gatewayRefund.id,
+      refundId: gatewayRefundId,
       refundAmount: new Prisma.Decimal(refundAmountNum),
       refundReason: input.reason || 'Staff initiated refund',
       isPartial,
       metadata: {
-        gatewayRefund: JSON.parse(JSON.stringify(gatewayRefund)),
+        ...(gatewayRefundPayload ? { gatewayRefund: gatewayRefundPayload } : { manualRefund: true }),
         refundedAt: new Date().toISOString(),
         idempotencyKey: input.idempotencyKey || null,
       },
@@ -4272,11 +4419,111 @@ export class PaymentService {
       success: true,
       alreadyRefunded: false,
       payment: updatedPayment,
-      refundId: gatewayRefund.id,
+      refundId: gatewayRefundId,
       refundAmount: refundAmountNum,
       bookingNumber: booking.bookingNumber,
       status: updatedPayment.status,
     };
   }
+
+  static async createManualPayment(
+    input: import('../validators').PaymentManualCreateInput,
+    context?: PaymentOwnershipContext
+  ) {
+    if (context?.isStaff !== true) {
+      throw new PaymentError('Only authorized winery staff can initiate manual payments', 403);
+    }
+
+    const { type, booking, wineryId } = await this.fetchBooking(input.bookingType, input.bookingNumber);
+    this.validateBookingOwnership(booking, context, wineryId);
+
+    if (booking.status === BookingStatus.CANCELLED) {
+      throw new PaymentError('Cannot create payment for a cancelled reservation', 400);
+    }
+    if (booking.status === BookingStatus.COMPLETED) {
+      throw new PaymentError('Cannot create payment for a completed reservation', 400);
+    }
+
+    const totalPaid = booking.payments
+      .filter((p) => p.status === PaymentStatus.PAID)
+      .reduce((sum, p) => sum + Number(p.amount), 0);
+    const totalAmountNum = Number(booking.totalPrice);
+    const outstandingAmount = totalAmountNum - totalPaid;
+
+    if (outstandingAmount <= 0) {
+      throw new PaymentError('This reservation is already paid in full', 409);
+    }
+    if (input.amount > outstandingAmount) {
+      throw new PaymentError(`Payment amount (${input.amount}) cannot exceed outstanding balance (${outstandingAmount})`, 400);
+    }
+
+    const currency = 'currency' in booking && typeof booking.currency === 'string' ? booking.currency : 'USD';
+
+    // Transaction to create payment and update booking status if fully paid
+    const updatedPayment = await prisma.$transaction(async (tx) => {
+      const paymentData: Prisma.PaymentCreateInput = {
+        amount: input.amount,
+        currency,
+        status: PaymentStatus.PAID,
+        provider: 'MANUAL',
+        paymentMethod: input.paymentMethod,
+        metadata: {
+          reference: input.reference || null,
+          notes: input.notes || null,
+          staffUserId: context.email || 'STAFF',
+        },
+        ...(type === 'EXPERIENCE'
+          ? { booking: { connect: { id: booking.id } } }
+          : { eventBooking: { connect: { id: booking.id } } }),
+      };
+
+      const newPayment = await tx.payment.create({ data: paymentData });
+
+      // If fully paid and PENDING, update to CONFIRMED
+      if (input.amount >= outstandingAmount && booking.status === BookingStatus.PENDING) {
+        if (type === 'EXPERIENCE') {
+          await tx.booking.update({
+            where: { id: booking.id },
+            data: { status: BookingStatus.CONFIRMED },
+          });
+          await tx.bookingStatusHistory.create({
+            data: {
+              bookingId: booking.id,
+              fromStatus: BookingStatus.PENDING,
+              toStatus: BookingStatus.CONFIRMED,
+              changedBy: context.email || 'SYSTEM',
+              notes: 'Automatically confirmed via manual payment collection',
+            },
+          });
+        } else {
+          await tx.eventBooking.update({
+            where: { id: booking.id },
+            data: { status: BookingStatus.CONFIRMED },
+          });
+          await tx.eventBookingStatusHistory.create({
+            data: {
+              eventBookingId: booking.id,
+              fromStatus: BookingStatus.PENDING,
+              toStatus: BookingStatus.CONFIRMED,
+              changedBy: context.email || 'SYSTEM',
+              notes: 'Automatically confirmed via manual payment collection',
+            },
+          });
+        }
+      }
+
+      return newPayment;
+    });
+
+    return {
+      paymentId: updatedPayment.id,
+      amount: updatedPayment.amount.toNumber(),
+      currency: updatedPayment.currency,
+      bookingNumber: booking.bookingNumber,
+      bookingType: input.bookingType,
+      status: updatedPayment.status,
+    };
+  }
 }
+
 

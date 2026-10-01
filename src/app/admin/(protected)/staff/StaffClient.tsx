@@ -40,47 +40,6 @@ interface WineryOption {
   slug: string;
 }
 
-const ROLE_PERMISSIONS: Record<
-  string,
-  { label: string; desc: string; permissions: string[] }
-> = {
-  SUPER_ADMIN: {
-    label: 'Super Admin',
-    desc: 'Unrestricted master access to cellar ledger, security policies, billing, and staff administration',
-    permissions: ['Full Ledger Control', 'Staff Management', 'Financial Auditing', 'Master Operations'],
-  },
-  ADMIN: {
-    label: 'Administrator',
-    desc: 'Comprehensive access to bookings, guests, inventory, staff and estate configuration',
-    permissions: ['Staff Management', 'Bookings & Front Desk', 'Wine Management', 'Guest CRM'],
-  },
-  MANAGER: {
-    label: 'Estate Manager',
-    desc: 'Day-to-day hospitality scheduling, time slot controls, and review moderation',
-    permissions: ['Availability Engine', 'Front Desk Operations', 'Reviews Moderation', 'Reports'],
-  },
-  WINE_STAFF: {
-    label: 'Sommelier & Wine Staff',
-    desc: 'Cellar tasting records, vintage ratings, and tasting flight execution',
-    permissions: ['Tasting Flights', 'Vintage Notes', 'Guest Palate Assessment'],
-  },
-  EVENT_MANAGER: {
-    label: 'Event Manager',
-    desc: 'Winery event calendar, ticket tier capacity, and check-in rosters',
-    permissions: ['Event Ticketing', 'Roster Check-in', 'Private Buyouts'],
-  },
-  RECEPTION: {
-    label: 'Front Desk Receptionist',
-    desc: 'Guest arrival check-in, walk-in reservations, and tasting salon greeting',
-    permissions: ['Arrival Check-in', 'Table Assignment', 'Guest Lookup'],
-  },
-  TELECALLER: {
-    label: 'Telecaller',
-    desc: 'Outbound guest follow-ups, inquiry callbacks, and reservation reminders',
-    permissions: ['Inquiry Follow-up', 'Guest Callbacks', 'Reservation Reminders'],
-  },
-};
-
 const ASSIGNABLE_ROLES = [
   'SUPER_ADMIN',
   'ADMIN',
@@ -173,8 +132,23 @@ function Modal({
   );
 }
 
-export function StaffClient() {
+export function StaffClient({
+  roleMatrix,
+}: {
+  roleMatrix: { role: string; label: string; desc: string; permissions: string[] }[];
+}) {
   const mounted = useIsMounted();
+  const roleMetaMap = useMemo(() => {
+    const map: Record<string, { label: string; desc: string; permissions: string[] }> = {};
+    for (const entry of roleMatrix) {
+      map[entry.role] = {
+        label: entry.label,
+        desc: entry.desc,
+        permissions: entry.permissions,
+      };
+    }
+    return map;
+  }, [roleMatrix]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [wineries, setWineries] = useState<WineryOption[]>([]);
   const [canManage, setCanManage] = useState(false);
@@ -615,7 +589,7 @@ export function StaffClient() {
               <option value="">All Roles</option>
               {ASSIGNABLE_ROLES.map((r) => (
                 <option key={r} value={r}>
-                  {ROLE_PERMISSIONS[r]?.label || r}
+                  {roleMetaMap[r]?.label || r}
                 </option>
               ))}
             </select>
@@ -759,7 +733,7 @@ export function StaffClient() {
             description="Cryptographic permissions map for estate personnel"
           >
             <div className="space-y-3">
-              {Object.entries(ROLE_PERMISSIONS).map(([roleKey, meta]) => (
+              {Object.entries(roleMetaMap).map(([roleKey, meta]) => (
                 <div
                   key={roleKey}
                   className="p-3.5 rounded-xl border border-stone-200/80 bg-[#faf8f5]/40 space-y-2"
@@ -851,7 +825,7 @@ export function StaffClient() {
                 >
                   {roleOptions.map((r) => (
                     <option key={r} value={r}>
-                      {ROLE_PERMISSIONS[r]?.label || r}
+                      {roleMetaMap[r]?.label || r}
                     </option>
                   ))}
                 </select>
@@ -959,7 +933,7 @@ export function StaffClient() {
                 >
                   {roleOptions.map((r) => (
                     <option key={r} value={r}>
-                      {ROLE_PERMISSIONS[r]?.label || r}
+                      {roleMetaMap[r]?.label || r}
                     </option>
                   ))}
                 </select>

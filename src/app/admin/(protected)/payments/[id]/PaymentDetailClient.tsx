@@ -86,7 +86,14 @@ function formatDateTime(value?: string | null) {
   });
 }
 
-export function PaymentDetailClient({ paymentId }: { paymentId: string }) {
+export function PaymentDetailClient({
+  paymentId,
+  permissions = [],
+}: {
+  paymentId: string;
+  permissions?: string[];
+}) {
+  const canRefundPermission = permissions.includes('payments.refund');
   const [payment, setPayment] = useState<PaymentDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -195,7 +202,7 @@ export function PaymentDetailClient({ paymentId }: { paymentId: string }) {
     }
   };
 
-  const canRefund = payment?.status === 'PAID';
+  const canRefund = payment?.status === 'PAID' && canRefundPermission;
   const refundedAmount = Number(payment?.refundAmount ?? 0);
   const netAmount = payment ? Number(payment.amount) - refundedAmount : 0;
 
@@ -541,9 +548,11 @@ export function PaymentDetailClient({ paymentId }: { paymentId: string }) {
                 Refunds
               </p>
               <p className="text-xs text-stone-600 mt-1">
-                {payment.status === 'REFUNDED' || payment.status === 'PARTIALLY_REFUNDED'
-                  ? 'This payment has already been refunded.'
-                  : `Refunds are only available for payments in PAID status. This payment is ${payment.status.toLowerCase().replace('_', ' ')}.`}
+                {!canRefundPermission
+                  ? 'Your role does not permit issuing refunds.'
+                  : payment.status === 'REFUNDED' || payment.status === 'PARTIALLY_REFUNDED'
+                    ? 'This payment has already been refunded.'
+                    : `Refunds are only available for payments in PAID status. This payment is ${payment.status.toLowerCase().replace('_', ' ')}.`}
               </p>
             </div>
           )}

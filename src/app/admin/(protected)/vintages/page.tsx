@@ -1,4 +1,5 @@
 import React from 'react';
+import { requirePagePermission } from '@/lib/auth/permissions';
 import { VintagesClient } from './VintagesClient';
 
 export const metadata = {
@@ -6,6 +7,7 @@ export const metadata = {
   description: 'Master list of estate vintages, inventory reserves, sensory benchmarks, and cellar availability',
 };
 
-export default function AdminVintagesPage() {
+export default async function AdminVintagesPage() {
+  await requirePagePermission('vintages.manage');
   return <VintagesClient />;
 }

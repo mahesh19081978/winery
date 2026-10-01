@@ -18,7 +18,7 @@ export function AdminShellClient({ adminEmail, adminRole, children }: AdminShell
   return (
     <div className="min-h-screen bg-[#faf8f5] text-[#191c1f] flex font-sans">
       {/* Sidebar Navigation */}
-      <AdminSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <AdminSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} adminRole={adminRole} />
 
       {/* Main App Content Area */}
       <div className="flex-1 flex flex-col min-w-0 lg:pl-72">

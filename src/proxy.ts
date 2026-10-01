@@ -14,6 +14,13 @@ const STAFF_ROLES = [
   'TELECALLER',
 ];
 
+/**
+ * Edge gate: only session/role shape is enforced here. Per-page permission
+ * checks live in each page's `requirePagePermission` guard (which runs before
+ * any Prisma query) so deactivated sessions still reach the protected layout's
+ * DB re-validation and are redirected to /admin/login?error=account_inactive
+ * rather than being told "Forbidden".
+ */
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -39,7 +46,7 @@ export async function proxy(request: NextRequest) {
         return NextResponse.redirect(loginUrl);
       }
 
-      // Valid staff session, proceed
+      // Valid staff session, proceed (page guards enforce permissions server-side)
       return NextResponse.next();
     } catch {
       // Missing secret or invalid/expired token: fail closed to login

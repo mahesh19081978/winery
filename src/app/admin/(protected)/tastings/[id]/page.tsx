@@ -1,6 +1,6 @@
 import React from 'react';
 import { notFound } from 'next/navigation';
-import { AuthService } from '@/lib/auth';
+import { requirePagePermission } from '@/lib/auth/permissions';
 import { TastingService } from '@/server/services';
 import { TastingDetailClient } from './TastingDetailClient';
 
@@ -9,7 +9,7 @@ export default async function AdminTastingDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const session = await AuthService.getSession();
+  const session = await requirePagePermission('tastings.manage');
   const { id } = await params;
 
   let tastingSession;
@@ -23,11 +23,20 @@ export default async function AdminTastingDetailPage({
     notFound();
   }
 
+  if (
+    session.role !== 'SUPER_ADMIN' &&
+    session.wineryId &&
+    tastingSession.booking?.wineryId &&
+    tastingSession.booking.wineryId !== session.wineryId
+  ) {
+    notFound();
+  }
+
   return (
     <TastingDetailClient
       session={JSON.parse(JSON.stringify(tastingSession))}
-      adminEmail={session?.email || ''}
-      adminRole={session?.role || ''}
+      adminEmail={session.email || ''}
+      adminRole={session.role || ''}
     />
   );
 }

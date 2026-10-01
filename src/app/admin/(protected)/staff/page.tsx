@@ -1,4 +1,5 @@
 import React from 'react';
+import { requirePagePermission, getRoleMatrix } from '@/lib/auth/permissions';
 import { StaffClient } from './StaffClient';
 
 export const metadata = {
@@ -6,6 +7,8 @@ export const metadata = {
   description: 'Estate staff access control, role hierarchy, sommelier privileges, and cellar permissions',
 };
 
-export default function AdminStaffPage() {
-  return <StaffClient />;
+export default async function AdminStaffPage() {
+  await requirePagePermission('staff.view');
+  const roleMatrix = getRoleMatrix();
+  return <StaffClient roleMatrix={roleMatrix} />;
 }

@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AuthService } from '@/lib/auth';
 import { AvailabilityService } from '@/server/services';
 import { prisma } from '@/lib/db';
+import { requireApiPermission } from '@/lib/auth/permissions';
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await AuthService.getSession();
-    if (!session || !AuthService.isStaffRole(session.role)) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const guard = await requireApiPermission('availability.view');
+    if (!guard.ok) return guard.response;
+    const session = guard.session;
 
     let wineryId = session.wineryId;
     if (!wineryId) {

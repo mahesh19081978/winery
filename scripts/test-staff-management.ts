@@ -524,7 +524,11 @@ async function main() {
     '5G. Reactivation persisted'
   );
   const reactivatedList = await listStaff(newJar);
-  assert(reactivatedList.status === 200, '5H. Reactivated session works again', `status: ${reactivatedList.status}`);
+  assert(
+    reactivatedList.status === 403,
+    '5H. Reactivated session is live again: RECEPTION denied roster (staff.view) -> 403',
+    `status: ${reactivatedList.status}`
+  );
 
   // ==================================================================
   // Section 6: Self-protection rules
@@ -581,8 +585,8 @@ async function main() {
   assert((await login(mgrJar, EMAIL_MGR, PASSWORD_1)).status === 200, '7C. MANAGER signs in');
 
   const mgrList = await listStaff(mgrJar);
-  assert(mgrList.status === 200, '7D. MANAGER can read the roster -> 200', `status: ${mgrList.status}`);
-  assert(mgrList.json.data?.canManage === false, '7E. MANAGER canManage is false');
+  assert(mgrList.status === 403, '7D. MANAGER roster read denied under RBAC (staff.view) -> 403', `status: ${mgrList.status}`);
+  assert(mgrList.json?.data === undefined, '7E. Denied roster response exposes no data');
 
   const mgrCreateRes = await createStaff(mgrJar, {
     name: 'Nope',
@@ -602,7 +606,10 @@ async function main() {
 
   const recJar = new CookieJar();
   assert((await login(recJar, EMAIL_REC, PASSWORD_1)).status === 200, '7J. RECEPTION signs in');
-  assert((await listStaff(recJar)).status === 200, '7K. RECEPTION can read the roster -> 200');
+  assert(
+    (await listStaff(recJar)).status === 403,
+    '7K. RECEPTION roster read denied under RBAC (staff.view) -> 403'
+  );
   assert((await createStaff(recJar, { ...createBody, email: `${PREFIX}-${RUN}-recnew@vinora.test` })).status === 403, '7L. RECEPTION create -> 403');
 
   // ==================================================================
@@ -748,10 +755,12 @@ async function main() {
     headers: { Cookie: pageJar.header() },
     redirect: 'manual',
   });
+  const activeLocation = activePage.headers.get('location') || '';
   assert(
-    activePage.status === 200,
-    '10B. Active staff can load /admin/staff',
-    `status: ${activePage.status}`
+    [301, 302, 303, 307, 308].includes(activePage.status) &&
+      activeLocation.includes('/admin/forbidden'),
+    '10B. Active RECEPTION without staff.view is redirected to /admin/forbidden',
+    `status: ${activePage.status}, location: ${activeLocation}`
   );
 
   await patchStaff(superJar, staffAId, { isActive: false });
@@ -778,7 +787,12 @@ async function main() {
   });
   assert(loginPage.status === 200, '10E. Login page renders the inactive-account error', `status: ${loginPage.status}`);
 
-  const staffPageHtml = await activePage.text();
+  const staffPage = await fetch(`${BASE_URL}/admin/staff`, {
+    headers: { Cookie: superJar.header() },
+    redirect: 'manual',
+  });
+  const staffPageHtml = await staffPage.text();
+  assert(staffPage.status === 200, '10F. Admin session renders the staff page', `status: ${staffPage.status}`);
   assert(
     !staffPageHtml.includes('passwordHash') && !staffPageHtml.includes(ADMIN_JWT_SECRET),
     '10F. Staff page HTML carries no secrets'

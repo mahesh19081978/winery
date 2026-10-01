@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { BookingService } from '@/server/services';
 import { getGuestSession } from '@/lib/auth/guest';
 import { AuthService } from '@/lib/auth';
+import { can } from '@/lib/auth/permissions';
 
 export async function GET(
   request: NextRequest,
@@ -51,9 +52,13 @@ export async function DELETE(
         return NextResponse.json({ success: false, error: 'Unauthorized to cancel this booking' }, { status: 403 });
       }
     } else {
-      // If not a guest session, check if it's admin or public
+      // If not a guest session, check staff permission or public cancellation rule
       const adminSession = await AuthService.getSession();
-      if (!adminSession || !AuthService.isStaffRole(adminSession.role)) {
+      if (adminSession && AuthService.isStaffRole(adminSession.role)) {
+        if (!can(adminSession.role, 'bookings.manage')) {
+          return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+        }
+      } else {
         // Unauthenticated public cancellation - only permitted if booking was unauthenticated (not belonging to a registered user with password)
         const isRegisteredAccount = booking.guestProfile?.user?.passwordHash !== null && booking.guestProfile?.user?.passwordHash !== undefined;
         if (isRegisteredAccount) {

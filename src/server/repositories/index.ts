@@ -2420,6 +2420,7 @@ export class EventBookingRepository {
           include: { ticketType: true },
         },
         statusHistory: { orderBy: { createdAt: 'asc' } },
+        payments: { orderBy: { createdAt: 'desc' } },
       },
     });
   }
@@ -3533,3 +3534,364 @@ export class WebhookRepository {
     });
   }
 }
+
+// ----------------------------------------------------
+// Guest erasure (SUPER_ADMIN, `guest.delete`)
+//
+// The dependency tree below was derived from prisma/schema.prisma and is
+// executed strictly leaf -> root so the two `Restrict` edges
+// (Booking.guestProfile, EventBooking.guestProfile) are always satisfied
+// inside a single transaction. Shared/global records (wines, vintages,
+// experiences, events, schedules, ticket types, availability rules, winery
+// configuration) are never touched.
+// ----------------------------------------------------
+
+export interface GuestDeletionTarget {
+  guestProfileId: string;
+  userId: string;
+  /** Lower-cased account email: the natural key used by Notification.recipient and ContactInquiry.email. */
+  email: string;
+}
+
+export interface GuestDeletionCounts {
+  payments: number;
+  conversationMessages: number;
+  conversations: number;
+  callLogs: number;
+  voiceCalls: number;
+  reviews: number;
+  tastingRecords: number;
+  tastingSessions: number;
+  winePreferences: number;
+  bookingItems: number;
+  bookingStatusHistories: number;
+  bookingGuests: number;
+  eventBookingTickets: number;
+  eventBookingStatusHistories: number;
+  eventBookings: number;
+  bookings: number;
+  notifications: number;
+  contactInquiries: number;
+  guestProfile: number;
+  passwordResetTokens: number;
+  account: number;
+}
+
+export interface GuestDeletionPaymentRecord {
+  id: string;
+  amount: string;
+  currency: string;
+  status: string;
+  provider: string | null;
+  paymentMethod: string | null;
+  reference: string | null;
+  createdAt: Date;
+}
+
+export interface GuestDeletionImpact {
+  guest: {
+    id: string;
+    name: string;
+    phone: string | null;
+    email: string;
+    userId: string;
+    accountRole: string;
+  };
+  counts: GuestDeletionCounts;
+  payments: GuestDeletionPaymentRecord[];
+  /** Every winery this guest has touched - used for the tenant boundary check. */
+  wineryIds: string[];
+}
+
+export class GuestDeletionRepository {
+  static async findTarget(
+    db: Prisma.TransactionClient,
+    guestProfileId: string
+  ): Promise<
+    | {
+        id: string;
+        name: string;
+        phone: string | null;
+        userId: string;
+        user: { id: string; email: string; role: string; wineryId: string | null; isActive: boolean };
+      }
+    | null
+  > {
+    return db.guestProfile.findUnique({
+      where: { id: guestProfileId },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        userId: true,
+        user: { select: { id: true, email: true, role: true, wineryId: true, isActive: true } },
+      },
+    });
+  }
+
+  private static emailFilter(email: string): Prisma.StringFilter {
+    return { equals: email, mode: 'insensitive' };
+  }
+
+  /**
+   * All wineries the guest has data in. Never derived from the request body -
+   * a client-supplied wineryId is not an authority for this operation.
+   */
+  static async collectWineryIds(db: Prisma.TransactionClient, target: GuestDeletionTarget): Promise<string[]> {
+    const { guestProfileId, userId, email } = target;
+    const where = this.emailFilter(email);
+
+    const [account, bookings, eventBookings, reviews, conversations, inquiries] = await Promise.all([
+      db.user.findUnique({ where: { id: userId }, select: { wineryId: true } }),
+      db.booking.findMany({
+        where: { guestProfileId },
+        distinct: ['wineryId'],
+        select: { wineryId: true },
+      }),
+      db.eventBooking.findMany({
+        where: { guestProfileId },
+        distinct: ['eventId'],
+        select: { event: { select: { wineryId: true } } },
+      }),
+      db.review.findMany({
+        where: { guestProfileId },
+        distinct: ['wineryId'],
+        select: { wineryId: true },
+      }),
+      db.conversation.findMany({
+        where: { guestProfileId },
+        distinct: ['wineryId'],
+        select: { wineryId: true },
+      }),
+      db.contactInquiry.findMany({
+        where: { email: where },
+        distinct: ['wineryId'],
+        select: { wineryId: true },
+      }),
+    ]);
+
+    const ids = new Set<string>();
+    if (account?.wineryId) ids.add(account.wineryId);
+    for (const row of bookings) ids.add(row.wineryId);
+    for (const row of eventBookings) if (row.event) ids.add(row.event.wineryId);
+    for (const row of reviews) ids.add(row.wineryId);
+    for (const row of conversations) ids.add(row.wineryId);
+    for (const row of inquiries) ids.add(row.wineryId);
+    return [...ids];
+  }
+
+  /** Exact pre-deletion inventory, including every payment record linked to the guest. */
+  static async collectImpact(
+    db: Prisma.TransactionClient,
+    target: GuestDeletionTarget
+  ): Promise<GuestDeletionImpact> {
+    const { guestProfileId, userId, email } = target;
+    const where = this.emailFilter(email);
+
+    const [
+      profile,
+      payments,
+      conversationMessages,
+      conversations,
+      callLogs,
+      voiceCalls,
+      reviews,
+      tastingRecords,
+      tastingSessions,
+      winePreferences,
+      bookingItems,
+      bookingStatusHistories,
+      bookingGuests,
+      eventBookingTickets,
+      eventBookingStatusHistories,
+      eventBookings,
+      bookings,
+      notifications,
+      contactInquiries,
+      passwordResetTokens,
+      account,
+      wineryIds,
+    ] = await Promise.all([
+      db.guestProfile.findUnique({
+        where: { id: guestProfileId },
+        select: { id: true, name: true, phone: true },
+      }),
+      db.payment.findMany({
+        where: {
+          OR: [{ booking: { guestProfileId } }, { eventBooking: { guestProfileId } }],
+        },
+        select: {
+          id: true,
+          amount: true,
+          currency: true,
+          status: true,
+          provider: true,
+          paymentMethod: true,
+          createdAt: true,
+          booking: { select: { bookingNumber: true } },
+          eventBooking: { select: { bookingNumber: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+      db.conversationMessage.count({ where: { conversation: { guestProfileId } } }),
+      db.conversation.count({ where: { guestProfileId } }),
+      db.callLog.count({ where: { voiceCall: { guestProfileId } } }),
+      db.voiceCall.count({ where: { guestProfileId } }),
+      db.review.count({ where: { guestProfileId } }),
+      db.tastingRecord.count({ where: { guestProfileId } }),
+      db.tastingSession.count({ where: { guestProfileId } }),
+      db.guestWinePreference.count({ where: { guestProfileId } }),
+      db.bookingItem.count({ where: { booking: { guestProfileId } } }),
+      db.bookingStatusHistory.count({ where: { booking: { guestProfileId } } }),
+      db.bookingGuest.count({ where: { guestProfileId } }),
+      db.eventBookingTicket.count({ where: { eventBooking: { guestProfileId } } }),
+      db.eventBookingStatusHistory.count({ where: { eventBooking: { guestProfileId } } }),
+      db.eventBooking.count({ where: { guestProfileId } }),
+      db.booking.count({ where: { guestProfileId } }),
+      db.notification.count({ where: { recipient: where } }),
+      db.contactInquiry.count({ where: { email: where } }),
+      db.passwordResetToken.count({ where: { userId } }),
+      db.user.findUnique({ where: { id: userId }, select: { id: true, email: true, role: true } }),
+      this.collectWineryIds(db, target),
+    ]);
+
+    if (!profile || !account) {
+      throw new Error(`Guest with id '${guestProfileId}' not found`);
+    }
+
+    const paymentRecords: GuestDeletionPaymentRecord[] = payments.map((p) => ({
+      id: p.id,
+      amount: p.amount.toString(),
+      currency: p.currency,
+      status: p.status,
+      provider: p.provider,
+      paymentMethod: p.paymentMethod,
+      reference: p.booking?.bookingNumber ?? p.eventBooking?.bookingNumber ?? null,
+      createdAt: p.createdAt,
+    }));
+
+    return {
+      guest: {
+        id: profile.id,
+        name: profile.name,
+        phone: profile.phone,
+        email: account.email,
+        userId,
+        accountRole: account.role,
+      },
+      counts: {
+        payments: paymentRecords.length,
+        conversationMessages,
+        conversations,
+        callLogs,
+        voiceCalls,
+        reviews,
+        tastingRecords,
+        tastingSessions,
+        winePreferences,
+        bookingItems,
+        bookingStatusHistories,
+        bookingGuests,
+        eventBookingTickets,
+        eventBookingStatusHistories,
+        eventBookings,
+        bookings,
+        notifications,
+        contactInquiries,
+        guestProfile: 1,
+        passwordResetTokens,
+        account: 1,
+      },
+      payments: paymentRecords,
+      wineryIds,
+    };
+  }
+
+  /**
+   * Ordered, leaf -> root deletion. MUST only ever be called inside a
+   * `prisma.$transaction` callback: any thrown error rolls the whole set back.
+   *
+   * Order (children first, because of Restrict):
+   *   payment -> conversationMessage -> conversation -> callLog -> voiceCall
+   *   -> review -> tastingRecord -> tastingSession -> guestWinePreference
+   *   -> bookingItem -> bookingStatusHistory -> bookingGuest
+   *   -> eventBookingTicket -> eventBookingStatusHistory -> eventBooking -> booking
+   *   -> notification -> contactInquiry -> guestProfile -> passwordResetToken -> user
+   */
+  static async executeDeletion(
+    db: Prisma.TransactionClient,
+    target: GuestDeletionTarget
+  ): Promise<GuestDeletionCounts> {
+    const { guestProfileId, userId, email } = target;
+    const where = this.emailFilter(email);
+
+    const payments = await db.payment.deleteMany({
+      where: { OR: [{ booking: { guestProfileId } }, { eventBooking: { guestProfileId } }] },
+    });
+    const conversationMessages = await db.conversationMessage.deleteMany({
+      where: { conversation: { guestProfileId } },
+    });
+    const conversations = await db.conversation.deleteMany({ where: { guestProfileId } });
+    const callLogs = await db.callLog.deleteMany({ where: { voiceCall: { guestProfileId } } });
+    const voiceCalls = await db.voiceCall.deleteMany({ where: { guestProfileId } });
+    const reviews = await db.review.deleteMany({ where: { guestProfileId } });
+    const tastingRecords = await db.tastingRecord.deleteMany({ where: { guestProfileId } });
+    const tastingSessions = await db.tastingSession.deleteMany({ where: { guestProfileId } });
+    const winePreferences = await db.guestWinePreference.deleteMany({ where: { guestProfileId } });
+
+    const bookingItems = await db.bookingItem.deleteMany({ where: { booking: { guestProfileId } } });
+    const bookingStatusHistories = await db.bookingStatusHistory.deleteMany({
+      where: { booking: { guestProfileId } },
+    });
+    const bookingGuests = await db.bookingGuest.deleteMany({ where: { guestProfileId } });
+
+    const eventBookingTickets = await db.eventBookingTicket.deleteMany({
+      where: { eventBooking: { guestProfileId } },
+    });
+    const eventBookingStatusHistories = await db.eventBookingStatusHistory.deleteMany({
+      where: { eventBooking: { guestProfileId } },
+    });
+    const eventBookings = await db.eventBooking.deleteMany({ where: { guestProfileId } });
+    const bookings = await db.booking.deleteMany({ where: { guestProfileId } });
+
+    const notifications = await db.notification.deleteMany({ where: { recipient: where } });
+    const contactInquiries = await db.contactInquiry.deleteMany({ where: { email: where } });
+
+    const guestProfile = await db.guestProfile.deleteMany({ where: { id: guestProfileId } });
+    if (guestProfile.count !== 1) {
+      throw new Error(`Guest profile '${guestProfileId}' was not deleted`);
+    }
+
+    const passwordResetTokens = await db.passwordResetToken.deleteMany({ where: { userId } });
+    // Guard: never remove a staff account, and never silently leave the login behind.
+    const account = await db.user.deleteMany({ where: { id: userId, role: 'GUEST' } });
+    if (account.count !== 1) {
+      throw new Error(`Guest account '${userId}' was not deleted`);
+    }
+
+    return {
+      payments: payments.count,
+      conversationMessages: conversationMessages.count,
+      conversations: conversations.count,
+      callLogs: callLogs.count,
+      voiceCalls: voiceCalls.count,
+      reviews: reviews.count,
+      tastingRecords: tastingRecords.count,
+      tastingSessions: tastingSessions.count,
+      winePreferences: winePreferences.count,
+      bookingItems: bookingItems.count,
+      bookingStatusHistories: bookingStatusHistories.count,
+      bookingGuests: bookingGuests.count,
+      eventBookingTickets: eventBookingTickets.count,
+      eventBookingStatusHistories: eventBookingStatusHistories.count,
+      eventBookings: eventBookings.count,
+      bookings: bookings.count,
+      notifications: notifications.count,
+      contactInquiries: contactInquiries.count,
+      guestProfile: guestProfile.count,
+      passwordResetTokens: passwordResetTokens.count,
+      account: account.count,
+    };
+  }
+}
+

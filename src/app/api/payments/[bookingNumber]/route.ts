@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PaymentService, PaymentError } from '@/server/services';
 import { PaymentBookingType } from '@/server/validators';
 import { resolvePaymentOwnershipContext } from '@/lib/auth/payment';
+import { can } from '@/lib/auth/permissions';
 
 export async function GET(
   request: NextRequest,
@@ -30,6 +31,10 @@ export async function GET(
 
     const bookingType = typeParam as PaymentBookingType;
     const ownershipContext = await resolvePaymentOwnershipContext(request);
+    // Staff callers must hold payments.view (guest callers use ownership).
+    if (ownershipContext.isStaff && !can(ownershipContext.role, 'payments.view')) {
+      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+    }
     const payments = await PaymentService.getPaymentsForBooking(bookingType, bookingNumber, ownershipContext);
 
     const formattedPayments = payments.map((p) => ({

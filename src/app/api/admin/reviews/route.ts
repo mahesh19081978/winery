@@ -1,18 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AuthService } from '@/lib/auth';
 import { AdminReviewService } from '@/server/services';
+import { requireApiPermission } from '@/lib/auth/permissions';
 
 // Read-only visibility of submitted guest reviews for authorized staff.
 // No approval/rejection workflow in this module — status is displayed as stored.
 export async function GET(request: NextRequest) {
   try {
-    const session = await AuthService.getSession();
-    if (!session) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
-    if (!AuthService.isStaffRole(session.role)) {
-      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
-    }
+    const guard = await requireApiPermission('reviews.view');
+    if (!guard.ok) return guard.response;
+    const session = guard.session;
 
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search') || undefined;

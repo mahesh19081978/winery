@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AuthService } from '@/lib/auth';
 import { WineService } from '@/server/services';
 import { WineVintageUpdateSchema } from '@/server/validators';
 import { prisma } from '@/lib/db';
+import { requireApiPermission } from '@/lib/auth/permissions';
 
-function authCheck(session: Awaited<ReturnType<typeof AuthService.getSession>>) {
-  if (!session) return { status: 401 as const, error: 'Unauthorized' };
-  if (!AuthService.isStaffRole(session.role)) return { status: 403 as const, error: 'Forbidden' };
-  return null;
-}
 
 async function resolveWineId(slug: string): Promise<string> {
   const byId = await prisma.wine.findUnique({ where: { id: slug }, select: { id: true } }).catch(() => null);
@@ -23,9 +18,8 @@ export async function PATCH(
   { params }: { params: Promise<{ slug: string; vintageId: string }> }
 ) {
   try {
-    const session = await AuthService.getSession();
-    const auth = authCheck(session);
-    if (auth) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+    const guard = await requireApiPermission('vintages.manage', request);
+    if (!guard.ok) return guard.response;
 
     const { slug, vintageId } = await params;
     const wineId = await resolveWineId(slug);
@@ -60,9 +54,8 @@ export async function DELETE(
   { params }: { params: Promise<{ slug: string; vintageId: string }> }
 ) {
   try {
-    const session = await AuthService.getSession();
-    const auth = authCheck(session);
-    if (auth) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+    const guard = await requireApiPermission('vintages.manage');
+    if (!guard.ok) return guard.response;
 
     const { slug, vintageId } = await params;
     const wineId = await resolveWineId(slug);

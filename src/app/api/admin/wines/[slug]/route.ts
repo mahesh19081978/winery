@@ -1,22 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AuthService } from '@/lib/auth';
 import { WineService } from '@/server/services';
 import { WineUpdateSchema } from '@/server/validators';
+import { requireApiPermission } from '@/lib/auth/permissions';
 
-function authCheck(session: Awaited<ReturnType<typeof AuthService.getSession>>) {
-  if (!session) return { status: 401 as const, error: 'Unauthorized' };
-  if (!AuthService.isStaffRole(session.role)) return { status: 403 as const, error: 'Forbidden' };
-  return null;
-}
 
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const session = await AuthService.getSession();
-    const auth = authCheck(session);
-    if (auth) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+    const guard = await requireApiPermission('wines.manage', request);
+    if (!guard.ok) return guard.response;
 
     const { slug } = await context.params;
     const wine = await WineService.getWineBySlugAdmin(slug);
@@ -33,9 +27,8 @@ export async function PATCH(
   context: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const session = await AuthService.getSession();
-    const auth = authCheck(session);
-    if (auth) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+    const guard = await requireApiPermission('wines.manage', request);
+    if (!guard.ok) return guard.response;
 
     const { slug } = await context.params;
     const body = await request.json();
@@ -71,9 +64,8 @@ export async function DELETE(
   context: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const session = await AuthService.getSession();
-    const auth = authCheck(session);
-    if (auth) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+    const guard = await requireApiPermission('wines.manage');
+    if (!guard.ok) return guard.response;
 
     const { slug } = await context.params;
     await WineService.deleteWine(slug);

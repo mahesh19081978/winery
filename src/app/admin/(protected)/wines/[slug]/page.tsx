@@ -1,6 +1,7 @@
 import React from 'react';
 import { notFound } from 'next/navigation';
 import { WineService } from '@/server/services';
+import { requirePagePermission } from '@/lib/auth/permissions';
 import { WineDetailClient } from './WineDetailClient';
 
 export default async function AdminWineDetailPage({
@@ -8,6 +9,7 @@ export default async function AdminWineDetailPage({
 }: {
   params: Promise<{ slug: string }>;
 }) {
+  const session = await requirePagePermission('wines.manage');
   const { slug } = await params;
 
   let wine;
@@ -18,6 +20,10 @@ export default async function AdminWineDetailPage({
   }
 
   if (!wine) {
+    notFound();
+  }
+
+  if (session.role !== 'SUPER_ADMIN' && wine.wineryId && wine.wineryId !== session.wineryId) {
     notFound();
   }
 

@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AuthService } from '@/lib/auth';
 import { TastingService } from '@/server/services';
+import { requireApiPermission } from '@/lib/auth/permissions';
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await AuthService.getSession();
-    if (!session || !AuthService.isStaffRole(session.role)) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const guard = await requireApiPermission('tastings.manage');
+    if (!guard.ok) return guard.response;
 
     const { id } = await params;
     const tastingSession = await TastingService.getTastingSessionAdmin(id);

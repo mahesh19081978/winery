@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { SectionCard, StatusBadge } from '@/components/admin/UIComponents';
 import { BookingActionsClient } from '@/components/admin/bookings/BookingActionsClient';
+import { RecordPaymentModal } from '@/components/admin/bookings/RecordPaymentModal';
 
 interface BookingData {
   id: string;
@@ -89,11 +90,17 @@ interface BookingDetailClientProps {
   experiences?: { id: string; title: string }[];
   adminEmail?: string;
   adminRole?: string;
+  permissions?: string[];
 }
 
-export function BookingDetailClient({ booking }: BookingDetailClientProps) {
+export function BookingDetailClient({
+  booking,
+  permissions = [],
+}: BookingDetailClientProps) {
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const canRecordPayment = permissions.includes('payments.record');
 
   const handleStatusUpdated = async () => {
     setRefreshing(true);
@@ -350,7 +357,24 @@ export function BookingDetailClient({ booking }: BookingDetailClientProps) {
                     <span className="font-mono font-medium text-amber-700">${outstanding.toFixed(2)}</span>
                   </div>
                 )}
+                {outstanding <= 0 && (
+                  <div className="flex items-center justify-between text-xs font-medium mt-2 p-2 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg">
+                    <span>Payment Status</span>
+                    <span>PAID IN FULL</span>
+                  </div>
+                )}
               </div>
+
+              {outstanding > 0 && canRecordPayment && (
+                <div className="pt-3">
+                  <button
+                    onClick={() => setShowPaymentModal(true)}
+                    className="w-full py-2 bg-[#6c2432] text-white text-xs font-medium rounded-lg hover:bg-[#461822] transition"
+                  >
+                    Record Payment
+                  </button>
+                </div>
+              )}
 
               {booking.payments.length > 0 && (
                 <div className="border-t border-stone-100 pt-3 mt-3">
@@ -422,6 +446,19 @@ export function BookingDetailClient({ booking }: BookingDetailClientProps) {
           </SectionCard>
         </div>
       </div>
+
+      {showPaymentModal && (
+        <RecordPaymentModal
+          bookingNumber={booking.bookingNumber}
+          bookingType="EXPERIENCE"
+          outstandingAmount={outstanding}
+          onClose={() => setShowPaymentModal(false)}
+          onSuccess={() => {
+            setShowPaymentModal(false);
+            router.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }

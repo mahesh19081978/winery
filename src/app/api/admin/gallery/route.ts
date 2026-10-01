@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { AuthService } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { requireApiPermission } from '@/lib/auth/permissions';
 
 const CreateGalleryImageSchema = z.object({
   title: z.string().trim().min(2, 'Title must be at least 2 characters').max(100),
@@ -14,10 +14,8 @@ const CreateGalleryImageSchema = z.object({
 
 export async function GET() {
   try {
-    const session = await AuthService.getSession();
-    if (!session || !AuthService.isStaffRole(session.role)) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const guard = await requireApiPermission('gallery.manage');
+    if (!guard.ok) return guard.response;
 
     const images = await prisma.galleryImage.findMany({
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
@@ -37,10 +35,9 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await AuthService.getSession();
-    if (!session || !AuthService.isStaffRole(session.role)) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const guard = await requireApiPermission('gallery.manage');
+    if (!guard.ok) return guard.response;
+    const session = guard.session;
 
     const json = await request.json();
     const validated = CreateGalleryImageSchema.parse(json);

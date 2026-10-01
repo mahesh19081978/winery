@@ -107,7 +107,7 @@ async function main() {
 
   // Find a valid upcoming event with schedules and ticket types
   const eventWithData = await prisma.event.findFirst({
-    where: { status: 'UPCOMING', isPast: false },
+    where: { status: 'UPCOMING', isPast: false, eventDate: { gte: new Date(new Date().setHours(0, 0, 0, 0)) } },
     include: { schedules: true, ticketTypes: true },
   });
 

@@ -84,6 +84,16 @@ export const GuestProfileUpdateSchema = z.object({
 
 export type GuestProfileUpdateInput = z.infer<typeof GuestProfileUpdateSchema>;
 
+/**
+ * Destructive guest erasure request. The literal word is checked by the service
+ * (not merely parsed here) so a caller can never delete without typing it.
+ */
+export const GuestDeletionConfirmSchema = z.object({
+  confirmation: z.string().min(1, 'Confirmation is required').max(64, 'Confirmation is too long'),
+});
+
+export type GuestDeletionConfirmInput = z.infer<typeof GuestDeletionConfirmSchema>;
+
 export const TastingRecordCreateSchema = z.object({
   guestEmail: z.string().email('Guest email is required'),
   wineSlug: z.string().min(1, 'Wine slug is required'),
@@ -518,6 +528,17 @@ export const PaymentOrderCreateSchema = z.object({
   idempotencyKey: z.string().trim().min(8, 'Idempotency key must be at least 8 characters').max(255).optional(),
 });
 export type PaymentOrderCreateInput = z.infer<typeof PaymentOrderCreateSchema>;
+
+export const PaymentManualCreateSchema = z.object({
+  bookingType: PaymentBookingTypeEnum,
+  bookingNumber: z.string().trim().min(1, 'Booking number is required'),
+  amount: z.number().positive('Amount must be positive'),
+  paymentMethod: z.enum(['CASH', 'UPI', 'CARD_TERMINAL', 'BANK_TRANSFER', 'COMPLIMENTARY', 'OTHER']),
+  reference: z.string().trim().max(100).optional(),
+  notes: z.string().trim().max(500).optional(),
+});
+export type PaymentManualCreateInput = z.infer<typeof PaymentManualCreateSchema>;
+
 
 export const PaymentVerifySchema = z.object({
   bookingType: PaymentBookingTypeEnum,

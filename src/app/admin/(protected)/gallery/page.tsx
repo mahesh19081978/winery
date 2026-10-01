@@ -1,4 +1,5 @@
 import React from 'react';
+import { requirePagePermission } from '@/lib/auth/permissions';
 import { GalleryAdminClient } from './GalleryAdminClient';
 
 export const metadata = {
@@ -6,6 +7,8 @@ export const metadata = {
   description: 'Curate estate photography, cellar visuals, vineyard harvest assets, and visitor highlights',
 };
 
-export default function AdminGalleryPage() {
+export default async function AdminGalleryPage() {
+  await requirePagePermission('gallery.manage');
+
   return <GalleryAdminClient />;
 }

@@ -58,8 +58,33 @@ async function main() {
     const fs = await import('fs');
     const eventsRoute = fs.readFileSync('src/app/api/admin/events/route.ts', 'utf8');
     const eventsIdRoute = fs.readFileSync('src/app/api/admin/events/[id]/route.ts', 'utf8');
-    assert(eventsRoute.includes('401') && eventsRoute.includes('403') && eventsRoute.includes('isStaffRole'), '1. unauthenticated event create returns 401/403 (authCheck present)');
-    assert(eventsIdRoute.includes('401') && eventsIdRoute.includes('403'), '2. unauthenticated event update returns 401/403');
+    // The 401/403 + isStaffRole logic now lives in the centralized guard
+    // (src/lib/auth/permissions.ts); the routes must be wired to it.
+    const permsRoute = fs.readFileSync('src/lib/auth/permissions.ts', 'utf8');
+    assert(
+      eventsRoute.includes("requireApiPermission('events.manage')") &&
+        permsRoute.includes('401') && permsRoute.includes('403') && permsRoute.includes('isStaffRole'),
+      '1. unauthenticated event create guarded (requireApiPermission -> 401/403)'
+    );
+    assert(
+      eventsIdRoute.includes("requireApiPermission('events.manage')") &&
+        permsRoute.includes("'Unauthorized'") && permsRoute.includes("'Forbidden'"),
+      '2. unauthenticated event update guarded (requireApiPermission -> 401/403)'
+    );
+    // Real behavioral check against the running dev server.
+    const BASE = process.env.TEST_BASE_URL || 'http://localhost:3000';
+    const unauthCreate = await fetch(`${BASE}/api/admin/events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    assert(unauthCreate.status === 401, `1b. unauthenticated POST /api/admin/events -> 401 (got ${unauthCreate.status})`);
+    const unauthUpdate = await fetch(`${BASE}/api/admin/events/00000000-0000-0000-0000-000000000000`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'x' }),
+    });
+    assert(unauthUpdate.status === 401, `2b. unauthenticated PATCH /api/admin/events/[id] -> 401 (got ${unauthUpdate.status})`);
   } catch (e) { fail('Auth route check', e); }
 
   let base: Awaited<ReturnType<typeof createBaseEvent>> | null = null;

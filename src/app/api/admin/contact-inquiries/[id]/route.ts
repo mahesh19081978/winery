@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { AuthService } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { requireApiPermission } from '@/lib/auth/permissions';
 
 const UpdateContactInquirySchema = z.object({
   status: z.enum(['NEW', 'IN_PROGRESS', 'RESOLVED', 'ARCHIVED']).optional(),
@@ -15,10 +15,8 @@ interface RouteParams {
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const session = await AuthService.getSession();
-    if (!session || !AuthService.isStaffRole(session.role)) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const guard = await requireApiPermission('inquiries.manage');
+    if (!guard.ok) return guard.response;
 
     const { id } = await params;
     const inquiry = await prisma.contactInquiry.findUnique({
@@ -50,10 +48,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
-    const session = await AuthService.getSession();
-    if (!session || !AuthService.isStaffRole(session.role)) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const guard = await requireApiPermission('inquiries.manage');
+    if (!guard.ok) return guard.response;
 
     const { id } = await params;
     const json = await request.json();
@@ -100,10 +96,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
-    const session = await AuthService.getSession();
-    if (!session || !AuthService.isStaffRole(session.role)) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const guard = await requireApiPermission('inquiries.manage');
+    if (!guard.ok) return guard.response;
 
     const { id } = await params;
     const existing = await prisma.contactInquiry.findUnique({

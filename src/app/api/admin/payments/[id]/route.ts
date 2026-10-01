@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthService } from '@/lib/auth';
+import { can } from '@/lib/auth/permissions';
 import { PaymentService } from '@/server/services';
 
 export async function GET(
@@ -11,7 +12,7 @@ export async function GET(
     if (!session) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
-    if (!AuthService.isStaffRole(session.role)) {
+    if (!can(session.role, 'payments.view')) {
       return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
     }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PaymentService, PaymentError } from '@/server/services';
 import { PaymentOrderCreateSchema } from '@/server/validators';
 import { resolvePaymentOwnershipContext } from '@/lib/auth/payment';
+import { can } from '@/lib/auth/permissions';
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,6 +29,10 @@ export async function POST(request: NextRequest) {
     }
 
     const ownershipContext = await resolvePaymentOwnershipContext(request);
+    // Staff callers must hold payments.record (guest callers use ownership).
+    if (ownershipContext.isStaff && !can(ownershipContext.role, 'payments.record')) {
+      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+    }
     const result = await PaymentService.createPaymentOrder(validationResult.data, ownershipContext);
 
     return NextResponse.json({ success: true, data: result }, { status: 200 });

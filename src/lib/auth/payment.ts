@@ -31,5 +31,7 @@ export async function resolvePaymentOwnershipContext(request?: NextRequest): Pro
     isStaff,
     guestProfileId: guestSession?.guestProfileId,
     email: guestSession?.email || adminSession?.email,
+    role: isStaff ? adminSession?.role : undefined,
+    wineryId: isStaff ? adminSession?.wineryId ?? null : undefined,
   };
 }

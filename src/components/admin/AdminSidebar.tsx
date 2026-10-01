@@ -4,6 +4,8 @@ import React from 'react';
 import Link from 'next/link';
 import NextImage from 'next/image';
 import { usePathname } from 'next/navigation';
+import { UserRole } from '@prisma/client';
+import { can, Permission } from '@/lib/auth/permissions-client';
 import logoMark from '../../../public/logo-mark.png';
 import {
   Wine,
@@ -31,6 +33,7 @@ import {
 } from 'lucide-react';
 
 interface NavItem {
+  permission?: Permission;
   name: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -46,67 +49,67 @@ const NAVIGATION_SECTIONS: NavSection[] = [
   {
     title: 'OVERVIEW',
     items: [
-      { name: 'Dashboard', href: '/admin', icon: LayoutDashboard, isImplemented: true },
+      { name: 'Dashboard', href: '/admin', icon: LayoutDashboard, isImplemented: true, permission: 'dashboard.view' },
     ],
   },
   {
     title: 'OPERATIONS',
     items: [
-      { name: 'Front Desk', href: '/admin/front-desk', icon: UserCheck, isImplemented: true },
-      { name: 'Bookings', href: '/admin/bookings', icon: CalendarDays, isImplemented: true },
-      { name: 'Calendar', href: '/admin/calendar', icon: Calendar, isImplemented: true },
-      { name: 'Experiences', href: '/admin/experiences', icon: Sparkles, isImplemented: true },
-      { name: 'Availability', href: '/admin/availability', icon: Clock, isImplemented: true },
+      { name: 'Front Desk', href: '/admin/front-desk', icon: UserCheck, isImplemented: true, permission: 'frontDesk.access' },
+      { name: 'Bookings', href: '/admin/bookings', icon: CalendarDays, isImplemented: true, permission: 'bookings.view' },
+      { name: 'Calendar', href: '/admin/calendar', icon: Calendar, isImplemented: true, permission: 'calendar.view' },
+      { name: 'Experiences', href: '/admin/experiences', icon: Sparkles, isImplemented: true, permission: 'experiences.view' },
+      { name: 'Availability', href: '/admin/availability', icon: Clock, isImplemented: true, permission: 'availability.view' },
     ],
   },
   {
     title: 'FINANCE',
     items: [
-      { name: 'Payments', href: '/admin/payments', icon: CreditCard, isImplemented: true },
+      { name: 'Payments', href: '/admin/payments', icon: CreditCard, isImplemented: true, permission: 'payments.view' },
     ],
   },
   {
     title: 'WINE',
     items: [
-      { name: 'Wines', href: '/admin/wines', icon: Wine, isImplemented: true },
-      { name: 'Vintages', href: '/admin/vintages', icon: Layers, isImplemented: true },
-      { name: 'Tastings', href: '/admin/tastings', icon: GlassWater, isImplemented: true },
+      { name: 'Wines', href: '/admin/wines', icon: Wine, isImplemented: true, permission: 'wines.manage' },
+      { name: 'Vintages', href: '/admin/vintages', icon: Layers, isImplemented: true, permission: 'vintages.manage' },
+      { name: 'Tastings', href: '/admin/tastings', icon: GlassWater, isImplemented: true, permission: 'tastings.manage' },
     ],
   },
   {
     title: 'GUESTS',
     items: [
-      { name: 'Guests', href: '/admin/guests', icon: Users, isImplemented: true },
-      { name: 'Wine Profiles', href: '/admin/profiles', icon: HeartHandshake, isImplemented: true },
+      { name: 'Guests', href: '/admin/guests', icon: Users, isImplemented: true, permission: 'guests.view' },
+      { name: 'Wine Profiles', href: '/admin/profiles', icon: HeartHandshake, isImplemented: true, permission: 'profiles.view' },
     ],
   },
   {
     title: 'EVENTS',
     items: [
-      { name: 'Events', href: '/admin/events', icon: Ticket, isImplemented: true },
-      { name: 'Event Bookings', href: '/admin/event-bookings', icon: CalendarCheck, isImplemented: true },
+      { name: 'Events', href: '/admin/events', icon: Ticket, isImplemented: true, permission: 'events.manage' },
+      { name: 'Event Bookings', href: '/admin/event-bookings', icon: CalendarCheck, isImplemented: true, permission: 'eventBookings.manage' },
     ],
   },
   {
     title: 'ENGAGEMENT',
     items: [
-      { name: 'Reviews', href: '/admin/reviews', icon: Star, isImplemented: true },
-      { name: 'Gallery', href: '/admin/gallery', icon: Image, isImplemented: true },
-      { name: 'Contact Inquiries', href: '/admin/contact-inquiries', icon: Mail, isImplemented: true },
+      { name: 'Reviews', href: '/admin/reviews', icon: Star, isImplemented: true, permission: 'reviews.view' },
+      { name: 'Gallery', href: '/admin/gallery', icon: Image, isImplemented: true, permission: 'gallery.manage' },
+      { name: 'Contact Inquiries', href: '/admin/contact-inquiries', icon: Mail, isImplemented: true, permission: 'inquiries.view' },
     ],
   },
   {
     title: 'COMMUNICATION',
     items: [
-      { name: 'Conversations', href: '/admin/conversations', icon: MessagesSquare, isImplemented: true },
-      { name: 'Notifications', href: '/admin/notifications', icon: Bell, isImplemented: true },
+      { name: 'Conversations', href: '/admin/conversations', icon: MessagesSquare, isImplemented: true, permission: 'conversations.view' },
+      { name: 'Notifications', href: '/admin/notifications', icon: Bell, isImplemented: true, permission: 'notifications.view' },
     ],
   },
   {
     title: 'SYSTEM',
     items: [
-      { name: 'Staff & Roles', href: '/admin/staff', icon: ShieldCheck, isImplemented: true },
-      { name: 'Settings', href: '/admin/settings', icon: Settings, isImplemented: true },
+      { name: 'Staff & Roles', href: '/admin/staff', icon: ShieldCheck, isImplemented: true, permission: 'staff.view' },
+      { name: 'Settings', href: '/admin/settings', icon: Settings, isImplemented: true, permission: 'settings.view' },
     ],
   },
 ];
@@ -114,9 +117,10 @@ const NAVIGATION_SECTIONS: NavSection[] = [
 interface AdminSidebarProps {
   isOpen: boolean;
   onClose: () => void;
+  adminRole: UserRole;
 }
 
-export function AdminSidebar({ isOpen, onClose }: AdminSidebarProps) {
+export function AdminSidebar({ isOpen, onClose, adminRole }: AdminSidebarProps) {
   const pathname = usePathname();
 
   return (
@@ -171,63 +175,71 @@ export function AdminSidebar({ isOpen, onClose }: AdminSidebarProps) {
 
         {/* Navigation Sections */}
         <div className="flex-1 overflow-y-auto px-4 py-5 space-y-6 scrollbar-thin">
-          {NAVIGATION_SECTIONS.map((section) => (
-            <div key={section.title} className="space-y-1">
-              <div className="px-3 text-[10px] font-semibold uppercase tracking-wider text-[#d6b774]/70">
-                {section.title}
-              </div>
-              <ul className="space-y-0.5">
-                {section.items.map((item) => {
-                  const isActive = item.name === 'Guests'
-                    ? pathname.startsWith('/admin/guests')
-                    : pathname === item.href || (item.href !== '/admin' && pathname.startsWith(item.href));
-                  const Icon = item.icon;
+          {NAVIGATION_SECTIONS.map((section) => {
+            const visibleItems = section.items.filter(
+              (item) => !item.permission || can(adminRole, item.permission)
+            );
 
-                  if (item.isImplemented) {
+            if (visibleItems.length === 0) return null;
+
+            return (
+              <div key={section.title} className="space-y-1">
+                <div className="px-3 text-[10px] font-semibold uppercase tracking-wider text-[#d6b774]/70">
+                  {section.title}
+                </div>
+                <ul className="space-y-0.5">
+                  {visibleItems.map((item) => {
+                    const isActive = item.name === 'Guests'
+                      ? pathname.startsWith('/admin/guests')
+                      : pathname === item.href || (item.href !== '/admin' && pathname.startsWith(item.href));
+                    const Icon = item.icon;
+
+                    if (item.isImplemented) {
+                      return (
+                        <li key={item.name}>
+                          <Link
+                            href={item.href}
+                            onClick={onClose}
+                            className={`flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                              isActive
+                                ? 'bg-[#6c2432] text-white shadow-xs font-semibold'
+                                : 'text-stone-300 hover:bg-[#461822]/60 hover:text-white'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <Icon className={`w-4 h-4 ${isActive ? 'text-[#d6b774]' : 'text-stone-400'}`} />
+                              <span>{item.name}</span>
+                            </div>
+                            {isActive && (
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#d6b774]" />
+                            )}
+                          </Link>
+                        </li>
+                      );
+                    }
+
+                    // Non-implemented module (Disabled with Coming Soon badge)
                     return (
                       <li key={item.name}>
-                        <Link
-                          href={item.href}
-                          onClick={onClose}
-                          className={`flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                            isActive
-                              ? 'bg-[#6c2432] text-white shadow-xs font-semibold'
-                              : 'text-stone-300 hover:bg-[#461822]/60 hover:text-white'
-                          }`}
+                        <div
+                          className="flex items-center justify-between px-3 py-2 rounded-lg text-xs font-normal text-stone-400/60 cursor-not-allowed select-none hover:bg-white/[0.02]"
+                          title="Module activation scheduled for subsequent phase"
                         >
                           <div className="flex items-center gap-3">
-                            <Icon className={`w-4 h-4 ${isActive ? 'text-[#d6b774]' : 'text-stone-400'}`} />
+                            <Icon className="w-4 h-4 text-stone-500/50" />
                             <span>{item.name}</span>
                           </div>
-                          {isActive && (
-                            <span className="w-1.5 h-1.5 rounded-full bg-[#d6b774]" />
-                          )}
-                        </Link>
+                          <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/5 text-stone-400/80 border border-white/5 font-mono">
+                            Soon
+                          </span>
+                        </div>
                       </li>
                     );
-                  }
-
-                  // Non-implemented module (Disabled with Coming Soon badge)
-                  return (
-                    <li key={item.name}>
-                      <div
-                        className="flex items-center justify-between px-3 py-2 rounded-lg text-xs font-normal text-stone-400/60 cursor-not-allowed select-none hover:bg-white/[0.02]"
-                        title="Module activation scheduled for subsequent phase"
-                      >
-                        <div className="flex items-center gap-3">
-                          <Icon className="w-4 h-4 text-stone-500/50" />
-                          <span>{item.name}</span>
-                        </div>
-                        <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/5 text-stone-400/80 border border-white/5 font-mono">
-                          Soon
-                        </span>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))}
+                  })}
+                </ul>
+              </div>
+            );
+          })}
         </div>
 
         {/* Footer info in sidebar */}

@@ -1,6 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
-import { AuthService } from '@/lib/auth';
+import { requirePagePermission } from '@/lib/auth/permissions';
 import { prisma } from '@/lib/db';
 import {
   CalendarDays,
@@ -24,7 +24,13 @@ import {
 } from '@/components/admin/UIComponents';
 
 export default async function AdminDashboardPage() {
-  const session = await AuthService.getSession();
+  const session = await requirePagePermission('dashboard.view');
+
+  // Tenant scoping: only SUPER_ADMIN sees aggregates across wineries.
+  const scope =
+    session.role === 'SUPER_ADMIN'
+      ? {}
+      : { wineryId: session.wineryId ?? '__no_tenant__' };
 
   // Retrieve actual database records where available
   const [
@@ -35,6 +41,7 @@ export default async function AdminDashboardPage() {
     winesCount,
   ] = await Promise.all([
     prisma.booking.findMany({
+      where: scope,
       include: {
         guestProfile: true,
         items: { include: { experience: true } },
@@ -43,30 +50,34 @@ export default async function AdminDashboardPage() {
       take: 6,
     }),
     prisma.event.findMany({
+      where: scope,
       include: { ticketTypes: true },
       orderBy: { eventDate: 'asc' },
       take: 4,
     }),
-    prisma.review.count(),
-    prisma.experience.count(),
-    prisma.wine.count(),
+    prisma.review.count({ where: scope }),
+    prisma.experience.count({ where: scope }),
+    prisma.wine.count({ where: scope }),
   ]);
 
   // Aggregate stats
-  const totalBookingsCount = await prisma.booking.count();
+  const totalBookingsCount = await prisma.booking.count({ where: scope });
   const confirmedBookingsCount = await prisma.booking.count({
-    where: { status: 'CONFIRMED' },
+    where: { ...scope, status: 'CONFIRMED' },
   });
   const totalGuestsSum = await prisma.booking.aggregate({
+    where: scope,
     _sum: { totalGuests: true },
   });
   const totalRevenueSum = await prisma.booking.aggregate({
+    where: scope,
     _sum: { totalPrice: true },
   });
 
   // Calculate booking status breakdown
   const statusCounts = await prisma.booking.groupBy({
     by: ['status'],
+    where: scope,
     _count: { id: true },
   });
   const statusMap = new Map(statusCounts.map((s) => [s.status, s._count.id]));

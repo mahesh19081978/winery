@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AuthService } from '@/lib/auth';
 import { WineService } from '@/server/services';
 import { WineVintageCreateSchema } from '@/server/validators';
 import { prisma } from '@/lib/db';
+import { requireApiPermission } from '@/lib/auth/permissions';
 
-function authCheck(session: Awaited<ReturnType<typeof AuthService.getSession>>) {
-  if (!session) return { status: 401 as const, error: 'Unauthorized' };
-  if (!AuthService.isStaffRole(session.role)) return { status: 403 as const, error: 'Forbidden' };
-  return null;
-}
 
 async function resolveWineId(slug: string): Promise<string> {
   // Allow both slug and id (client sends slug or uuid)
@@ -25,9 +20,8 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const session = await AuthService.getSession();
-    const auth = authCheck(session);
-    if (auth) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+    const guard = await requireApiPermission('vintages.manage', request);
+    if (!guard.ok) return guard.response;
 
     const { slug } = await params;
     const wineId = await resolveWineId(slug);
