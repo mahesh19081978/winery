@@ -40,6 +40,7 @@ interface PaymentDetail {
   createdAt: string;
   updatedAt: string;
   referenceTitle: string | null;
+  refundPolicy?: import('@/lib/payment/refund-policy').RefundPolicyResult | null;
   bookingStatus: string | null;
   bookingDate: string | null;
   bookingTime: string | null;
@@ -202,7 +203,8 @@ export function PaymentDetailClient({
     }
   };
 
-  const canRefund = payment?.status === 'PAID' && canRefundPermission;
+  const refundPolicy = payment?.refundPolicy;
+  const canRefund = payment?.bookingType === 'EXPERIENCE' ? (!!refundPolicy?.allowed && canRefundPermission) : (payment?.status === 'PAID' && canRefundPermission);
   const refundedAmount = Number(payment?.refundAmount ?? 0);
   const netAmount = payment ? Number(payment.amount) - refundedAmount : 0;
 
@@ -280,7 +282,23 @@ export function PaymentDetailClient({
         </div>
       </div>
 
-      {feedback && (
+
+        {refundPolicy && canRefund && (
+          <div className="p-4 rounded-xl border border-stone-200 bg-stone-50/70 mb-6">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-[10px] uppercase font-mono tracking-wider text-stone-500">
+                  Refund Eligibility ({refundPolicy.windowStr})
+                </p>
+                <p className="text-xs text-stone-900 mt-1">
+                  Maximum refund allowed: <span className="font-mono font-medium">{payment.currency} {refundPolicy.maxAmount.toFixed(2)}</span> ({refundPolicy.maxPercentage}%)
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+{feedback && (
         <div
           className={`p-4 rounded-xl border flex items-start justify-between gap-3 ${
             feedback.type === 'success'
@@ -550,9 +568,11 @@ export function PaymentDetailClient({
               <p className="text-xs text-stone-600 mt-1">
                 {!canRefundPermission
                   ? 'Your role does not permit issuing refunds.'
-                  : payment.status === 'REFUNDED' || payment.status === 'PARTIALLY_REFUNDED'
-                    ? 'This payment has already been refunded.'
-                    : `Refunds are only available for payments in PAID status. This payment is ${payment.status.toLowerCase().replace('_', ' ')}.`}
+                  : refundPolicy && !refundPolicy.allowed
+                    ? refundPolicy.reason
+                    : payment.status === 'REFUNDED' || payment.status === 'PARTIALLY_REFUNDED'
+                      ? 'This payment has already been refunded.'
+                      : `Refunds are only available for payments in PAID status. This payment is ${payment.status.toLowerCase().replace('_', ' ')}.`}
               </p>
             </div>
           )}
@@ -589,11 +609,10 @@ export function PaymentDetailClient({
                 </label>
                 <input
                   type="number"
-                  min="0.01"
-                  step="0.01"
+                  min="0.01" step="0.01" max={refundPolicy ? refundPolicy.maxAmount : undefined}
                   value={refundAmount}
                   onChange={(e) => setRefundAmount(e.target.value)}
-                  placeholder={payment.amount}
+                  placeholder={refundPolicy ? String(refundPolicy.maxAmount) : payment.amount}
                   className="w-full px-3 py-2 text-xs bg-white border border-stone-200 rounded-lg text-stone-800 focus:outline-none focus:ring-1 focus:ring-[#6c2432]"
                 />
               </div>

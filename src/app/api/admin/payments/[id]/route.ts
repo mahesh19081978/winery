@@ -1,3 +1,4 @@
+﻿import { calculateRefundEligibility } from '@/lib/payment/refund-policy';
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthService } from '@/lib/auth';
 import { can } from '@/lib/auth/permissions';
@@ -24,6 +25,27 @@ export async function GET(
     const payment = await PaymentService.getForAdmin(id, session.wineryId);
     if (!payment) {
       return NextResponse.json({ success: false, error: 'Payment not found' }, { status: 404 });
+    }
+
+    if (payment.bookingType === 'EXPERIENCE') {
+      if (payment.bookingDate && payment.bookingTime && payment.wineryTimezone) {
+        payment.refundPolicy = calculateRefundEligibility(
+          'EXPERIENCE',
+          payment.bookingStatus ?? '',
+          new Date(payment.bookingDate),
+          payment.bookingTime,
+          payment.wineryTimezone,
+          Number(payment.amount),
+          Number(payment.refundAmount || 0)
+        );
+      } else {
+        payment.refundPolicy = {
+          allowed: false,
+          maxPercentage: 0,
+          maxAmount: 0,
+          reason: 'Refund eligibility cannot be determined due to missing booking schedule data.'
+        };
+      }
     }
 
     return NextResponse.json({ success: true, data: payment });

@@ -1,3 +1,4 @@
+import type { RefundPolicyResult } from './refund-policy';
 import type { PaymentStatus } from '@prisma/client';
 
 /**
@@ -26,7 +27,7 @@ interface AdminPaymentBookingRef {
   totalPrice?: DecimalLike | number | string | null;
   currency?: string | null;
   guestProfile?: AdminPaymentGuestRef | null;
-  winery?: { name?: string | null; slug?: string | null } | null;
+  winery?: { name?: string | null; slug?: string | null; timezone?: string | null } | null;
   items?: { title?: string | null }[] | null;
 }
 
@@ -38,7 +39,7 @@ interface AdminPaymentEventBookingRef {
   event?: {
     title?: string | null;
     eventDate?: Date | string | null;
-    winery?: { name?: string | null; slug?: string | null } | null;
+    winery?: { name?: string | null; slug?: string | null; timezone?: string | null } | null;
   } | null;
 }
 
@@ -92,6 +93,8 @@ export interface AdminPaymentDetailDto extends AdminPaymentSummaryDto {
   bookingTotal: string | null;
   wineryName: string | null;
   winerySlug: string | null;
+  wineryTimezone: string | null;
+  refundPolicy?: RefundPolicyResult;
 }
 
 function toAmountString(value?: DecimalLike | number | string | null): string | null {
@@ -124,6 +127,7 @@ function resolveBooking(payment: AdminPaymentRecord) {
       bookingTotal: toAmountString(booking.totalPrice),
       wineryName: booking.winery?.name ?? null,
       winerySlug: booking.winery?.slug ?? null,
+        wineryTimezone: booking.winery?.timezone ?? null,
     };
   }
 
@@ -140,6 +144,7 @@ function resolveBooking(payment: AdminPaymentRecord) {
     bookingTotal: toAmountString(eventBooking?.totalPrice),
     wineryName: eventBooking?.event?.winery?.name ?? null,
     winerySlug: eventBooking?.event?.winery?.slug ?? null,
+      wineryTimezone: eventBooking?.event?.winery?.timezone ?? null,
   };
 }
 
@@ -182,5 +187,6 @@ export function toAdminPaymentDetailDto(payment: AdminPaymentRecord): AdminPayme
     bookingTotal: reference.bookingTotal,
     wineryName: reference.wineryName,
     winerySlug: reference.winerySlug,
+    wineryTimezone: reference.wineryTimezone,
   };
 }

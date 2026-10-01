@@ -1,3 +1,4 @@
+import { calculateRefundEligibility } from '@/lib/payment/refund-policy';
 import {
   WineRepository,
   WineVintageRepository,
@@ -3686,6 +3687,7 @@ export class PaymentService {
           },
           items: true,
           payments: true,
+          winery: { select: { timezone: true } },
         },
       });
       if (!booking) {
@@ -4361,15 +4363,46 @@ export class PaymentService {
       throw new PaymentError('Cannot refund payment: missing gateway payment ID (providerPaymentId)', 400);
     }
 
+
     // 6. Authoritative amount determination & partial support guard
     const paymentAmountNum = payment.amount.toNumber();
-    const refundAmountNum = input.amount !== undefined ? input.amount : paymentAmountNum;
+
+    let allowedMaxRefundAmount = paymentAmountNum;
+
+    if (type === 'EXPERIENCE') {
+      const alreadyRefundedNum = payment.refundAmount ? payment.refundAmount.toNumber() : 0;
+      const wineryTimezone = (booking as { winery: { timezone: string } }).winery.timezone;
+
+      const policy = calculateRefundEligibility(
+        'EXPERIENCE',
+        booking.status,
+        booking.date,
+        booking.time,
+        wineryTimezone,
+        paymentAmountNum,
+        alreadyRefundedNum
+      );
+
+      if (!policy.allowed) {
+        throw new PaymentError(policy.reason || 'Refund not allowed by policy', 400);
+      }
+      allowedMaxRefundAmount = policy.maxAmount;
+    }
+
+    const refundAmountNum = input.amount !== undefined ? input.amount : allowedMaxRefundAmount;
 
     if (refundAmountNum <= 0) {
       throw new PaymentError('Refund amount must be greater than zero', 400);
     }
-    if (refundAmountNum > paymentAmountNum) {
-      throw new PaymentError(`Refund amount (${refundAmountNum}) cannot exceed total paid amount (${paymentAmountNum})`, 400);
+
+    if (type === 'EXPERIENCE') {
+      if (refundAmountNum > allowedMaxRefundAmount) {
+        throw new PaymentError(`Refund amount (${refundAmountNum}) cannot exceed maximum allowed by policy (${allowedMaxRefundAmount})`, 400);
+      }
+    } else {
+      if (refundAmountNum > paymentAmountNum) {
+        throw new PaymentError(`Refund amount (${refundAmountNum}) cannot exceed total paid amount (${paymentAmountNum})`, 400);
+      }
     }
 
     const isPartial = refundAmountNum < paymentAmountNum;
@@ -4525,5 +4558,3 @@ export class PaymentService {
     };
   }
 }
-
-

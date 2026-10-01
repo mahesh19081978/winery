@@ -3146,7 +3146,7 @@ export class PaymentRepository {
         time: true,
         totalPrice: true,
         currency: true,
-        winery: { select: { name: true, slug: true } },
+        winery: { select: { name: true, slug: true, timezone: true } },
         guestProfile: {
           select: { name: true, user: { select: { email: true } } },
         },
@@ -3165,7 +3165,7 @@ export class PaymentRepository {
           select: {
             title: true,
             eventDate: true,
-            winery: { select: { name: true, slug: true } },
+            winery: { select: { name: true, slug: true, timezone: true } },
           },
         },
       },
