@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db';
+import { BookingStatus, PaymentStatus } from '@prisma/client';
 
 export type ReportScope = { wineryId?: string } | Record<string, never>;
 
@@ -13,10 +14,77 @@ export interface CurrencyFinancials {
 
 export type FinancialSummary = Record<string, CurrencyFinancials>;
 
-import { BookingStatus, PaymentStatus } from '@prisma/client';
+export interface DailyRevenueDataPoint {
+  date: string; // YYYY-MM-DD
+  grossBookingValue: number;
+  collectedAmount: number;
+  refunds: number;
+  netCollected: number;
+}
+
+export type RevenueTrendData = Record<string, DailyRevenueDataPoint[]>;
+
+export interface DailyBookingDataPoint {
+  date: string; // YYYY-MM-DD
+  validBookings: number;
+  guests: number;
+}
+
+export type BookingTrendData = DailyBookingDataPoint[];
+
+export type PaymentMethodCategory = 'Cash' | 'UPI' | 'Card' | 'Bank Transfer' | 'Online' | 'Other / Complimentary';
+
+export interface PaymentMethodItem {
+  method: PaymentMethodCategory;
+  count: number;
+  totalCollected: number;
+  refundedAmount: number;
+  netCollected: number;
+}
+
+export type PaymentMethodBreakdownData = Record<string, PaymentMethodItem[]>;
 
 const VALID_BOOKING_STATUSES: BookingStatus[] = ['CONFIRMED', 'CHECKED_IN', 'COMPLETED', 'NO_SHOW'];
 const VALID_PAYMENT_STATUSES: PaymentStatus[] = ['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'];
+
+function formatCalendarDate(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function buildDateRangeKeys(startDate: Date, endDate: Date): string[] {
+  const dates: string[] = [];
+  const curr = new Date(startDate);
+  curr.setHours(0, 0, 0, 0);
+  const end = new Date(endDate);
+  end.setHours(0, 0, 0, 0);
+
+  while (curr <= end) {
+    dates.push(formatCalendarDate(curr));
+    curr.setDate(curr.getDate() + 1);
+  }
+  return dates;
+}
+
+function normalizePaymentMethod(method?: string | null, provider?: string | null): PaymentMethodCategory {
+  const m = (method || '').toUpperCase().trim();
+  const p = (provider || '').toUpperCase().trim();
+
+  if (m === 'CASH') return 'Cash';
+  if (m === 'UPI') return 'UPI';
+  if (m === 'CARD_TERMINAL' || m === 'CARD' || m === 'CREDIT_CARD' || m === 'DEBIT_CARD') return 'Card';
+  if (m === 'BANK_TRANSFER' || m === 'NETBANKING' || m === 'NET_BANKING') return 'Bank Transfer';
+  if (m === 'COMPLIMENTARY' || m === 'OTHER') return 'Other / Complimentary';
+  if (m === 'ONLINE') return 'Online';
+
+  // Fallbacks based on provider or fuzzy check
+  if (p === 'RAZORPAY' || p === 'STRIPE') return 'Online';
+  return 'Other / Complimentary';
+}
+
+
 
 export const reportsService = {
   /**
@@ -292,5 +360,288 @@ export const reportsService = {
     }
 
     return Object.values(utilizationByExperience);
-  }
+  },
+
+  /**
+   * Calculates daily revenue metrics grouped by currency.
+   * Daily Gross Booking Value (from valid bookings created/occurring on date)
+   * Daily Collected Amount, Refunds, and Net Collected
+   */
+  async getRevenueTrend(
+    scope: ReportScope,
+    startDate: Date,
+    endDate: Date
+  ): Promise<RevenueTrendData> {
+    const dates = buildDateRangeKeys(startDate, endDate);
+    const trendByCurrency: RevenueTrendData = {};
+    const processedPayments = new Set<string>();
+
+    const initCurrency = (curr: string) => {
+      if (!trendByCurrency[curr]) {
+        trendByCurrency[curr] = dates.map((d) => ({
+          date: d,
+          grossBookingValue: 0,
+          collectedAmount: 0,
+          refunds: 0,
+          netCollected: 0,
+        }));
+      }
+    };
+
+    // 1. Experience bookings
+    const bookings = await prisma.booking.findMany({
+      where: {
+        ...scope,
+        date: { gte: startDate, lte: endDate },
+      },
+      include: {
+        payments: true,
+      },
+    });
+
+    for (const b of bookings) {
+      const currency = b.currency || 'USD';
+      initCurrency(currency);
+      const bDateIso = formatCalendarDate(b.date);
+      const dayData = trendByCurrency[currency].find((d) => d.date === bDateIso);
+
+      let bCollected = 0;
+      let bRefunds = 0;
+
+      for (const p of b.payments) {
+        if (!processedPayments.has(p.id)) {
+          processedPayments.add(p.id);
+          if (VALID_PAYMENT_STATUSES.includes(p.status)) {
+            bCollected += Number(p.amount);
+            bRefunds += Number(p.refundAmount || 0);
+          }
+        }
+      }
+
+      const bNet = bCollected - bRefunds;
+
+      if (dayData) {
+        if (VALID_BOOKING_STATUSES.includes(b.status)) {
+          dayData.grossBookingValue += Number(b.totalPrice);
+          dayData.collectedAmount += bCollected;
+          dayData.refunds += bRefunds;
+          dayData.netCollected += bNet;
+        } else if (b.status === 'CANCELLED') {
+          dayData.collectedAmount += bCollected;
+          dayData.refunds += bRefunds;
+          dayData.netCollected += bNet;
+        }
+      }
+    }
+
+    // 2. Event bookings
+    const eventBookings = await prisma.eventBooking.findMany({
+      where: {
+        event: {
+          ...scope,
+          eventDate: { gte: startDate, lte: endDate },
+        },
+      },
+      include: {
+        payments: true,
+        event: true,
+      },
+    });
+
+    for (const eb of eventBookings) {
+      const currency = eb.event.currency || 'USD';
+      initCurrency(currency);
+      const ebDateIso = formatCalendarDate(eb.event.eventDate);
+      const dayData = trendByCurrency[currency].find((d) => d.date === ebDateIso);
+
+      let ebCollected = 0;
+      let ebRefunds = 0;
+
+      for (const p of eb.payments) {
+        if (!processedPayments.has(p.id)) {
+          processedPayments.add(p.id);
+          if (VALID_PAYMENT_STATUSES.includes(p.status)) {
+            ebCollected += Number(p.amount);
+            ebRefunds += Number(p.refundAmount || 0);
+          }
+
+        }
+      }
+
+      const ebNet = ebCollected - ebRefunds;
+
+      if (dayData) {
+        if (VALID_BOOKING_STATUSES.includes(eb.status)) {
+          dayData.grossBookingValue += Number(eb.totalPrice);
+          dayData.collectedAmount += ebCollected;
+          dayData.refunds += ebRefunds;
+          dayData.netCollected += ebNet;
+        } else if (eb.status === 'CANCELLED') {
+          dayData.collectedAmount += ebCollected;
+          dayData.refunds += ebRefunds;
+          dayData.netCollected += ebNet;
+        }
+      }
+    }
+
+    return trendByCurrency;
+  },
+
+  /**
+   * Calculates daily booking trends:
+   * Daily valid bookings count and daily guest count.
+   */
+  async getBookingTrend(
+    scope: ReportScope,
+    startDate: Date,
+    endDate: Date
+  ): Promise<BookingTrendData> {
+    const dates = buildDateRangeKeys(startDate, endDate);
+    const dayMap = new Map<string, { validBookings: number; guests: number }>();
+
+    for (const d of dates) {
+      dayMap.set(d, { validBookings: 0, guests: 0 });
+    }
+
+    // 1. Experience bookings
+    const bookings = await prisma.booking.findMany({
+      where: {
+        ...scope,
+        date: { gte: startDate, lte: endDate },
+        status: { in: VALID_BOOKING_STATUSES },
+      },
+      select: {
+        date: true,
+        totalGuests: true,
+      },
+    });
+
+    for (const b of bookings) {
+      const dateKey = formatCalendarDate(b.date);
+      const entry = dayMap.get(dateKey);
+      if (entry) {
+        entry.validBookings += 1;
+        entry.guests += b.totalGuests;
+      }
+    }
+
+    // 2. Event bookings
+    const eventBookings = await prisma.eventBooking.findMany({
+      where: {
+        event: {
+          ...scope,
+          eventDate: { gte: startDate, lte: endDate },
+        },
+        status: { in: VALID_BOOKING_STATUSES },
+      },
+      select: {
+        event: {
+          select: { eventDate: true },
+        },
+        tickets: {
+          select: { quantity: true },
+        },
+      },
+    });
+
+    for (const eb of eventBookings) {
+      const dateKey = formatCalendarDate(eb.event.eventDate);
+      const entry = dayMap.get(dateKey);
+      if (entry) {
+        entry.validBookings += 1;
+        const totalTickets = eb.tickets.reduce((sum, t) => sum + t.quantity, 0);
+        entry.guests += totalTickets;
+      }
+    }
+
+    return dates.map((d) => ({
+      date: d,
+      validBookings: dayMap.get(d)?.validBookings ?? 0,
+      guests: dayMap.get(d)?.guests ?? 0,
+    }));
+  },
+
+  /**
+   * Calculates payment method breakdown grouped by currency.
+   * Categories: Cash, UPI, Card, Bank Transfer, Online, Other / Complimentary
+   */
+  async getPaymentMethodBreakdown(
+    scope: ReportScope,
+    startDate: Date,
+    endDate: Date
+  ): Promise<PaymentMethodBreakdownData> {
+    const breakdownByCurrency: PaymentMethodBreakdownData = {};
+    const ALL_CATEGORIES: PaymentMethodCategory[] = [
+      'Cash',
+      'UPI',
+      'Card',
+      'Bank Transfer',
+      'Online',
+      'Other / Complimentary',
+    ];
+
+    const initCurrency = (curr: string) => {
+      if (!breakdownByCurrency[curr]) {
+        breakdownByCurrency[curr] = ALL_CATEGORIES.map((cat) => ({
+          method: cat,
+          count: 0,
+          totalCollected: 0,
+          refundedAmount: 0,
+          netCollected: 0,
+        }));
+      }
+    };
+
+
+    // Query payments associated with bookings in scope and range
+    const payments = await prisma.payment.findMany({
+      where: {
+        status: { in: VALID_PAYMENT_STATUSES },
+        OR: [
+          {
+            booking: {
+              ...scope,
+              date: { gte: startDate, lte: endDate },
+            },
+          },
+          {
+            eventBooking: {
+              event: {
+                ...scope,
+                eventDate: { gte: startDate, lte: endDate },
+              },
+            },
+          },
+        ],
+      },
+      select: {
+        id: true,
+        amount: true,
+        currency: true,
+        paymentMethod: true,
+        provider: true,
+        refundAmount: true,
+      },
+    });
+
+    for (const p of payments) {
+      const currency = p.currency || 'USD';
+      initCurrency(currency);
+
+      const cat = normalizePaymentMethod(p.paymentMethod, p.provider);
+      const catEntry = breakdownByCurrency[currency].find((c) => c.method === cat);
+
+      if (catEntry) {
+        const collected = Number(p.amount);
+        const refunds = Number(p.refundAmount || 0);
+        catEntry.count += 1;
+        catEntry.totalCollected += collected;
+        catEntry.refundedAmount += refunds;
+        catEntry.netCollected += collected - refunds;
+      }
+    }
+
+    return breakdownByCurrency;
+  },
 };
+

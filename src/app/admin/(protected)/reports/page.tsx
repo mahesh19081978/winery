@@ -7,6 +7,9 @@ import {
   StatCard,
   SectionCard,
 } from '@/components/admin/UIComponents';
+import { RevenueTrendChart } from '@/components/admin/reports/RevenueTrendChart';
+import { BookingTrendChart } from '@/components/admin/reports/BookingTrendChart';
+import { PaymentMethodBreakdown } from '@/components/admin/reports/PaymentMethodBreakdown';
 import {
   DollarSign,
   CalendarDays,
@@ -15,7 +18,9 @@ import {
   TrendingUp,
   CreditCard,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  PieChart as PieIcon,
+  BarChart3,
 } from 'lucide-react';
 import { BookingStatus } from '@prisma/client';
 
@@ -70,11 +75,15 @@ export default async function ReportsPage(props: {
     }
   }
 
-  // Fetch Financials
-  const financials = await reportsService.getFinancialSummary(scope, startDate, endDate);
-  
-  // Fetch Utilization
-  const utilization = await reportsService.getExperienceUtilization(scope, startDate, endDate);
+  // Fetch Financials, Trends, Breakdown & Utilization from reportsService
+  const [financials, revenueTrends, bookingTrend, paymentBreakdowns, utilization] = await Promise.all([
+    reportsService.getFinancialSummary(scope, startDate, endDate),
+    reportsService.getRevenueTrend(scope, startDate, endDate),
+    reportsService.getBookingTrend(scope, startDate, endDate),
+    reportsService.getPaymentMethodBreakdown(scope, startDate, endDate),
+    reportsService.getExperienceUtilization(scope, startDate, endDate),
+  ]);
+
 
   // Additional Counters
   const [totalBookingsCount, totalGuestsResult, eventBookingsCount] = await Promise.all([
@@ -224,6 +233,81 @@ export default async function ReportsPage(props: {
           subtitle="Ticketed events"
           icon={Ticket}
         />
+      </div>
+
+      {/* 1. Revenue Trend Section (Separated per currency) */}
+      <div className="space-y-6">
+        <div className="flex items-center gap-2 pb-2 border-b border-stone-200">
+          <TrendingUp className="w-5 h-5 text-[#6c2432]" />
+          <h2 className="text-xl font-serif font-medium text-stone-900">
+            Revenue Trend
+          </h2>
+        </div>
+
+        {currencyKeys.length === 0 ? (
+          <div className="text-center py-8 text-stone-400 bg-stone-50 rounded-xl border border-stone-200 text-xs">
+            No revenue trend data for this period.
+          </div>
+        ) : (
+          currencyKeys.map((currency) => (
+            <SectionCard
+              key={`rev-trend-${currency}`}
+              title={`Revenue Progression (${currency})`}
+              description="Daily Gross Booking Value, Collected Amount, Refunds, and Net Collected"
+            >
+              <RevenueTrendChart
+                data={revenueTrends[currency] || []}
+                currency={currency}
+              />
+            </SectionCard>
+          ))
+        )}
+      </div>
+
+      {/* 2. Booking Trend Section */}
+      <div className="space-y-6">
+        <div className="flex items-center gap-2 pb-2 border-b border-stone-200">
+          <BarChart3 className="w-5 h-5 text-[#6c2432]" />
+          <h2 className="text-xl font-serif font-medium text-stone-900">
+            Booking & Guest Trend
+          </h2>
+        </div>
+
+        <SectionCard
+          title="Reservation Volume Progression"
+          description="Daily valid reservations and daily seated guest counts"
+        >
+          <BookingTrendChart data={bookingTrend} />
+        </SectionCard>
+      </div>
+
+      {/* 3. Payment Method Breakdown Section (Separated per currency) */}
+      <div className="space-y-6">
+        <div className="flex items-center gap-2 pb-2 border-b border-stone-200">
+          <PieIcon className="w-5 h-5 text-[#6c2432]" />
+          <h2 className="text-xl font-serif font-medium text-stone-900">
+            Payment Method Breakdown
+          </h2>
+        </div>
+
+        {currencyKeys.length === 0 ? (
+          <div className="text-center py-8 text-stone-400 bg-stone-50 rounded-xl border border-stone-200 text-xs">
+            No payment transaction records for this period.
+          </div>
+        ) : (
+          currencyKeys.map((currency) => (
+            <SectionCard
+              key={`pm-breakdown-${currency}`}
+              title={`Payment Channels (${currency})`}
+              description="Breakdown by channel: Cash, UPI, Card, Bank Transfer, Online, Other / Complimentary"
+            >
+              <PaymentMethodBreakdown
+                data={paymentBreakdowns[currency] || []}
+                currency={currency}
+              />
+            </SectionCard>
+          ))
+        )}
       </div>
 
       {/* Utilization Table */}
