@@ -30,6 +30,7 @@ import {
   Settings,
   CreditCard,
   X,
+  BarChart3,
 } from 'lucide-react';
 
 interface NavItem {
@@ -50,6 +51,7 @@ const NAVIGATION_SECTIONS: NavSection[] = [
     title: 'OVERVIEW',
     items: [
       { name: 'Dashboard', href: '/admin', icon: LayoutDashboard, isImplemented: true, permission: 'dashboard.view' },
+      { name: 'Reports', href: '/admin/reports', icon: BarChart3, isImplemented: true, permission: 'dashboard.view' },
     ],
   },
   {
