@@ -117,7 +117,7 @@ export function toPublicWine(dbWine: {
     if (!a.isPrimary && b.isPrimary) return 1;
     return a.sortOrder - b.sortOrder;
   });
-  const image = sortedImages[0]?.url || 'https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?auto=format&fit=crop&w=800&q=80';
+  const image = sortedImages[0]?.url || '/images/wines/cabernet.webp';
 
   // Resolve related experience from experienceWines (first active experience, ordered by sortOrder)
   let relatedExperience: { id: string; slug: string; title: string } | null = null;

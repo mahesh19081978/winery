@@ -7,6 +7,7 @@ import { Bookmark, ArrowUpRight } from 'lucide-react';
 import { Wine } from '@/types';
 import { useGuest } from '@/context/GuestContext';
 import RatingStars from '../common/RatingStars';
+import { getSafeImageUrl } from '@/lib/image-fallback';
 
 interface WineCardProps {
   wine: Wine;
@@ -15,13 +16,14 @@ interface WineCardProps {
 export default function WineCard({ wine }: WineCardProps) {
   const { isWineSaved, toggleSavedWine } = useGuest();
   const saved = isWineSaved(wine.id);
+  const safeImage = getSafeImageUrl(wine.image, '/images/wines/cabernet.webp');
 
   return (
     <div className="group bg-white border border-[#e6dece] rounded-2xl overflow-hidden hover:border-[#c5a059] transition-all duration-300 flex flex-col justify-between shadow-sm hover:shadow-md">
       {/* Visual Image Section */}
       <div className="relative h-72 w-full bg-[#f4f0e8] overflow-hidden">
         <Image
-          src={wine.image}
+          src={safeImage}
           alt={wine.name}
           fill
           sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"

@@ -27,6 +27,7 @@ import {
   CreditCard,
 } from 'lucide-react';
 import { openRazorpayCheckout } from '@/lib/payment/razorpay-client';
+import { getSafeImageUrl } from '@/lib/image-fallback';
 
 interface ApiTicketType {
   id: string;
@@ -372,7 +373,7 @@ export default function EventDetailPage() {
 
       {/* Hero */}
       <section className="relative py-20 sm:py-28 bg-[#1e0c10] text-[#faf8f5] overflow-hidden">
-        <Image src={event.featuredImage || 'https://images.unsplash.com/photo-1511192336575-5a79af67a629?auto=format&fit=crop&w=2000&q=85'} alt={event.title} fill priority sizes="100vw" className="object-cover opacity-30" />
+        <Image src={getSafeImageUrl(event.featuredImage, '/images/events/events-hero.webp')} alt={event.title} fill priority sizes="100vw" className="object-cover opacity-30" />
         <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-xs font-semibold uppercase tracking-wider text-[#c5a059] mb-4">
             <Calendar className="w-3.5 h-3.5" />
@@ -454,7 +455,7 @@ export default function EventDetailPage() {
               {event.galleryImages.length > 0 && (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   {event.galleryImages.slice(0, 3).map((img, idx) => (
-                    <div key={idx} className="relative h-40 rounded-2xl overflow-hidden bg-[#f4f0e8]"><Image src={img} alt={`${event.title} gallery ${idx + 1}`} fill className="object-cover" sizes="(max-width:768px) 50vw, 33vw" /></div>
+                    <div key={idx} className="relative h-40 rounded-2xl overflow-hidden bg-[#f4f0e8]"><Image src={getSafeImageUrl(img, '/images/events/wine-jazz.webp')} alt={`${event.title} gallery ${idx + 1}`} fill className="object-cover" sizes="(max-width:768px) 50vw, 33vw" /></div>
                   ))}
                 </div>
               )}

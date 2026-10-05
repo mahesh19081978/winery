@@ -34,9 +34,9 @@ export const mockEvents: WineryEvent[] = [
     ],
     entertainment: 'Live performance by The Marcus Trio (Contrabass, Gypsy guitar, Saxophone & Vocals)',
     gallery: [
-      'https://images.unsplash.com/photo-1511192336575-5a79af67a629?auto=format&fit=crop&w=1200&q=85',
-      'https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?auto=format&fit=crop&w=1200&q=85',
-      'https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?auto=format&fit=crop&w=1200&q=85'
+      '/images/events/wine-jazz.webp',
+      '/images/lifestyle/gallery-hero.webp',
+      '/images/lifestyle/story-craft.webp'
     ],
     faqs: [
       {
@@ -52,7 +52,7 @@ export const mockEvents: WineryEvent[] = [
         answer: 'Yes, ticket holders receive reserved bistro table seating facing the stage with unobstructed vineyard views.'
       }
     ],
-    image: 'https://images.unsplash.com/photo-1511192336575-5a79af67a629?auto=format&fit=crop&w=1200&q=85',
+    image: '/images/events/wine-jazz.webp',
     isPast: false
   },
   {
@@ -89,8 +89,8 @@ export const mockEvents: WineryEvent[] = [
     ],
     entertainment: 'Acoustic Bluegrass & Folk by The Napa Ramblers',
     gallery: [
-      'https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?auto=format&fit=crop&w=1200&q=85',
-      'https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?auto=format&fit=crop&w=1200&q=85'
+      '/images/events/harvest-festival.webp',
+      '/images/experiences/harvest-walk.webp'
     ],
     faqs: [
       {
@@ -102,7 +102,7 @@ export const mockEvents: WineryEvent[] = [
         answer: 'The event moves smoothly into our historic stone fermentation hall and barrel chai.'
       }
     ],
-    image: 'https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?auto=format&fit=crop&w=1200&q=85',
+    image: '/images/events/harvest-festival.webp',
     isPast: false
   },
   {
@@ -139,7 +139,7 @@ export const mockEvents: WineryEvent[] = [
     ],
     entertainment: 'Educational symposium led by Master of Wine candidate Julien Martel',
     gallery: [
-      'https://images.unsplash.com/photo-1516594915697-87eb3b1c14ea?auto=format&fit=crop&w=1200&q=85'
+      '/images/events/masterclass-cabernet.webp'
     ],
     faqs: [
       {
@@ -151,7 +151,7 @@ export const mockEvents: WineryEvent[] = [
         answer: 'Attendees have priority reservation rights to purchase from the estate museum cellar.'
       }
     ],
-    image: 'https://images.unsplash.com/photo-1516594915697-87eb3b1c14ea?auto=format&fit=crop&w=1200&q=85',
+    image: '/images/events/masterclass-cabernet.webp',
     isPast: false
   },
   {
@@ -182,10 +182,10 @@ export const mockEvents: WineryEvent[] = [
     ],
     entertainment: 'DJ set with live saxophonist',
     gallery: [
-      'https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?auto=format&fit=crop&w=1200&q=85'
+      '/images/events/white-soiree.webp'
     ],
     faqs: [],
-    image: 'https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?auto=format&fit=crop&w=1200&q=85',
+    image: '/images/events/white-soiree.webp',
     isPast: true
   }
 ];

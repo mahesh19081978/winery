@@ -8,7 +8,7 @@ export const CATEGORY_LABELS: Record<string, Experience['category']> = {
 };
 
 const FALLBACK_IMAGE =
-  'https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?auto=format&fit=crop&w=1200&q=85';
+  '/images/experiences/experiences-hero.webp';
 
 type DbExperience = {
   id: string;

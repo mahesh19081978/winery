@@ -4,18 +4,21 @@ import Image from 'next/image';
 import { Calendar, Clock, MapPin, ArrowRight } from 'lucide-react';
 import { WineryEvent } from '@/types';
 import StatusBadge from '../common/StatusBadge';
+import { getSafeImageUrl } from '@/lib/image-fallback';
 
 interface EventCardProps {
   event: WineryEvent;
 }
 
 export default function EventCard({ event }: EventCardProps) {
+  const safeImage = getSafeImageUrl(event.image, '/images/events/wine-jazz.webp');
+
   return (
     <div className="group bg-white border border-[#e6dece] rounded-2xl overflow-hidden hover:border-[#c5a059] transition-all duration-300 flex flex-col justify-between shadow-sm hover:shadow-md">
       {/* Media */}
       <div className="relative h-60 w-full bg-[#f4f0e8] overflow-hidden">
         <Image
-          src={event.image}
+          src={safeImage}
           alt={event.title}
           fill
           sizes="(max-width: 768px) 100vw, 33vw"

@@ -4,18 +4,21 @@ import Image from 'next/image';
 import { Clock, Wine as WineIcon, ArrowRight } from 'lucide-react';
 import { Experience } from '@/types';
 import RatingStars from '../common/RatingStars';
+import { getSafeImageUrl } from '@/lib/image-fallback';
 
 interface ExperienceCardProps {
   experience: Experience;
 }
 
 export default function ExperienceCard({ experience }: ExperienceCardProps) {
+  const safeImage = getSafeImageUrl(experience.image, '/images/experiences/signature-tasting.webp');
+
   return (
     <div className="group bg-white border border-[#e6dece] rounded-2xl overflow-hidden hover:border-[#c5a059] transition-all duration-300 flex flex-col justify-between shadow-sm hover:shadow-md">
       {/* Media */}
       <div className="relative h-64 w-full bg-[#f4f0e8] overflow-hidden">
         <Image
-          src={experience.image}
+          src={safeImage}
           alt={experience.title}
           fill
           sizes="(max-width: 768px) 100vw, 50vw"

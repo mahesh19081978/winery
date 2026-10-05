@@ -137,7 +137,7 @@ export default function TastingsPage() {
                     <div className="flex items-center gap-4">
                       <div className="w-14 h-18 relative bg-stone-100 rounded-xl overflow-hidden shrink-0 border border-stone-100">
                         <Image
-                          src={wine?.image || 'https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?q=80&w=400&auto=format&fit=crop'}
+                          src={wine?.image || '/images/wines/cabernet.webp'}
                           alt={wine?.name || record.wineName}
                           fill
                           className="object-cover"

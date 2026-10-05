@@ -57,7 +57,7 @@ export const mockExperiences: Experience[] = [
         answer: 'Complimentary valet parking is provided at our main gates. Rideshare drop-off is directly in front of the reception salon.'
       }
     ],
-    image: 'https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?auto=format&fit=crop&w=1200&q=85',
+    image: '/images/experiences/signature-tasting.webp',
     featured: true,
     badge: 'Guest Favorite'
   },
@@ -114,7 +114,7 @@ export const mockExperiences: Experience[] = [
         answer: 'Our caves are naturally chilled year-round at approximately 12°C (54°F) with 80% relative humidity. We advise warm layers.'
       }
     ],
-    image: 'https://images.unsplash.com/photo-1516594915697-87eb3b1c14ea?auto=format&fit=crop&w=1200&q=85',
+    image: '/images/experiences/cellar-tour.webp',
     featured: true,
     badge: 'Sommelier Recommended'
   },
@@ -169,7 +169,7 @@ export const mockExperiences: Experience[] = [
         answer: 'Yes. With 48 hours advance notice, our culinary team can prepare vegetarian, gluten-free, or pescatarian alternatives.'
       }
     ],
-    image: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=1200&q=85',
+    image: '/images/experiences/sunset-dinner.webp',
     featured: true,
     badge: 'Exclusive Experience'
   },
@@ -218,7 +218,7 @@ export const mockExperiences: Experience[] = [
         answer: 'Leashed, well-behaved dogs are warmly welcomed in outdoor vineyard picnic areas.'
       }
     ],
-    image: 'https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?auto=format&fit=crop&w=1200&q=85',
+    image: '/images/experiences/vineyard-picnic.webp',
     featured: false
   },
   {
@@ -272,7 +272,7 @@ export const mockExperiences: Experience[] = [
         answer: 'No prior sommelier certification is required. The session is tailored precisely to your comfort and knowledge level.'
       }
     ],
-    image: 'https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?auto=format&fit=crop&w=1200&q=85',
+    image: '/images/experiences/sommelier-masterclass.webp',
     featured: false
   },
   {
@@ -322,7 +322,7 @@ export const mockExperiences: Experience[] = [
         answer: 'The morning walk departs promptly at 8:30 AM to capture the pleasant early morning light and temperature.'
       }
     ],
-    image: 'https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?auto=format&fit=crop&w=1200&q=85',
+    image: '/images/experiences/harvest-walk.webp',
     featured: false
   }
 ];
