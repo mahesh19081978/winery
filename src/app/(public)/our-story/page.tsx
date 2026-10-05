@@ -3,20 +3,22 @@ import Image from 'next/image';
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { Leaf, Mountain, ArrowRight } from 'lucide-react';
+import { WebsiteImageService } from '@/server/services';
 
 export const metadata: Metadata = {
   title: 'Our Heritage & Terroir | VINORA',
   description: 'Four centuries of viticultural devotion in the Rutherford bench, dedicated to organic and biodynamic winemaking.'
 };
 
-export default function OurStoryPage() {
+export default async function OurStoryPage() {
+  const images = await WebsiteImageService.resolvePublicImages();
   return (
     <div className="w-full pt-20">
       {/* Editorial Hero */}
       <section className="relative py-24 sm:py-36 bg-[#1e0c10] text-[#faf8f5] overflow-hidden">
         <Image
-          src="https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?auto=format&fit=crop&w=2000&q=85"
-          alt="Ancient terraced vineyards"
+          src={images.OUR_STORY_HERO.url}
+          alt={images.OUR_STORY_HERO.alt}
           fill
           priority
           className="object-cover opacity-35"
@@ -56,8 +58,8 @@ export default function OurStoryPage() {
             <div className="lg:col-span-6 relative">
               <div className="relative h-[480px] rounded-3xl overflow-hidden shadow-2xl border border-[#e6dece]">
                 <Image
-                  src="https://images.unsplash.com/photo-1528823872057-9c018a7a7553?auto=format&fit=crop&w=1200&q=85"
-                  alt="Ancient vine roots in limestone"
+                  src={images.OUR_STORY_TERROIR.url}
+                  alt={images.OUR_STORY_TERROIR.alt}
                   fill
                   className="object-cover"
                 />
@@ -74,8 +76,8 @@ export default function OurStoryPage() {
             <div className="lg:col-span-6 order-2 lg:order-1 relative">
               <div className="relative h-[480px] rounded-3xl overflow-hidden shadow-2xl border border-[#e6dece]">
                 <Image
-                  src="https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?auto=format&fit=crop&w=1200&q=85"
-                  alt="Winemaker inspecting barrels"
+                  src={images.OUR_STORY_WINEMAKING.url}
+                  alt={images.OUR_STORY_WINEMAKING.alt}
                   fill
                   className="object-cover"
                 />
@@ -130,7 +132,7 @@ export default function OurStoryPage() {
             <div className="bg-white border border-[#e6dece] rounded-3xl p-6 text-center space-y-4 shadow-sm">
               <div className="relative w-32 h-32 mx-auto rounded-full overflow-hidden border-2 border-[#c5a059]">
                 <Image
-                  src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=400&q=80"
+                  src="/images/team/julien.webp"
                   alt="Julien de Rêve"
                   fill
                   className="object-cover"
@@ -150,7 +152,7 @@ export default function OurStoryPage() {
             <div className="bg-white border border-[#e6dece] rounded-3xl p-6 text-center space-y-4 shadow-sm">
               <div className="relative w-32 h-32 mx-auto rounded-full overflow-hidden border-2 border-[#c5a059]">
                 <Image
-                  src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=400&q=80"
+                  src="/images/team/elisabeth.webp"
                   alt="Élisabeth de Rêve"
                   fill
                   className="object-cover"
@@ -170,7 +172,7 @@ export default function OurStoryPage() {
             <div className="bg-white border border-[#e6dece] rounded-3xl p-6 text-center space-y-4 shadow-sm">
               <div className="relative w-32 h-32 mx-auto rounded-full overflow-hidden border-2 border-[#c5a059]">
                 <Image
-                  src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=400&q=80"
+                  src="/images/team/laurent.webp"
                   alt="Laurent Mercier"
                   fill
                   className="object-cover"

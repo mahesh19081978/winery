@@ -11,8 +11,10 @@ import { mockExperiences } from '@/data/experiences';
 import { mockWines } from '@/data/wines';
 import { mockEvents } from '@/data/events';
 import { mockReviews } from '@/data/reviews';
+import { WebsiteImageService } from '@/server/services';
 
-export default function HomePage() {
+export default async function HomePage() {
+  const images = await WebsiteImageService.resolvePublicImages();
   const featuredExperiences = mockExperiences.slice(0, 3);
   const signatureWines = mockWines.slice(0, 3);
   const upcomingEvents = mockEvents.filter((e) => !e.isPast).slice(0, 3);
@@ -23,8 +25,8 @@ export default function HomePage() {
       {/* 1. HERO SECTION */}
       <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
         <Image
-          src="https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?auto=format&fit=crop&w=2000&q=90"
-          alt="Sunlit terraces and vineyards of VINORA"
+          src={images.HOME_HERO.url}
+          alt={images.HOME_HERO.alt}
           fill
           priority
           className="object-cover object-center scale-105 animate-in fade-in duration-1000"
@@ -78,8 +80,8 @@ export default function HomePage() {
             <div className="lg:col-span-6 relative">
               <div className="relative h-[480px] sm:h-[580px] rounded-3xl overflow-hidden shadow-2xl border border-[#e6dece]">
                 <Image
-                  src="https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?auto=format&fit=crop&w=1200&q=85"
-                  alt="Winemaker pouring estate vintage in stone cellar"
+                  src={images.HOME_STORY.url}
+                  alt={images.HOME_STORY.alt}
                   fill
                   className="object-cover"
                 />
@@ -220,8 +222,8 @@ export default function HomePage() {
       {/* 6. VINEYARD / WINERY VISUAL SECTION (Cinematic Panorama) */}
       <section className="relative py-32 sm:py-40 bg-[#1e0c10] text-white overflow-hidden">
         <Image
-          src="https://images.unsplash.com/photo-1516594915697-87eb3b1c14ea?auto=format&fit=crop&w=2000&q=85"
-          alt="Oak barrels in candlelit cellar"
+          src={images.HOME_CELLAR.url}
+          alt={images.HOME_CELLAR.alt}
           fill
           className="object-cover opacity-35"
         />
@@ -373,8 +375,8 @@ export default function HomePage() {
             {/* Map Placeholder Graphic */}
             <div className="lg:col-span-5 relative h-80 sm:h-96 rounded-3xl overflow-hidden border border-[#e6dece] shadow-md bg-[#e6dece] flex items-center justify-center text-center p-6">
               <Image
-                src="https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=800&q=80"
-                alt="Winery grounds and estate driveway"
+                src={images.HOME_VISIT.url}
+                alt={images.HOME_VISIT.alt}
                 fill
                 className="object-cover opacity-75"
               />
@@ -402,8 +404,8 @@ export default function HomePage() {
       <section className="relative py-24 sm:py-28 bg-[#2d1117] text-[#faf8f5] overflow-hidden">
         <div className="absolute inset-0 opacity-15">
           <Image
-            src="https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?auto=format&fit=crop&w=2000&q=85"
-            alt="Sunset over vineyard"
+            src={images.HOME_CTA.url}
+            alt={images.HOME_CTA.alt}
             fill
             className="object-cover"
           />

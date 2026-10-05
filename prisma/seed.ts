@@ -17,6 +17,7 @@ import { mockGalleryItems } from '../src/data/gallery';
 import { mockReviews } from '../src/data/reviews';
 import { mockGuestProfile, mockTastingRecords } from '../src/data/tastings';
 import { initialMockBookings } from '../src/data/bookings';
+import { getWebsiteImageDefinitions } from '../src/lib/website-images';
 
 const prisma = new PrismaClient();
 
@@ -468,6 +469,30 @@ async function main() {
     });
   }
   console.log('Seeded/verified ' + mockGalleryItems.length + ' gallery images');
+
+  // 6b. Website image slots (registry defaults; never overwrites admin customizations)
+  for (const def of getWebsiteImageDefinitions()) {
+    await prisma.websiteImage.upsert({
+      where: {
+        wineryId_key: {
+          wineryId: winery.id,
+          key: def.key,
+        },
+      },
+      update: {},
+      create: {
+        wineryId: winery.id,
+        key: def.key,
+        pageGroup: def.group,
+        url: null,
+        altText: null,
+        source: 'DEFAULT',
+        isCustomized: false,
+        defaultUrl: def.defaultUrl,
+      },
+    });
+  }
+  console.log('Seeded/verified ' + getWebsiteImageDefinitions().length + ' website image slots');
 
   // 7. Bookings, BookingItems, BookingGuests, and BookingStatusHistory
   const bookingIdMap = new Map<string, string>(); // bookingNumber -> db uuid

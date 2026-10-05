@@ -21,6 +21,7 @@ import {
   WebhookRepository,
   UserRepository,
   GuestDeletionRepository,
+  WebsiteImageRepository,
   type GuestDeletionTarget,
   type GuestDeletionImpact,
   type GuestDeletionCounts,
@@ -75,6 +76,18 @@ import {
   type AdminPaymentDetailDto,
 } from '@/lib/payment/admin-dto';
 import { createHash, randomBytes } from 'crypto';
+import { getSafeImageUrl } from '@/lib/image-fallback';
+import { deleteWebsiteImageFile } from '@/lib/storage';
+import {
+  WEBSITE_IMAGES,
+  getWebsiteImageDefinitions,
+  type WebsiteImageAdminRecord,
+  type WebsiteImageDefinition,
+  type WebsiteImageKey,
+  type CropMetadata,
+} from '@/lib/website-images';
+
+export type { WebsiteImageAdminRecord };
 
 export class EventBookingError extends Error {
   statusCode: number;
@@ -4555,6 +4568,327 @@ export class PaymentService {
       bookingNumber: booking.bookingNumber,
       bookingType: input.bookingType,
       status: updatedPayment.status,
+    };
+  }
+}
+
+export interface ResolvedWebsiteImage {
+  url: string;
+  alt: string;
+  isCustomized: boolean;
+}
+
+export interface WebsiteImageCustomInput {
+  wineryId: string;
+  key: WebsiteImageKey;
+  url: string;
+  altText?: string | null;
+  width?: number | null;
+  height?: number | null;
+  mime?: string | null;
+  filename?: string | null;
+  originalUrl?: string | null;
+  cropData?: CropMetadata | null;
+  updatedById: string | null;
+}
+
+export interface WebsiteImageMutationResult {
+  record: WebsiteImageAdminRecord | null;
+  previousUrl: string | null;
+}
+
+export class WebsiteImageService {
+  private static parseCropData(raw: string | null | undefined): CropMetadata | null {
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed === 'object' && parsed !== null && 'targetAspectRatio' in parsed) {
+        return parsed as CropMetadata;
+      }
+    } catch {
+      // invalid JSON, ignore
+    }
+    return null;
+  }
+
+  private static normalizeAltText(def: WebsiteImageDefinition, altText: string | null | undefined): string | null {
+    const trimmed = (altText ?? '').trim();
+    if (!trimmed || trimmed === def.defaultAlt) return null;
+    return trimmed;
+  }
+
+  private static defaultResolved(def: WebsiteImageDefinition): ResolvedWebsiteImage {
+    return { url: def.defaultUrl, alt: def.defaultAlt, isCustomized: false };
+  }
+
+  private static resolveRow(
+    def: WebsiteImageDefinition,
+    row: { url: string | null; altText: string | null; isCustomized: boolean; defaultUrl: string } | null | undefined
+  ): ResolvedWebsiteImage {
+    if (!row) return this.defaultResolved(def);
+    const candidate = row.isCustomized && row.url ? row.url : row.defaultUrl || def.defaultUrl;
+    return {
+      url: getSafeImageUrl(candidate, def.defaultUrl),
+      alt: row.altText || def.defaultAlt,
+      isCustomized: Boolean(row.isCustomized && row.url),
+    };
+  }
+
+  private static allDefaults(): Record<WebsiteImageKey, ResolvedWebsiteImage> {
+    const result = {} as Record<WebsiteImageKey, ResolvedWebsiteImage>;
+    for (const def of getWebsiteImageDefinitions()) {
+      result[def.key] = this.defaultResolved(def);
+    }
+    return result;
+  }
+
+  static async resolvePublicImages(): Promise<Record<WebsiteImageKey, ResolvedWebsiteImage>> {
+    try {
+      const defs = getWebsiteImageDefinitions();
+      const wineryId = await WebsiteImageRepository.findDefaultWineryId();
+      if (!wineryId) return this.allDefaults();
+
+      const rows = await WebsiteImageRepository.findAllByWinery(wineryId);
+      const byKey = new Map(rows.map((row) => [row.key, row]));
+
+      const result = {} as Record<WebsiteImageKey, ResolvedWebsiteImage>;
+      for (const def of defs) {
+        result[def.key] = this.resolveRow(def, byKey.get(def.key) ?? null);
+      }
+      return result;
+    } catch (error) {
+      console.error('Failed to resolve website images, using defaults:', error);
+      return this.allDefaults();
+    }
+  }
+
+  static async resolvePublicImage(key: WebsiteImageKey): Promise<ResolvedWebsiteImage> {
+    const images = await this.resolvePublicImages();
+    return images[key];
+  }
+
+  static async getAdminRecords(wineryId: string): Promise<WebsiteImageAdminRecord[]> {
+    const defs = getWebsiteImageDefinitions();
+    const rows = await WebsiteImageRepository.findAllByWinery(wineryId);
+    const byKey = new Map(rows.map((row) => [row.key, row]));
+
+    return defs.map((def) => {
+      const row = byKey.get(def.key) ?? null;
+      const resolved = this.resolveRow(def, row);
+      return {
+        key: def.key,
+        group: def.group,
+        label: def.label,
+        defaultUrl: def.defaultUrl,
+        defaultAlt: def.defaultAlt,
+        routes: def.routes,
+        targetAspectRatio: def.targetAspectRatio,
+        aspectRatioLabel: def.aspectRatioLabel,
+        outputDimensions: def.outputDimensions,
+        url: row?.url ?? null,
+        altText: row?.altText ?? null,
+        resolvedUrl: resolved.url,
+        resolvedAlt: resolved.alt,
+        isCustomized: resolved.isCustomized,
+        source: row?.source ?? 'DEFAULT',
+        width: row?.width ?? null,
+        height: row?.height ?? null,
+        mime: row?.mime ?? null,
+        uploadedFilename: row?.uploadedFilename ?? null,
+        originalUrl: row?.originalUrl ?? null,
+        cropData: this.parseCropData(row?.cropData),
+        updatedByName: row?.updatedBy ? row.updatedBy.name || row.updatedBy.email : null,
+        updatedAt: row?.updatedAt ? row.updatedAt.toISOString() : null,
+      };
+    });
+  }
+
+  private static isOwnUploadUrl(url: string): boolean {
+    return url.startsWith('/uploads/website/') || url.includes('blob.vercel-storage.com');
+  }
+
+  private static async cleanupReplacedUrl(wineryId: string, previousUrl: string | null, keepUrls: string[], key: WebsiteImageKey) {
+    if (!previousUrl) return;
+    if (keepUrls.includes(previousUrl)) return;
+    if (previousUrl.startsWith('/images/')) return;
+    if (!this.isOwnUploadUrl(previousUrl)) return;
+    try {
+      const remaining = await WebsiteImageRepository.countReferencesToUrl(wineryId, previousUrl, key);
+      if (remaining > 0) return;
+      await deleteWebsiteImageFile(previousUrl);
+    } catch (error) {
+      console.error('Website image cleanup failed (non-fatal):', error);
+    }
+  }
+
+  static async applyCustomImage(input: WebsiteImageCustomInput): Promise<WebsiteImageMutationResult> {
+    const def = WEBSITE_IMAGES[input.key];
+    if (!def) throw new Error(`Unknown website image key '${input.key}'`);
+    if (!this.isOwnUploadUrl(input.url)) {
+      throw new Error('Invalid image URL. Please upload the image through the admin upload control.');
+    }
+
+    const existing = await WebsiteImageRepository.findByKey(input.wineryId, input.key);
+    const previousUrl = existing?.url ?? null;
+    const previousOriginalUrl = existing?.originalUrl ?? null;
+
+    const originalUrlToSave = input.originalUrl !== undefined
+      ? input.originalUrl
+      : (existing?.originalUrl ?? input.url);
+
+    const cropDataToSave = input.cropData !== undefined
+      ? (input.cropData ? JSON.stringify(input.cropData) : null)
+      : (existing?.cropData ?? null);
+
+    const row = await WebsiteImageRepository.upsertByKey({
+      wineryId: input.wineryId,
+      key: input.key,
+      pageGroup: def.group,
+      defaultUrl: def.defaultUrl,
+      data: {
+        url: input.url,
+        altText:
+          input.altText === undefined
+            ? existing?.altText ?? null
+            : this.normalizeAltText(def, input.altText),
+        source: 'UPLOAD',
+        isCustomized: true,
+        width: input.width ?? null,
+        height: input.height ?? null,
+        mime: input.mime ?? null,
+        uploadedFilename: input.filename ?? existing?.uploadedFilename ?? null,
+        originalUrl: originalUrlToSave,
+        cropData: cropDataToSave,
+        updatedById: input.updatedById,
+      },
+    });
+
+    const keepUrls = [input.url, originalUrlToSave].filter(Boolean) as string[];
+    await this.cleanupReplacedUrl(input.wineryId, previousUrl, keepUrls, input.key);
+    if (previousOriginalUrl && previousOriginalUrl !== originalUrlToSave) {
+      await this.cleanupReplacedUrl(input.wineryId, previousOriginalUrl, keepUrls, input.key);
+    }
+
+    return { record: this.toAdminRecord(def, row), previousUrl };
+  }
+
+  static async saveAltText(input: {
+    wineryId: string;
+    key: WebsiteImageKey;
+    altText: string | null;
+    updatedById: string | null;
+  }): Promise<WebsiteImageMutationResult> {
+    const def = WEBSITE_IMAGES[input.key];
+    if (!def) throw new Error(`Unknown website image key '${input.key}'`);
+
+    const existing = await WebsiteImageRepository.findByKey(input.wineryId, input.key);
+
+    const row = await WebsiteImageRepository.upsertByKey({
+      wineryId: input.wineryId,
+      key: input.key,
+      pageGroup: def.group,
+      defaultUrl: def.defaultUrl,
+      data: {
+        url: existing?.url ?? null,
+        altText: this.normalizeAltText(def, input.altText),
+        source: existing?.source ?? 'DEFAULT',
+        isCustomized: existing?.isCustomized ?? false,
+        width: existing?.width ?? null,
+        height: existing?.height ?? null,
+        mime: existing?.mime ?? null,
+        uploadedFilename: existing?.uploadedFilename ?? null,
+        originalUrl: existing?.originalUrl ?? null,
+        cropData: existing?.cropData ?? null,
+        updatedById: input.updatedById,
+      },
+    });
+
+    return { record: this.toAdminRecord(def, row), previousUrl: null };
+  }
+
+  static async resetToDefault(input: {
+    wineryId: string;
+    key: WebsiteImageKey;
+    updatedById: string | null;
+  }): Promise<WebsiteImageMutationResult> {
+    const def = WEBSITE_IMAGES[input.key];
+    if (!def) throw new Error(`Unknown website image key '${input.key}'`);
+
+    const existing = await WebsiteImageRepository.findByKey(input.wineryId, input.key);
+    const previousUrl = existing?.url ?? null;
+    const previousOriginalUrl = existing?.originalUrl ?? null;
+
+    const row = await WebsiteImageRepository.upsertByKey({
+      wineryId: input.wineryId,
+      key: input.key,
+      pageGroup: def.group,
+      defaultUrl: def.defaultUrl,
+      data: {
+        url: null,
+        altText: null,
+        source: 'DEFAULT',
+        isCustomized: false,
+        width: null,
+        height: null,
+        mime: null,
+        uploadedFilename: null,
+        originalUrl: null,
+        cropData: null,
+        updatedById: input.updatedById,
+      },
+    });
+
+    await this.cleanupReplacedUrl(input.wineryId, previousUrl, [], input.key);
+    if (previousOriginalUrl) {
+      await this.cleanupReplacedUrl(input.wineryId, previousOriginalUrl, [], input.key);
+    }
+
+    return { record: this.toAdminRecord(def, row), previousUrl };
+  }
+
+  private static toAdminRecord(
+    def: WebsiteImageDefinition,
+    row: {
+      url: string | null;
+      altText: string | null;
+      isCustomized: boolean;
+      defaultUrl: string;
+      source: string;
+      width: number | null;
+      height: number | null;
+      mime: string | null;
+      uploadedFilename: string | null;
+      originalUrl?: string | null;
+      cropData?: string | null;
+      updatedAt: Date;
+      updatedBy: { name: string | null; email: string } | null;
+    }
+  ): WebsiteImageAdminRecord {
+    const resolved = this.resolveRow(def, row);
+    return {
+      key: def.key,
+      group: def.group,
+      label: def.label,
+      defaultUrl: def.defaultUrl,
+      defaultAlt: def.defaultAlt,
+      routes: def.routes,
+      targetAspectRatio: def.targetAspectRatio,
+      aspectRatioLabel: def.aspectRatioLabel,
+      outputDimensions: def.outputDimensions,
+      url: row.url,
+      altText: row.altText,
+      resolvedUrl: resolved.url,
+      resolvedAlt: resolved.alt,
+      isCustomized: resolved.isCustomized,
+      source: row.source,
+      width: row.width,
+      height: row.height,
+      mime: row.mime,
+      uploadedFilename: row.uploadedFilename,
+      originalUrl: row.originalUrl ?? null,
+      cropData: this.parseCropData(row.cropData),
+      updatedByName: row.updatedBy ? row.updatedBy.name || row.updatedBy.email : null,
+      updatedAt: row.updatedAt.toISOString(),
     };
   }
 }

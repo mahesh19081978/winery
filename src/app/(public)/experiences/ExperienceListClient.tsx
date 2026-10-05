@@ -9,9 +9,10 @@ const CATEGORIES = ['All', 'Tasting', 'Tour', 'Culinary', 'Private'] as const;
 
 interface ExperienceListClientProps {
   experiences: Experience[];
+  hero: { url: string; alt: string };
 }
 
-export default function ExperienceListClient({ experiences }: ExperienceListClientProps) {
+export default function ExperienceListClient({ experiences, hero }: ExperienceListClientProps) {
   const [selectedCategory, setSelectedCategory] = useState<typeof CATEGORIES[number]>('All');
 
   const filteredExperiences = useMemo(() => {
@@ -24,8 +25,8 @@ export default function ExperienceListClient({ experiences }: ExperienceListClie
       {/* Page Hero */}
       <section className="relative py-20 sm:py-28 bg-[#1e0c10] text-[#faf8f5] overflow-hidden">
         <Image
-          src="https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?auto=format&fit=crop&w=2000&q=85"
-          alt="Estate tasting salon overlooking terrace"
+          src={hero.url}
+          alt={hero.alt}
           fill
           priority
           className="object-cover opacity-25"

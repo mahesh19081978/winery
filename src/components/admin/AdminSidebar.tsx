@@ -23,6 +23,7 @@ import {
   CalendarCheck,
   Star,
   Image,
+  ImagePlus,
   Mail,
   MessagesSquare,
   Bell,
@@ -97,6 +98,7 @@ const NAVIGATION_SECTIONS: NavSection[] = [
     items: [
       { name: 'Reviews', href: '/admin/reviews', icon: Star, isImplemented: true, permission: 'reviews.view' },
       { name: 'Gallery', href: '/admin/gallery', icon: Image, isImplemented: true, permission: 'gallery.manage' },
+      { name: 'Website Images', href: '/admin/website-images', icon: ImagePlus, isImplemented: true, permission: 'website.images.manage' },
       { name: 'Contact Inquiries', href: '/admin/contact-inquiries', icon: Mail, isImplemented: true, permission: 'inquiries.view' },
     ],
   },

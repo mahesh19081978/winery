@@ -16,7 +16,13 @@ const SORT_OPTIONS = [
   { label: 'Price (Low to High)', value: 'price-asc' }
 ];
 
-export default function WinesClient({ wines }: { wines: PublicWineShape[] }) {
+export default function WinesClient({
+  wines,
+  hero,
+}: {
+  wines: PublicWineShape[];
+  hero: { url: string; alt: string };
+}) {
   const [selectedCategory, setSelectedCategory] = useState<'All' | WineCategory>('All');
   const [selectedSort, setSelectedSort] = useState('featured');
 
@@ -46,8 +52,8 @@ export default function WinesClient({ wines }: { wines: PublicWineShape[] }) {
     <div className="w-full pt-20">
       <section className="relative py-20 sm:py-28 bg-[#1e0c10] text-[#faf8f5] overflow-hidden">
         <Image
-          src="https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?auto=format&fit=crop&w=2000&q=85"
-          alt="Vintage cellar collection"
+          src={hero.url}
+          alt={hero.alt}
           fill
           priority
           className="object-cover opacity-25"

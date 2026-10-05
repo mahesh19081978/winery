@@ -152,6 +152,7 @@ model Winery {
   bookings           Booking[]
   reviews            Review[]
   galleryImages      GalleryImage[]
+  websiteImages      WebsiteImage[]
   closures           WineryClosure[]
   availabilityRules  AvailabilityRule[]
   contactInquiries   ContactInquiry[]
@@ -194,6 +195,7 @@ model User {
   guestProfile GuestProfile?
   passwordResetTokens PasswordResetToken[]
   assignedContactInquiries ContactInquiry[]
+  updatedWebsiteImages WebsiteImage[]
 
   @@index([role])
   @@map("users")
@@ -907,6 +909,37 @@ model GalleryImage {
   @@unique([wineryId, title])
   @@index([wineryId, category])
   @@map("gallery_images")
+}
+
+// ----------------------------------------------------
+// 10b. Website Marketing Images (static public-page slots)
+// ----------------------------------------------------
+model WebsiteImage {
+  id               String   @id @default(uuid())
+  wineryId         String
+  key              String   // e.g. "HOME_HERO"
+  pageGroup        String   // e.g. "Home", "Our Story"
+  url              String?  // custom (Vercel Blob / upload) URL when customized
+  altText          String?
+  source           String   @default("DEFAULT") // DEFAULT | SEED | UPLOAD
+  isCustomized     Boolean  @default(false)
+  defaultUrl       String   // permanent local default (public/images/...)
+  width            Int?
+  height           Int?
+  mime             String?
+  uploadedFilename String?
+  originalUrl      String?  // original uncropped upload URL preserved for re-editing
+  cropData         String?  @db.Text // JSON stringified CropMetadata { cropX, cropY, cropWidth, cropHeight, zoom, targetAspectRatio }
+  updatedById      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  winery    Winery   @relation(fields: [wineryId], references: [id], onDelete: Cascade)
+  updatedBy User?    @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@unique([wineryId, key])
+  @@index([wineryId])
+  @@map("website_images")
 }
 
 // ----------------------------------------------------

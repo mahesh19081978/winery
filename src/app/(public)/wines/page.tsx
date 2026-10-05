@@ -1,5 +1,5 @@
 import React from 'react';
-import { WineService } from '@/server/services';
+import { WineService, WebsiteImageService } from '@/server/services';
 import { toPublicWine } from '@/lib/wine-map';
 import WinesClient from './WinesClient';
 
@@ -13,5 +13,6 @@ export default async function WinesPage() {
   } catch {
     publicWines = [];
   }
-  return <WinesClient wines={publicWines} />;
+  const hero = await WebsiteImageService.resolvePublicImage('WINES_HERO');
+  return <WinesClient wines={publicWines} hero={{ url: hero.url, alt: hero.alt }} />;
 }

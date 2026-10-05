@@ -3899,3 +3899,82 @@ export class GuestDeletionRepository {
   }
 }
 
+
+
+export class WebsiteImageRepository {
+  static async findDefaultWineryId(): Promise<string | null> {
+    const winery = await prisma.winery.findFirst({
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    return winery ? winery.id : null;
+  }
+
+  static async findAllByWinery(wineryId: string) {
+    return prisma.websiteImage.findMany({
+      where: { wineryId },
+      include: {
+        updatedBy: { select: { name: true, email: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  static async findByKey(wineryId: string, key: string) {
+    return prisma.websiteImage.findUnique({
+      where: { wineryId_key: { wineryId, key } },
+      include: {
+        updatedBy: { select: { name: true, email: true } },
+      },
+    });
+  }
+
+  static async upsertByKey(input: {
+    wineryId: string;
+    key: string;
+    pageGroup: string;
+    defaultUrl: string;
+    data: {
+      url: string | null;
+      altText: string | null;
+      source: string;
+      isCustomized: boolean;
+      width: number | null;
+      height: number | null;
+      mime: string | null;
+      uploadedFilename: string | null;
+      originalUrl?: string | null;
+      cropData?: string | null;
+      updatedById: string | null;
+    };
+  }) {
+    return prisma.websiteImage.upsert({
+      where: { wineryId_key: { wineryId: input.wineryId, key: input.key } },
+      create: {
+        wineryId: input.wineryId,
+        key: input.key,
+        pageGroup: input.pageGroup,
+        defaultUrl: input.defaultUrl,
+        ...input.data,
+      },
+      update: {
+        pageGroup: input.pageGroup,
+        defaultUrl: input.defaultUrl,
+        ...input.data,
+      },
+      include: {
+        updatedBy: { select: { name: true, email: true } },
+      },
+    });
+  }
+
+  static async countReferencesToUrl(wineryId: string, url: string, excludeKey: string) {
+    return prisma.websiteImage.count({
+      where: {
+        wineryId,
+        OR: [{ url }, { originalUrl: url }],
+        key: { not: excludeKey },
+      },
+    });
+  }
+}

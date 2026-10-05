@@ -13,6 +13,7 @@ import {
   CheckCircle,
   Accessibility
 } from 'lucide-react';
+import { WebsiteImageService } from '@/server/services';
 
 export const metadata: Metadata = {
   title: 'Plan Your Visit | VINORA',
@@ -38,14 +39,15 @@ const VISIT_FAQS = [
   }
 ];
 
-export default function VisitPage() {
+export default async function VisitPage() {
+  const images = await WebsiteImageService.resolvePublicImages();
   return (
     <div className="w-full pt-20">
       {/* Hero */}
       <section className="relative py-20 sm:py-28 bg-[#1e0c10] text-[#faf8f5] overflow-hidden">
         <Image
-          src="https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=2000&q=85"
-          alt="Estate entrance and vineyard road"
+          src={images.VISIT_HERO.url}
+          alt={images.VISIT_HERO.alt}
           fill
           priority
           className="object-cover opacity-25"
@@ -160,8 +162,8 @@ export default function VisitPage() {
               {/* Interactive map representation */}
               <div className="relative h-80 rounded-3xl overflow-hidden border border-[#e6dece] shadow-lg bg-[#e6dece]">
                 <Image
-                  src="https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?auto=format&fit=crop&w=1200&q=85"
-                  alt="Vineyard overhead terrain"
+                  src={images.VISIT_ESTATE.url}
+                  alt={images.VISIT_ESTATE.alt}
                   fill
                   className="object-cover"
                 />
