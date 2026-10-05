@@ -77,7 +77,7 @@ import {
 } from '@/lib/payment/admin-dto';
 import { createHash, randomBytes } from 'crypto';
 import { getSafeImageUrl } from '@/lib/image-fallback';
-import { deleteWebsiteImageFile } from '@/lib/storage';
+import { deleteWebsiteImageFile, deleteEventFile } from '@/lib/storage';
 import {
   WEBSITE_IMAGES,
   getWebsiteImageDefinitions,
@@ -500,7 +500,13 @@ export class EventService {
       throw new EventBookingError('availableTickets cannot exceed maxCapacity', 400);
     }
 
-    return EventRepository.update(id, data);
+    const updated = await EventRepository.update(id, data);
+
+    if (input.featuredImage !== undefined && existing.featuredImage && input.featuredImage !== existing.featuredImage) {
+      await deleteEventFile(existing.featuredImage);
+    }
+
+    return updated;
   }
 
   // Schedules

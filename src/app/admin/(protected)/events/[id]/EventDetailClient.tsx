@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import {
   ArrowLeft,
   CalendarDays,
@@ -22,9 +23,11 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle2,
+  Upload,
   X,
 } from 'lucide-react';
 import { SectionCard, StatCard, StatusBadge } from '@/components/admin/UIComponents';
+import { EventImageManager } from './EventImageManager';
 
 interface EventData {
   id: string;
@@ -97,6 +100,56 @@ export function EventDetailClient({ event: initial }: { event: EventData }) {
   const [eventForm, setEventForm] = useState<Record<string,string>>({});
   const [eventLoading, setEventLoading] = useState(false);
   const [eventError, setEventError] = useState('');
+  const [imageUploading, setImageUploading] = useState(false);
+  const editFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif'];
+    if (!validTypes.includes(file.type)) {
+      setEventError('Invalid file type. Please upload a JPG, PNG, WebP, AVIF, or GIF.');
+      if (editFileInputRef.current) editFileInputRef.current.value = '';
+      return;
+    }
+
+    const MAX_SIZE = 10 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      setEventError('File size exceeds 10MB limit.');
+      if (editFileInputRef.current) editFileInputRef.current.value = '';
+      return;
+    }
+
+    setImageUploading(true);
+    setEventError('');
+
+    try {
+      const data = new FormData();
+      data.append('file', file);
+
+      const res = await fetch('/api/admin/events/upload', {
+        method: 'POST',
+        body: data,
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || 'Upload failed');
+      }
+
+      setEventForm((prev) => ({ ...prev, featuredImage: json.data.url }));
+    } catch (err) {
+      setEventError(err instanceof Error ? err.message : 'File upload failed');
+    } finally {
+      setImageUploading(false);
+      if (editFileInputRef.current) editFileInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setEventForm((prev) => ({ ...prev, featuredImage: '' }));
+  };
 
   const openEventEdit = () => {
     setEventForm({
@@ -313,9 +366,22 @@ export function EventDetailClient({ event: initial }: { event: EventData }) {
               <div><p className="mb-2 text-[10px] uppercase font-mono tracking-wider text-stone-500">Description</p><p className="text-sm leading-relaxed text-stone-700">{event.description}</p></div>
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div className="rounded-lg border border-stone-200 bg-white p-3"><p className="text-[10px] uppercase font-mono text-stone-500">Slug</p><p className="font-mono text-stone-800">{event.slug}</p></div>
-                <div className="rounded-lg border border-stone-200 bg-white p-3"><p className="text-[10px] uppercase font-mono text-stone-500">Featured Image</p><p className="truncate text-stone-700">{event.featuredImage}</p></div>
+                <div className="rounded-lg border border-stone-200 bg-white p-3">
+                  <p className="text-[10px] uppercase font-mono text-stone-500">Featured Image</p>
+                  <p className="truncate text-stone-700">{event.featuredImage || 'None (using fallback)'}</p>
+                </div>
               </div>
             </div>
+          </SectionCard>
+
+          {/* Event Image */}
+          <SectionCard title="Event Image" description="Primary image shown on cards and detail pages">
+            <EventImageManager
+              eventId={event.id}
+              featuredImage={event.featuredImage}
+              title={event.title}
+              onImageUpdated={(newUrl) => setEvent((prev) => ({ ...prev, featuredImage: newUrl }))}
+            />
           </SectionCard>
 
           {/* Schedule Management */}
@@ -460,8 +526,56 @@ export function EventDetailClient({ event: initial }: { event: EventData }) {
                 <div><label className="text-[11px] uppercase font-mono text-stone-600">Available Tickets</label><input type="number" value={eventForm.availableTickets} onChange={(e)=>setEventForm(p=>({...p, availableTickets:e.target.value}))} className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-xs" /></div>
                 <div><label className="text-[11px] uppercase font-mono text-stone-600">Max Capacity</label><input type="number" value={eventForm.maxCapacity} onChange={(e)=>setEventForm(p=>({...p, maxCapacity:e.target.value}))} className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-xs" /></div>
                 <div><label className="text-[11px] uppercase font-mono text-stone-600">Availability</label><select value={eventForm.availability} onChange={(e)=>setEventForm(p=>({...p, availability:e.target.value}))} className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-xs"><option value="AVAILABLE">AVAILABLE</option><option value="FEW_SEATS_LEFT">FEW_SEATS_LEFT</option><option value="SOLD_OUT">SOLD_OUT</option></select></div>
-                <div><label className="text-[11px] uppercase font-mono text-stone-600">Status</label><select value={eventForm.status} onChange={(e)=>setEventForm(p=>({...p, status:e.target.value}))} className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-xs"><option value="UPCOMING">UPCOMING</option><option value="ONGOING">ONGOING</option><option value="COMPLETED">COMPLETED</option><option value="CANCELLED">CANCELLED</option></select></div>
-                <div className="sm:col-span-2"><label className="text-[11px] uppercase font-mono text-stone-600">Featured Image</label><input value={eventForm.featuredImage} onChange={(e)=>setEventForm(p=>({...p, featuredImage:e.target.value}))} className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-xs" /></div>
+                <div className="sm:col-span-2 space-y-2">
+                  <label className="text-[11px] uppercase font-mono text-stone-600">Event Image</label>
+                  <input
+                    type="file"
+                    ref={editFileInputRef}
+                    onChange={handleImageUpload}
+                    accept="image/*"
+                    className="hidden"
+                  />
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      disabled={imageUploading}
+                      onClick={() => editFileInputRef.current?.click()}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-200 rounded-lg hover:bg-stone-50 transition disabled:opacity-50"
+                    >
+                      {imageUploading ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Upload className="w-3.5 h-3.5" />
+                      )}
+                      <span>{imageUploading ? 'Uploading...' : eventForm.featuredImage ? 'Replace Image' : 'Upload Image'}</span>
+                    </button>
+                    {eventForm.featuredImage && (
+                      <button
+                        type="button"
+                        onClick={handleRemoveImage}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-rose-600 hover:text-rose-700 transition"
+                      >
+                        <X className="w-3 h-3" />
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  {eventForm.featuredImage ? (
+                    <div className="relative w-full max-w-sm aspect-[16/9] rounded-lg overflow-hidden border border-stone-200 bg-stone-100">
+                      <Image
+                        src={eventForm.featuredImage}
+                        alt="Event preview"
+                        fill
+                        sizes="400px"
+                        className="object-cover"
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-stone-400">
+                      No image uploaded. A fallback image will be used on public pages.
+                    </p>
+                  )}
+                </div>
                 <div className="sm:col-span-2"><label className="text-[11px] uppercase font-mono text-stone-600">Short Description</label><textarea value={eventForm.shortDescription} onChange={(e)=>setEventForm(p=>({...p, shortDescription:e.target.value}))} rows={2} className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-xs" /></div>
                 <div className="sm:col-span-2"><label className="text-[11px] uppercase font-mono text-stone-600">Description</label><textarea value={eventForm.description} onChange={(e)=>setEventForm(p=>({...p, description:e.target.value}))} rows={3} className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-xs" /></div>
                 <div className="sm:col-span-2"><label className="text-[11px] uppercase font-mono text-stone-600">Wines (comma)</label><input value={eventForm.winesServed} onChange={(e)=>setEventForm(p=>({...p, winesServed:e.target.value}))} className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-xs" /></div>

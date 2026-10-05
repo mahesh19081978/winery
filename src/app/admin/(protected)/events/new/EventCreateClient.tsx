@@ -1,13 +1,15 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
+import Image from 'next/image';
+import { ArrowLeft, AlertCircle, Loader2, CheckCircle2, Upload, X } from 'lucide-react';
 import { SectionCard } from '@/components/admin/UIComponents';
 
 const STATUSES = ['UPCOMING', 'ONGOING', 'COMPLETED', 'CANCELLED'];
 const AVAILABILITY = ['AVAILABLE', 'FEW_SEATS_LEFT', 'SOLD_OUT'];
+const DEFAULT_FALLBACK_IMAGE = '/images/events/wine-jazz.webp';
 
 function slugify(v: string) {
   return v.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -19,6 +21,10 @@ export function EventCreateClient() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  const [imageUrl, setImageUrl] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState({
     title: '',
@@ -44,6 +50,57 @@ export function EventCreateClient() {
 
   const update = (k: string, v: string | boolean) => setForm((p) => ({ ...p, [k]: v }));
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Client-side validation for early feedback
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif'];
+    if (!validTypes.includes(file.type)) {
+      setError('Invalid file type. Please upload a JPG, PNG, WebP, AVIF, or GIF.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    const MAX_SIZE = 10 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      setError('File size exceeds 10MB limit.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    setUploading(true);
+    setError('');
+
+    try {
+      const data = new FormData();
+      data.append('file', file);
+
+      const res = await fetch('/api/admin/events/upload', {
+        method: 'POST',
+        body: data,
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || 'Upload failed');
+      }
+
+      setImageUrl(json.data.url);
+      setForm((prev) => ({ ...prev, featuredImage: json.data.url }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'File upload failed');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setImageUrl('');
+    setForm((prev) => ({ ...prev, featuredImage: '' }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -51,6 +108,8 @@ export function EventCreateClient() {
     setSuccess('');
     setFieldErrors({});
     try {
+      const finalFeaturedImage = imageUrl.trim() || form.featuredImage.trim() || DEFAULT_FALLBACK_IMAGE;
+
       const payload: Record<string, unknown> = {
         title: form.title.trim(),
         slug: form.slug.trim() || slugify(form.title),
@@ -65,7 +124,7 @@ export function EventCreateClient() {
         availableTickets: Number(form.availableTickets),
         maxCapacity: Number(form.maxCapacity),
         entertainment: form.entertainment.trim() || null,
-        featuredImage: form.featuredImage.trim(),
+        featuredImage: finalFeaturedImage,
         winesServed: form.winesServed ? form.winesServed.split(',').map((s) => s.trim()).filter(Boolean) : [],
         culinaryMenu: form.culinaryMenu ? form.culinaryMenu.split(',').map((s) => s.trim()).filter(Boolean) : [],
         galleryImages: form.galleryImages ? form.galleryImages.split(',').map((s) => s.trim()).filter(Boolean) : [],
@@ -123,8 +182,8 @@ export function EventCreateClient() {
         </div>
       )}
 
-      <SectionCard title="Event Information" description="All fields validated server-side. Slug must be lowercase hyphenated.">
-        <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <SectionCard title="Event Information" description="All fields validated server-side. Slug must be lowercase hyphenated.">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="text-[11px] uppercase font-mono tracking-wider text-stone-600">Title *</label>
@@ -175,10 +234,6 @@ export function EventCreateClient() {
               </select>
             </div>
             <div className="sm:col-span-2">
-              <label className="text-[11px] uppercase font-mono tracking-wider text-stone-600">Featured Image URL *</label>
-              <input value={form.featuredImage} onChange={(e) => update('featuredImage', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-[#6c2432]" placeholder="https://..." />
-            </div>
-            <div className="sm:col-span-2">
               <label className="text-[11px] uppercase font-mono tracking-wider text-stone-600">Entertainment</label>
               <input value={form.entertainment} onChange={(e) => update('entertainment', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs" placeholder="Live performance by ..." />
             </div>
@@ -207,16 +262,71 @@ export function EventCreateClient() {
               <label className="text-xs text-stone-700">Mark as past event</label>
             </div>
           </div>
+        </SectionCard>
 
-          <div className="flex items-center justify-end gap-2 border-t border-stone-100 pt-4">
-            <Link href="/admin/events" className="rounded-lg border border-stone-200 bg-white px-4 py-2 text-xs font-medium text-stone-700 hover:bg-stone-50">Cancel</Link>
-            <button type="submit" disabled={loading} className="inline-flex items-center gap-2 rounded-lg bg-[#461822] px-5 py-2 text-xs font-medium text-white hover:bg-[#6c2432] disabled:opacity-50">
-              {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              Create Event
-            </button>
+        {/* Event Image */}
+        <SectionCard title="Event Image" description="Primary image shown on cards and detail pages">
+          <div className="space-y-3">
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              accept="image/*"
+              className="hidden"
+            />
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                disabled={uploading}
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-stone-700 bg-white border border-stone-200 rounded-lg hover:bg-stone-50 transition disabled:opacity-50"
+              >
+                {uploading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Upload className="w-3.5 h-3.5" />
+                )}
+                <span>{uploading ? 'Uploading...' : imageUrl ? 'Replace Image' : 'Upload Image'}</span>
+              </button>
+              {imageUrl && (
+                <button
+                  type="button"
+                  onClick={handleRemoveImage}
+                  className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-rose-600 hover:text-rose-700 transition"
+                >
+                  <X className="w-3 h-3" />
+                  Remove
+                </button>
+              )}
+            </div>
+            {imageUrl && (
+              <div className="relative w-full max-w-sm aspect-[16/9] rounded-lg overflow-hidden border border-stone-200 bg-stone-100">
+                <Image
+                  src={imageUrl}
+                  alt="Event preview"
+                  fill
+                  sizes="400px"
+                  className="object-cover"
+                />
+              </div>
+            )}
+            {!imageUrl && (
+              <p className="text-[11px] text-stone-400">
+                No image uploaded. A fallback image will be used on public pages.
+              </p>
+            )}
           </div>
-        </form>
-      </SectionCard>
+        </SectionCard>
+
+        <div className="flex items-center justify-end gap-2 border-t border-stone-100 pt-4">
+          <Link href="/admin/events" className="rounded-lg border border-stone-200 bg-white px-4 py-2 text-xs font-medium text-stone-700 hover:bg-stone-50">Cancel</Link>
+          <button type="submit" disabled={loading} className="inline-flex items-center gap-2 rounded-lg bg-[#461822] px-5 py-2 text-xs font-medium text-white hover:bg-[#6c2432] disabled:opacity-50">
+            {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            Create Event
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
+

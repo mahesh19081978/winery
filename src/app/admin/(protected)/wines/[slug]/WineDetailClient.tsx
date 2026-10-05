@@ -22,6 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import { SectionCard, StatusBadge } from '@/components/admin/UIComponents';
+import { WineImageManager } from './WineImageManager';
 
 interface VintageData {
   id: string;
@@ -379,26 +380,13 @@ export function WineDetailClient({ wine: initialWine }: { wine: WineData }) {
           </SectionCard>
 
           {/* Images */}
-          {wine.images.length > 0 && (
-            <SectionCard title="Images" description={`Wine images (${wine.images.length})`}>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {wine.images.map((img) => (
-                  <div key={img.id} className="relative rounded-lg overflow-hidden border border-stone-200/80 bg-stone-100 aspect-[4/3]">
-                    <img
-                      src={img.url}
-                      alt={img.altText || wine.name}
-                      className="w-full h-full object-cover"
-                    />
-                    {img.isPrimary && (
-                      <span className="absolute top-2 left-2 text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-[#6c2432] text-white">
-                        Primary
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </SectionCard>
-          )}
+          <SectionCard title="Wine Image" description="Primary image shown on cards and detail pages">
+            <WineImageManager
+              slug={wine.slug}
+              images={wine.images}
+              title={wine.name}
+            />
+          </SectionCard>
 
           {/* Food Pairings */}
           {wine.foodPairings.length > 0 && (

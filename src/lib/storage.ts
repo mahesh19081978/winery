@@ -82,6 +82,7 @@ export async function uploadExperienceFile(file: File): Promise<StorageUploadRes
 }
 
 export async function deleteExperienceFile(imageUrl: string): Promise<void> {
+  if (!imageUrl || imageUrl.startsWith('/images/')) return;
   const token = process.env.BLOB_READ_WRITE_TOKEN;
 
   if (imageUrl.includes('blob.vercel-storage.com')) {
@@ -104,6 +105,130 @@ export async function deleteExperienceFile(imageUrl: string): Promise<void> {
       }
     } catch (err) {
       console.error('Failed to delete local experience file:', err);
+    }
+  }
+}
+
+export async function uploadEventFile(file: File): Promise<StorageUploadResult> {
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+  const filename = `event-${Date.now()}-${randomUUID().slice(0, 8)}.${ext}`;
+
+  if (token) {
+    const blob = await put(`events/${filename}`, file, {
+      access: 'public',
+      token,
+      contentType: file.type,
+    });
+    return {
+      url: blob.url,
+      filename,
+    };
+  }
+
+  const bytes = await file.arrayBuffer();
+  const buffer = Buffer.from(bytes);
+  const uploadDir = join(process.cwd(), 'public', 'uploads', 'events');
+
+  if (!existsSync(uploadDir)) {
+    await mkdir(uploadDir, { recursive: true });
+  }
+
+  const filePath = join(uploadDir, filename);
+  await writeFile(filePath, buffer);
+
+  return {
+    url: `/uploads/events/${filename}`,
+    filename,
+  };
+}
+
+export async function deleteEventFile(imageUrl: string): Promise<void> {
+  if (!imageUrl || imageUrl.startsWith('/images/')) return;
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+
+  if (imageUrl.includes('blob.vercel-storage.com')) {
+    if (token) {
+      try {
+        await del(imageUrl, { token });
+      } catch (err) {
+        console.error('Failed to delete event blob from Vercel Blob storage:', err);
+      }
+    }
+    return;
+  }
+
+  if (imageUrl.startsWith('/uploads/events/')) {
+    try {
+      const filename = imageUrl.replace('/uploads/events/', '');
+      const filePath = join(process.cwd(), 'public', 'uploads', 'events', filename);
+      if (existsSync(filePath)) {
+        await unlink(filePath);
+      }
+    } catch (err) {
+      console.error('Failed to delete local event file:', err);
+    }
+  }
+}
+
+export async function uploadWineFile(file: File): Promise<StorageUploadResult> {
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+  const filename = `wine-${Date.now()}-${randomUUID().slice(0, 8)}.${ext}`;
+
+  if (token) {
+    const blob = await put(`wines/${filename}`, file, {
+      access: 'public',
+      token,
+      contentType: file.type,
+    });
+    return {
+      url: blob.url,
+      filename,
+    };
+  }
+
+  const bytes = await file.arrayBuffer();
+  const buffer = Buffer.from(bytes);
+  const uploadDir = join(process.cwd(), 'public', 'uploads', 'wines');
+
+  if (!existsSync(uploadDir)) {
+    await mkdir(uploadDir, { recursive: true });
+  }
+
+  const filePath = join(uploadDir, filename);
+  await writeFile(filePath, buffer);
+
+  return {
+    url: `/uploads/wines/${filename}`,
+    filename,
+  };
+}
+
+export async function deleteWineFile(imageUrl: string): Promise<void> {
+  if (!imageUrl || imageUrl.startsWith('/images/')) return;
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+
+  if (imageUrl.includes('blob.vercel-storage.com')) {
+    if (token) {
+      try {
+        await del(imageUrl, { token });
+      } catch (err) {
+        console.error('Failed to delete wine blob from Vercel Blob storage:', err);
+      }
+    }
+    return;
+  }
+
+  if (imageUrl.startsWith('/uploads/wines/')) {
+    try {
+      const filename = imageUrl.replace('/uploads/wines/', '');
+      const filePath = join(process.cwd(), 'public', 'uploads', 'wines', filename);
+      if (existsSync(filePath)) {
+        await unlink(filePath);
+      }
+    } catch (err) {
+      console.error('Failed to delete local wine file:', err);
     }
   }
 }
