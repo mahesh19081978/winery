@@ -32,6 +32,11 @@ import {
   X,
   Edit3,
   DollarSign,
+  Activity,
+  Bot,
+  Mic,
+  Plus,
+  Loader2,
 } from 'lucide-react';
 import type { GuestFinancialMetrics } from '@/lib/crm/financial-metrics';
 import { EditGuestDialog } from './EditGuestDialog';
@@ -212,9 +217,41 @@ interface GuestData {
       } | null;
     }[];
   }[];
+  guestNotes?: {
+    id: string;
+    content: string;
+    createdAt: string;
+    author: {
+      id: string;
+      name: string | null;
+      email: string;
+      role: string;
+    };
+  }[];
+  conversations?: {
+    id: string;
+    channel: string;
+    startedAt: string;
+    endedAt: string | null;
+    messages: {
+      id: string;
+      role: string;
+      content: string;
+      timestamp: string;
+    }[];
+  }[];
+  voiceCalls?: {
+    id: string;
+    callerPhone: string;
+    direction: string;
+    startTime: string;
+    durationSec: number | null;
+    outcome: string | null;
+    transcript: string | null;
+  }[];
 }
 
-type TabId = 'profile' | 'financial' | 'preferences' | 'bookings' | 'tastings' | 'wines' | 'reviews' | 'events';
+type TabId = 'timeline' | 'profile' | 'financial' | 'preferences' | 'bookings' | 'tastings' | 'wines' | 'reviews' | 'events';
 
 function DrinkAgainBadge({ preference }: { preference: string }) {
   const config = {
@@ -564,9 +601,13 @@ export function GuestDetailClient({
   wineryId?: string;
 }) {
   const [guest, setGuest] = useState<GuestData>(initialGuest);
-  const [activeTab, setActiveTab] = useState<TabId>('profile');
+  const [activeTab, setActiveTab] = useState<TabId>('timeline');
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
+  const [newNoteContent, setNewNoteContent] = useState('');
+  const [isSubmittingNote, setIsSubmittingNote] = useState(false);
+  const [noteError, setNoteError] = useState('');
+
   const canDeleteGuest = permissions.includes('guest.delete');
   const canEditGuest = permissions.includes('guests.edit');
 
@@ -576,7 +617,208 @@ export function GuestDetailClient({
     ? (guest.tastingRecords.reduce((sum, r) => sum + Number(r.rating), 0) / guest.tastingRecords.length).toFixed(1)
     : null;
 
+  // Build unified chronological timeline items
+  interface TimelineItem {
+    id: string;
+    type: 'booking' | 'visit' | 'event' | 'tasting' | 'review' | 'note' | 'conversation' | 'call' | 'profile';
+    title: string;
+    description: string;
+    timestamp: string;
+    badge?: string;
+    badgeStyle?: string;
+    icon: React.ComponentType<{ className?: string }>;
+    iconStyle: string;
+  }
+
+  const timelineItems: TimelineItem[] = [];
+
+  // Profile creation
+  timelineItems.push({
+    id: `profile-${guest.id}`,
+    type: 'profile',
+    title: 'Guest Profile Created',
+    description: `Account registered with email ${guest.user.email}`,
+    timestamp: guest.createdAt,
+    icon: User,
+    iconStyle: 'bg-stone-100 text-stone-600',
+  });
+
+  // Profile updates
+  if (guest.updatedAt && new Date(guest.updatedAt).getTime() - new Date(guest.createdAt).getTime() > 60000) {
+    timelineItems.push({
+      id: `profile-update-${guest.updatedAt}`,
+      type: 'profile',
+      title: 'Profile Updated',
+      description: 'Guest details, preferences, or notification settings were updated',
+      timestamp: guest.updatedAt,
+      icon: Edit3,
+      iconStyle: 'bg-stone-100 text-stone-600',
+    });
+  }
+
+  // Bookings & check-in visits
+  for (const b of guest.bookings) {
+    timelineItems.push({
+      id: `booking-${b.id}`,
+      type: 'booking',
+      title: `Experience Booking ${b.bookingNumber}`,
+      description: `${b.items.map((i) => i.experience?.title || i.title).join(', ') || 'Estate Visit'} • ${b.time} • ${b.totalGuests} guest(s)`,
+      timestamp: b.createdAt,
+      badge: b.status,
+      badgeStyle: b.status === 'COMPLETED' || b.status === 'CONFIRMED' || b.status === 'CHECKED_IN' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-stone-100 text-stone-700 border-stone-200',
+      icon: CalendarDays,
+      iconStyle: 'bg-emerald-50 text-emerald-700',
+    });
+
+    if (b.status === 'CHECKED_IN' || b.status === 'COMPLETED') {
+      timelineItems.push({
+        id: `visit-${b.id}`,
+        type: 'visit',
+        title: `Estate Visit Checked In`,
+        description: `Guest attended booking ${b.bookingNumber} (${b.items.map((i) => i.experience?.title || i.title).join(', ')})`,
+        timestamp: b.date,
+        badge: 'VISITED',
+        badgeStyle: 'bg-teal-50 text-teal-700 border-teal-200',
+        icon: MapPin,
+        iconStyle: 'bg-teal-50 text-teal-700',
+      });
+    }
+  }
+
+  // Event Bookings
+  for (const eb of guest.eventBookings) {
+    timelineItems.push({
+      id: `event-${eb.id}`,
+      type: 'event',
+      title: `Event Booking ${eb.bookingNumber}`,
+      description: `${eb.event.title} • ${eb.eventSchedule.timeSlot} (${eb.eventSchedule.activity}) • ${eb.tickets.reduce((acc, t) => acc + t.quantity, 0)} tickets`,
+      timestamp: eb.createdAt,
+      badge: eb.status,
+      badgeStyle: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+      icon: Ticket,
+      iconStyle: 'bg-indigo-50 text-indigo-700',
+    });
+  }
+
+  // Tasting Sessions & Records
+  for (const ts of guest.tastingSessions) {
+    timelineItems.push({
+      id: `session-${ts.id}`,
+      type: 'tasting',
+      title: `Wine Tasting Session`,
+      description: `${ts.records.length} wines sampled${ts.location ? ` at ${ts.location}` : ''}${ts.notes ? `: "${ts.notes}"` : ''}`,
+      timestamp: ts.sessionDate,
+      badge: `${ts.records.length} Wines`,
+      badgeStyle: 'bg-rose-50 text-rose-700 border-rose-200',
+      icon: GlassWater,
+      iconStyle: 'bg-rose-50 text-rose-700',
+    });
+  }
+
+  // Reviews
+  for (const r of guest.reviews) {
+    const target = r.experience?.title || r.wine?.name || r.event?.title || r.targetName;
+    timelineItems.push({
+      id: `review-${r.id}`,
+      type: 'review',
+      title: `Submitted ${r.rating}★ Review`,
+      description: `"${r.title}" for ${target}${r.comment ? ` - ${r.comment}` : ''}`,
+      timestamp: r.createdAt,
+      badge: `${r.rating} / 5 Stars`,
+      badgeStyle: 'bg-amber-50 text-amber-700 border-amber-200',
+      icon: Star,
+      iconStyle: 'bg-amber-50 text-amber-700',
+    });
+  }
+
+  // Guest Notes
+  if (guest.guestNotes) {
+    for (const n of guest.guestNotes) {
+      timelineItems.push({
+        id: `note-${n.id}`,
+        type: 'note',
+        title: `Staff Note by ${n.author?.name || n.author?.email || 'Staff'}`,
+        description: n.content,
+        timestamp: n.createdAt,
+        badge: n.author?.role || 'STAFF',
+        badgeStyle: 'bg-purple-50 text-purple-700 border-purple-200',
+        icon: FileText,
+        iconStyle: 'bg-purple-50 text-purple-700',
+      });
+    }
+  }
+
+  // Conversations
+  if (guest.conversations) {
+    for (const c of guest.conversations) {
+      const msgCount = c.messages?.length || 0;
+      const preview = c.messages?.[0]?.content ? ` - "${c.messages[0].content.slice(0, 100)}..."` : '';
+      timelineItems.push({
+        id: `conv-${c.id}`,
+        type: 'conversation',
+        title: `AI Concierge Chat (${c.channel.replace(/_/g, ' ')})`,
+        description: `${msgCount} message(s) exchanged${preview}`,
+        timestamp: c.startedAt,
+        badge: c.channel,
+        badgeStyle: 'bg-blue-50 text-blue-700 border-blue-200',
+        icon: Bot,
+        iconStyle: 'bg-blue-50 text-blue-700',
+      });
+    }
+  }
+
+  // Voice Calls
+  if (guest.voiceCalls) {
+    for (const vc of guest.voiceCalls) {
+      timelineItems.push({
+        id: `call-${vc.id}`,
+        type: 'call',
+        title: `${vc.direction} Voice Call`,
+        description: `Phone: ${vc.callerPhone}${vc.durationSec ? ` • ${Math.round(vc.durationSec / 60)} min` : ''}${vc.outcome ? ` • Outcome: ${vc.outcome}` : ''}`,
+        timestamp: vc.startTime,
+        badge: vc.outcome || vc.direction,
+        badgeStyle: 'bg-sky-50 text-sky-700 border-sky-200',
+        icon: Mic,
+        iconStyle: 'bg-sky-50 text-sky-700',
+      });
+    }
+  }
+
+  // Sort newest first
+  timelineItems.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+  const handleAddNote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newNoteContent.trim() || isSubmittingNote) return;
+
+    setIsSubmittingNote(true);
+    setNoteError('');
+
+    try {
+      const res = await fetch(`/api/admin/guests/${guest.id}/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: newNoteContent.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to add note');
+      }
+
+      setGuest((prev) => ({
+        ...prev,
+        guestNotes: [data.data, ...(prev.guestNotes || [])],
+      }));
+      setNewNoteContent('');
+    } catch (err) {
+      setNoteError(err instanceof Error ? err.message : 'Failed to add note');
+    } finally {
+      setIsSubmittingNote(false);
+    }
+  };
+
   const tabs: { id: TabId; label: string; icon: React.ComponentType<{ className?: string }>; count?: number }[] = [
+    { id: 'timeline', label: 'Timeline & Notes', icon: Activity, count: timelineItems.length },
     { id: 'profile', label: 'Profile', icon: User },
     { id: 'financial', label: 'Financial / LTV', icon: DollarSign },
     { id: 'preferences', label: 'Wine Preferences', icon: Heart, count: guest.winePreference ? 1 : 0 },
@@ -734,6 +976,103 @@ export function GuestDetailClient({
       {/* Tab Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
+          {/* Timeline & Notes Tab */}
+          {activeTab === 'timeline' && (
+            <div className="space-y-6">
+              {/* Add Note Section */}
+              {canEditGuest && (
+                <SectionCard
+                  title="Add Guest Note"
+                  description="Add an append-only, timestamped note visible to estate staff"
+                >
+                  <form onSubmit={handleAddNote} className="space-y-3">
+                    <textarea
+                      value={newNoteContent}
+                      onChange={(e) => setNewNoteContent(e.target.value)}
+                      placeholder="Write a note about wine preferences, visit interactions, special accommodations, or staff observations..."
+                      rows={3}
+                      className="w-full p-3 text-xs bg-white border border-stone-200 rounded-lg text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-1 focus:ring-[#6c2432] focus:border-[#6c2432] transition"
+                    />
+                    {noteError && (
+                      <p className="text-xs text-rose-600 flex items-center gap-1">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        {noteError}
+                      </p>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-stone-400">
+                        Notes are permanent and cannot be overwritten once saved.
+                      </span>
+                      <button
+                        type="submit"
+                        disabled={isSubmittingNote || !newNoteContent.trim()}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-white bg-[#6c2432] hover:bg-[#521b26] rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
+                      >
+                        {isSubmittingNote ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Saving...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Add Note</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                </SectionCard>
+              )}
+
+              {/* Activity & Communications Feed */}
+              <SectionCard
+                title="Activity & Communications Timeline"
+                description="Chronological record of bookings, check-in visits, tastings, notes, reviews, and concierge chats"
+              >
+                {timelineItems.length === 0 ? (
+                  <div className="py-8 text-center text-xs text-stone-500">
+                    No activity recorded yet for this guest.
+                  </div>
+                ) : (
+                  <div className="relative pl-6 space-y-6 before:absolute before:left-2.5 before:top-3 before:bottom-3 before:w-0.5 before:bg-stone-200/80">
+                    {timelineItems.map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <div key={item.id} className="relative group">
+                          {/* Timeline dot */}
+                          <div className={`absolute -left-6 top-0.5 w-5 h-5 rounded-full border border-stone-200 flex items-center justify-center shrink-0 shadow-2xs ${item.iconStyle}`}>
+                            <Icon className="w-2.5 h-2.5" />
+                          </div>
+
+                          <div className="p-3.5 rounded-xl border border-stone-200/70 bg-white hover:bg-[#faf8f5]/60 transition-colors shadow-2xs space-y-1.5">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                              <div className="flex items-center gap-2">
+                                <h4 className="text-xs font-semibold text-stone-900">{item.title}</h4>
+                                {item.badge && (
+                                  <span className={`inline-flex items-center px-1.5 py-0.2 rounded-full text-[10px] font-medium border ${item.badgeStyle || 'bg-stone-100 text-stone-700 border-stone-200'}`}>
+                                    {item.badge}
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[11px] font-mono text-stone-500 whitespace-nowrap">
+                                {formatDateTime(item.timestamp)}
+                              </span>
+                            </div>
+
+                            <p className="text-xs text-stone-600 leading-relaxed whitespace-pre-wrap">
+                              {item.description}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </SectionCard>
+            </div>
+          )}
+
           {/* Profile Tab */}
           {activeTab === 'profile' && (
             <>

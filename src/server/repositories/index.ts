@@ -1473,6 +1473,24 @@ export class GuestRepository {
           },
           orderBy: { createdAt: 'desc' },
         },
+        guestNotes: {
+          include: {
+            author: { select: { id: true, name: true, email: true, role: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+        conversations: {
+          include: {
+            messages: {
+              orderBy: { timestamp: 'asc' },
+              take: 5,
+            },
+          },
+          orderBy: { startedAt: 'desc' },
+        },
+        voiceCalls: {
+          orderBy: { startTime: 'desc' },
+        },
       },
     });
 
@@ -1483,7 +1501,8 @@ export class GuestRepository {
         guest.user?.wineryId === wineryId ||
         guest.bookings.some((b) => b.wineryId === wineryId) ||
         guest.eventBookings.some((eb) => eb.event?.wineryId === wineryId) ||
-        guest.reviews.some((r) => r.wineryId === wineryId);
+        guest.reviews.some((r) => r.wineryId === wineryId) ||
+        guest.guestNotes.some((n) => n.wineryId === wineryId);
 
       if (!isAssociated) {
         const hasWineryBooking = await prisma.booking.findFirst({
@@ -1498,16 +1517,30 @@ export class GuestRepository {
           where: { guestProfileId: id, wineryId },
           select: { id: true },
         });
+        const hasWineryNote = !hasWineryBooking && !hasWineryEventBooking && !hasWineryReview && await prisma.guestNote.findFirst({
+          where: { guestProfileId: id, wineryId },
+          select: { id: true },
+        });
 
-        if (!hasWineryBooking && !hasWineryEventBooking && !hasWineryReview) {
+        if (!hasWineryBooking && !hasWineryEventBooking && !hasWineryReview && !hasWineryNote) {
           return null;
         }
       }
     }
 
+    const filteredGuestNotes = wineryId
+      ? guest.guestNotes.filter((n) => n.wineryId === wineryId)
+      : guest.guestNotes;
+
+    const filteredConversations = wineryId
+      ? guest.conversations.filter((c) => c.wineryId === wineryId)
+      : guest.conversations;
+
     const metrics = computeGuestFinancialMetrics(guest.bookings, guest.eventBookings, wineryId);
     return {
       ...guest,
+      guestNotes: filteredGuestNotes,
+      conversations: filteredConversations,
       metrics,
     };
   }
@@ -1637,6 +1670,32 @@ export class GuestRepository {
       }
 
       return profile;
+    });
+  }
+
+  static async addNote(input: {
+    guestProfileId: string;
+    wineryId: string;
+    authorId: string;
+    content: string;
+  }) {
+    return prisma.guestNote.create({
+      data: {
+        guestProfileId: input.guestProfileId,
+        wineryId: input.wineryId,
+        authorId: input.authorId,
+        content: input.content.trim(),
+      },
+      include: {
+        author: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
     });
   }
 }
@@ -3792,6 +3851,7 @@ export interface GuestDeletionCounts {
   bookings: number;
   notifications: number;
   contactInquiries: number;
+  guestNotes: number;
   guestProfile: number;
   passwordResetTokens: number;
   account: number;
@@ -3928,6 +3988,7 @@ export class GuestDeletionRepository {
       bookings,
       notifications,
       contactInquiries,
+      guestNotes,
       passwordResetTokens,
       account,
       wineryIds,
@@ -3970,6 +4031,7 @@ export class GuestDeletionRepository {
       db.booking.count({ where: { guestProfileId } }),
       db.notification.count({ where: { recipient: where } }),
       db.contactInquiry.count({ where: { email: where } }),
+      db.guestNote.count({ where: { guestProfileId } }),
       db.passwordResetToken.count({ where: { userId } }),
       db.user.findUnique({ where: { id: userId }, select: { id: true, email: true, role: true } }),
       this.collectWineryIds(db, target),
@@ -4018,6 +4080,7 @@ export class GuestDeletionRepository {
         bookings,
         notifications,
         contactInquiries,
+        guestNotes,
         guestProfile: 1,
         passwordResetTokens,
         account: 1,
@@ -4036,7 +4099,7 @@ export class GuestDeletionRepository {
    *   -> review -> tastingRecord -> tastingSession -> guestWinePreference
    *   -> bookingItem -> bookingStatusHistory -> bookingGuest
    *   -> eventBookingTicket -> eventBookingStatusHistory -> eventBooking -> booking
-   *   -> notification -> contactInquiry -> guestProfile -> passwordResetToken -> user
+   *   -> notification -> contactInquiry -> guestNote -> guestProfile -> passwordResetToken -> user
    */
   static async executeDeletion(
     db: Prisma.TransactionClient,
@@ -4077,6 +4140,7 @@ export class GuestDeletionRepository {
 
     const notifications = await db.notification.deleteMany({ where: { recipient: where } });
     const contactInquiries = await db.contactInquiry.deleteMany({ where: { email: where } });
+    const guestNotes = await db.guestNote.deleteMany({ where: { guestProfileId } });
 
     const guestProfile = await db.guestProfile.deleteMany({ where: { id: guestProfileId } });
     if (guestProfile.count !== 1) {
@@ -4109,6 +4173,7 @@ export class GuestDeletionRepository {
       bookings: bookings.count,
       notifications: notifications.count,
       contactInquiries: contactInquiries.count,
+      guestNotes: guestNotes.count,
       guestProfile: guestProfile.count,
       passwordResetTokens: passwordResetTokens.count,
       account: account.count,

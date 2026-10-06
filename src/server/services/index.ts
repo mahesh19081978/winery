@@ -1615,6 +1615,51 @@ export class GuestService {
     return updated;
   }
 
+  static async addNoteAdmin(
+    id: string,
+    content: string,
+    authorId: string,
+    wineryId?: string
+  ) {
+    if (!content || !content.trim()) {
+      throw new Error('Note content cannot be empty');
+    }
+
+    // Verify tenant boundary
+    const guest = await GuestRepository.findByIdAdmin(id, wineryId);
+    if (!guest) {
+      throw new Error(`Guest with id '${id}' not found`);
+    }
+
+    // Determine target wineryId: either the staff wineryId or guest's first winery
+    let targetWineryId = wineryId;
+    if (!targetWineryId) {
+      targetWineryId = guest.user.wineryId
+        || guest.bookings[0]?.wineryId
+        || guest.eventBookings[0]?.event?.wineryId
+        || guest.reviews[0]?.wineryId;
+    }
+
+    if (!targetWineryId) {
+      const defaultWinery = await prisma.winery.findFirst({
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      });
+      targetWineryId = defaultWinery?.id;
+    }
+
+    if (!targetWineryId) {
+      throw new Error('No valid winery association found to attach this note');
+    }
+
+    return GuestRepository.addNote({
+      guestProfileId: id,
+      wineryId: targetWineryId,
+      authorId,
+      content: content.trim(),
+    });
+  }
+
   static async getGuestProfile(email: string) {
     const profile = await GuestRepository.findByEmail(email);
     if (!profile) {

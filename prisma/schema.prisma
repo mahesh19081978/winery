@@ -167,6 +167,7 @@ model Winery {
   conversations      Conversation[]
   aiSettings         AISettings?
   guestTags          GuestTag[]
+  guestNotes         GuestNote[]
 
   @@map("wineries")
 }
@@ -205,6 +206,7 @@ model User {
   passwordResetTokens PasswordResetToken[]
   assignedContactInquiries ContactInquiry[]
   updatedWebsiteImages WebsiteImage[]
+  authoredGuestNotes GuestNote[]
 
   @@index([role])
   @@map("users")
@@ -252,6 +254,7 @@ model GuestProfile {
   voiceCalls          VoiceCall[]
   eventBookings       EventBooking[]
   tags                GuestTagAssignment[]
+  guestNotes          GuestNote[]
 
   @@index([status])
   @@map("guest_profiles")
@@ -305,6 +308,24 @@ model GuestTagAssignment {
   @@index([guestProfileId])
   @@index([guestTagId])
   @@map("guest_tag_assignments")
+}
+
+model GuestNote {
+  id             String       @id @default(uuid())
+  guestProfileId String
+  wineryId       String
+  authorId       String
+  content        String       @db.Text
+  createdAt      DateTime     @default(now())
+
+  guestProfile   GuestProfile @relation(fields: [guestProfileId], references: [id], onDelete: Cascade)
+  winery         Winery       @relation(fields: [wineryId], references: [id], onDelete: Cascade)
+  author         User         @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([guestProfileId, createdAt])
+  @@index([wineryId])
+  @@index([authorId])
+  @@map("guest_notes")
 }
 
 // ----------------------------------------------------
