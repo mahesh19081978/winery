@@ -32,6 +32,7 @@ import {
   CreditCard,
   X,
   BarChart3,
+  FileUp,
 } from 'lucide-react';
 
 interface NavItem {
@@ -112,6 +113,7 @@ const NAVIGATION_SECTIONS: NavSection[] = [
   {
     title: 'SYSTEM',
     items: [
+      { name: 'Data Import', href: '/admin/data-import', icon: FileUp, isImplemented: true, permission: 'wines.manage' },
       { name: 'Staff & Roles', href: '/admin/staff', icon: ShieldCheck, isImplemented: true, permission: 'staff.view' },
       { name: 'Settings', href: '/admin/settings', icon: Settings, isImplemented: true, permission: 'settings.view' },
     ],
