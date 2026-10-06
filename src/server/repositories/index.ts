@@ -1,3 +1,4 @@
+import { computeGuestFinancialMetrics } from '@/lib/crm/financial-metrics';
 import { prisma } from '@/lib/db';
 import { BookingStatus, PaymentStatus, ReviewStatus, Prisma, NotificationChannel, NotificationType, GuestStatus } from '@prisma/client';
 import { deriveEventAvailability } from '@/lib/events/availability';
@@ -1219,6 +1220,8 @@ export class GuestRepository {
     status?: GuestStatus | string;
     tagId?: string;
     wineryId?: string;
+    sortBy?: 'createdAt' | 'netRevenue' | 'totalSpend';
+    sortOrder?: 'asc' | 'desc';
     page?: number;
     pageSize?: number;
   }) {
@@ -1280,32 +1283,100 @@ export class GuestRepository {
 
     const where: Prisma.GuestProfileWhereInput = conditions.length > 0 ? { AND: conditions } : {};
 
-    const [guests, total] = await Promise.all([
-      prisma.guestProfile.findMany({
-        where,
+    const isSpendSort = filters.sortBy === 'netRevenue' || filters.sortBy === 'totalSpend';
+
+    const guestInclude = {
+      user: { select: { email: true, role: true, wineryId: true } },
+      tags: {
         include: {
-          user: { select: { email: true, role: true, wineryId: true } },
-          tags: {
-            include: {
-              tag: { select: { id: true, name: true, color: true, wineryId: true } },
-            },
-          },
-          _count: {
-            select: {
-              bookings: filters.wineryId ? { where: { wineryId: filters.wineryId } } : true,
-              tastingSessions: true,
-              tastingRecords: true,
-              reviews: filters.wineryId ? { where: { wineryId: filters.wineryId } } : true,
-              eventBookings: filters.wineryId ? { where: { event: { wineryId: filters.wineryId } } } : true,
-            },
+          tag: { select: { id: true, name: true, color: true, wineryId: true } },
+        },
+      },
+      bookings: {
+        select: {
+          id: true,
+          date: true,
+          totalPrice: true,
+          status: true,
+          wineryId: true,
+          currency: true,
+          payments: {
+            where: { status: { in: [PaymentStatus.PAID, PaymentStatus.PARTIALLY_REFUNDED, PaymentStatus.REFUNDED] } },
+            select: { amount: true, status: true, refundAmount: true },
           },
         },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: pageSize,
-      }),
-      prisma.guestProfile.count({ where }),
-    ]);
+      },
+      eventBookings: {
+        select: {
+          id: true,
+          totalPrice: true,
+          status: true,
+          event: { select: { wineryId: true, eventDate: true } },
+          payments: {
+            where: { status: { in: [PaymentStatus.PAID, PaymentStatus.PARTIALLY_REFUNDED, PaymentStatus.REFUNDED] } },
+            select: { amount: true, status: true, refundAmount: true },
+          },
+        },
+      },
+      _count: {
+        select: {
+          bookings: filters.wineryId ? { where: { wineryId: filters.wineryId } } : true,
+          tastingSessions: true,
+          tastingRecords: true,
+          reviews: filters.wineryId ? { where: { wineryId: filters.wineryId } } : true,
+          eventBookings: filters.wineryId ? { where: { event: { wineryId: filters.wineryId } } } : true,
+        },
+      },
+    };
+
+    type AdminGuestItem = Prisma.GuestProfileGetPayload<{ include: typeof guestInclude }> & {
+      metrics: ReturnType<typeof computeGuestFinancialMetrics>;
+    };
+
+    let guests: AdminGuestItem[];
+    let total: number;
+
+    if (isSpendSort) {
+      // Fetch all matching records to compute metrics and sort across pagination
+      const allMatchingGuests = await prisma.guestProfile.findMany({
+        where,
+        include: guestInclude,
+      });
+      total = allMatchingGuests.length;
+
+      const guestsWithMetrics = allMatchingGuests.map((g) => {
+        const metrics = computeGuestFinancialMetrics(g.bookings, g.eventBookings, filters.wineryId);
+        return {
+          ...g,
+          metrics,
+        };
+      });
+
+      const orderMultiplier = filters.sortOrder === 'asc' ? 1 : -1;
+      guestsWithMetrics.sort((a, b) => {
+        const valA = a.metrics.netRevenue;
+        const valB = b.metrics.netRevenue;
+        return (valA - valB) * orderMultiplier;
+      });
+
+      guests = guestsWithMetrics.slice(skip, skip + pageSize);
+    } else {
+      const [fetchedGuests, count] = await Promise.all([
+        prisma.guestProfile.findMany({
+          where,
+          include: guestInclude,
+          orderBy: { createdAt: filters.sortOrder === 'asc' ? 'asc' : 'desc' },
+          skip,
+          take: pageSize,
+        }),
+        prisma.guestProfile.count({ where }),
+      ]);
+      total = count;
+      guests = fetchedGuests.map((g) => ({
+        ...g,
+        metrics: computeGuestFinancialMetrics(g.bookings, g.eventBookings, filters.wineryId),
+      }));
+    }
 
     return {
       guests,
@@ -1334,6 +1405,18 @@ export class GuestRepository {
         bookings: {
           include: {
             items: { include: { experience: { select: { id: true, title: true, slug: true } } } },
+            payments: {
+              select: {
+                id: true,
+                amount: true,
+                currency: true,
+                status: true,
+                refundAmount: true,
+                refundReason: true,
+                paymentMethod: true,
+                createdAt: true,
+              },
+            },
           },
           orderBy: { date: 'desc' },
         },
@@ -1375,6 +1458,18 @@ export class GuestRepository {
                 ticketType: { select: { name: true, price: true } },
               },
             },
+            payments: {
+              select: {
+                id: true,
+                amount: true,
+                currency: true,
+                status: true,
+                refundAmount: true,
+                refundReason: true,
+                paymentMethod: true,
+                createdAt: true,
+              },
+            },
           },
           orderBy: { createdAt: 'desc' },
         },
@@ -1410,7 +1505,11 @@ export class GuestRepository {
       }
     }
 
-    return guest;
+    const metrics = computeGuestFinancialMetrics(guest.bookings, guest.eventBookings, wineryId);
+    return {
+      ...guest,
+      metrics,
+    };
   }
 
   static async findByEmail(email: string) {

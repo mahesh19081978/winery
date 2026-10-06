@@ -31,7 +31,9 @@ import {
   Trash2,
   X,
   Edit3,
+  DollarSign,
 } from 'lucide-react';
+import type { GuestFinancialMetrics } from '@/lib/crm/financial-metrics';
 import { EditGuestDialog } from './EditGuestDialog';
 import { SectionCard, StatCard, StatusBadge } from '@/components/admin/UIComponents';
 import type { Permission } from '@/lib/auth/permissions-client';
@@ -58,6 +60,7 @@ interface GuestData {
   whatsappNotifications: boolean;
   visitsCount: number;
   createdAt: string;
+  metrics?: GuestFinancialMetrics;
   updatedAt: string;
   user: {
     id: string;
@@ -211,7 +214,7 @@ interface GuestData {
   }[];
 }
 
-type TabId = 'profile' | 'preferences' | 'bookings' | 'tastings' | 'wines' | 'reviews' | 'events';
+type TabId = 'profile' | 'financial' | 'preferences' | 'bookings' | 'tastings' | 'wines' | 'reviews' | 'events';
 
 function DrinkAgainBadge({ preference }: { preference: string }) {
   const config = {
@@ -575,6 +578,7 @@ export function GuestDetailClient({
 
   const tabs: { id: TabId; label: string; icon: React.ComponentType<{ className?: string }>; count?: number }[] = [
     { id: 'profile', label: 'Profile', icon: User },
+    { id: 'financial', label: 'Financial / LTV', icon: DollarSign },
     { id: 'preferences', label: 'Wine Preferences', icon: Heart, count: guest.winePreference ? 1 : 0 },
     { id: 'bookings', label: 'Bookings', icon: CalendarDays, count: guest.bookings.length },
     { id: 'tastings', label: 'Tastings', icon: GlassWater, count: guest.tastingRecords.length },
@@ -654,7 +658,13 @@ export function GuestDetailClient({
       </div>
 
       {/* CRM Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-4">
+        <StatCard
+          title="Net Revenue"
+          value={guest.metrics ? `${guest.metrics.netRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '$0.00'}
+          subtitle={guest.metrics && guest.metrics.totalRefunds > 0 ? `-${guest.metrics.totalRefunds.toFixed(2)} refunded` : 'Total Net Spend'}
+          icon={DollarSign}
+        />
         <StatCard
           title="Bookings"
           value={guest.bookings.length}
@@ -889,6 +899,131 @@ export function GuestDetailClient({
                 </div>
               </SectionCard>
             </>
+          )}
+
+          {/* Financial / LTV Tab */}
+          {activeTab === 'financial' && (
+            <div className="space-y-6">
+              <SectionCard
+                title="Guest Financial & Lifetime Value (LTV)"
+                description="Comprehensive breakdown of spending, payments, refunds, and visit metrics"
+              >
+                <div className="space-y-6">
+                  {/* Primary Revenue Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <div className="p-4 rounded-xl border border-emerald-200/80 bg-emerald-50/50">
+                      <p className="text-[10px] uppercase font-mono tracking-wider text-emerald-700 font-medium">Net Revenue</p>
+                      <p className="text-2xl font-serif font-medium text-emerald-900 mt-1">
+                        ${(guest.metrics?.netRevenue ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                      <p className="text-[11px] text-emerald-600 mt-0.5">Paid minus refunds</p>
+                    </div>
+
+                    <div className="p-4 rounded-xl border border-stone-200 bg-white shadow-2xs">
+                      <p className="text-[10px] uppercase font-mono tracking-wider text-stone-500 font-medium">Total Amount Paid</p>
+                      <p className="text-2xl font-serif font-medium text-stone-900 mt-1">
+                        ${(guest.metrics?.totalPaid ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                      <p className="text-[11px] text-stone-500 mt-0.5">Gross received</p>
+                    </div>
+
+                    <div className="p-4 rounded-xl border border-amber-200/80 bg-amber-50/50">
+                      <p className="text-[10px] uppercase font-mono tracking-wider text-amber-700 font-medium">Total Refunds</p>
+                      <p className="text-2xl font-serif font-medium text-amber-900 mt-1">
+                        ${(guest.metrics?.totalRefunds ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                      <p className="text-[11px] text-amber-600 mt-0.5">Returned to guest</p>
+                    </div>
+
+                    <div className="p-4 rounded-xl border border-rose-200/80 bg-rose-50/50">
+                      <p className="text-[10px] uppercase font-mono tracking-wider text-rose-700 font-medium">Outstanding Balance</p>
+                      <p className="text-2xl font-serif font-medium text-rose-900 mt-1">
+                        ${(guest.metrics?.outstandingAmount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                      <p className="text-[11px] text-rose-600 mt-0.5">Unsettled bookings</p>
+                    </div>
+                  </div>
+
+                  {/* Visit & Performance Metrics */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="p-4 rounded-xl border border-stone-200/80 bg-[#faf8f5]/60 space-y-3">
+                      <h4 className="text-[10px] uppercase font-mono tracking-wider text-stone-500 font-medium">Visit Activity</h4>
+                      <div className="space-y-2 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-stone-600">Total Completed Visits</span>
+                          <span className="font-semibold text-stone-900">{guest.metrics?.totalVisits ?? 0}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-stone-600">Total Reservations</span>
+                          <span className="font-semibold text-stone-900">{guest.metrics?.totalBookings ?? 0}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-stone-600">Average Reservation Value</span>
+                          <span className="font-semibold text-stone-900">
+                            ${(guest.metrics?.averageBookingValue ?? 0).toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-stone-600">First Recorded Visit</span>
+                          <span className="font-mono text-stone-700 text-[11px]">
+                            {guest.metrics?.firstVisit ? formatDate(guest.metrics.firstVisit) : '—'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-stone-600">Most Recent Visit</span>
+                          <span className="font-mono text-stone-700 text-[11px]">
+                            {guest.metrics?.lastVisit ? formatDate(guest.metrics.lastVisit) : '—'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-4 rounded-xl border border-stone-200/80 bg-[#faf8f5]/60 space-y-3">
+                      <h4 className="text-[10px] uppercase font-mono tracking-wider text-stone-500 font-medium">Category Spending</h4>
+                      <div className="space-y-3">
+                        <div>
+                          <div className="flex items-center justify-between text-xs mb-1">
+                            <span className="text-stone-700 font-medium">Estate Experiences &amp; Tastings</span>
+                            <span className="font-semibold text-stone-900">
+                              ${(guest.metrics?.experienceSpend ?? 0).toFixed(2)}
+                            </span>
+                          </div>
+                          <div className="w-full bg-stone-200 h-2 rounded-full overflow-hidden">
+                            <div
+                              className="bg-[#6c2432] h-full rounded-full transition-all duration-300"
+                              style={{
+                                width: (guest.metrics?.netRevenue ?? 0) > 0
+                                  ? `${Math.min(100, Math.round(((guest.metrics?.experienceSpend ?? 0) / (guest.metrics?.netRevenue ?? 1)) * 100))}%`
+                                  : '0%',
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between text-xs mb-1">
+                            <span className="text-stone-700 font-medium">Events &amp; Ticketed Festivals</span>
+                            <span className="font-semibold text-stone-900">
+                              ${(guest.metrics?.eventSpend ?? 0).toFixed(2)}
+                            </span>
+                          </div>
+                          <div className="w-full bg-stone-200 h-2 rounded-full overflow-hidden">
+                            <div
+                              className="bg-amber-600 h-full rounded-full transition-all duration-300"
+                              style={{
+                                width: (guest.metrics?.netRevenue ?? 0) > 0
+                                  ? `${Math.min(100, Math.round(((guest.metrics?.eventSpend ?? 0) / (guest.metrics?.netRevenue ?? 1)) * 100))}%`
+                                  : '0%',
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </SectionCard>
+            </div>
           )}
 
           {/* Wine Preferences Tab */}

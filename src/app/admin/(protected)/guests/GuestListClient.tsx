@@ -14,13 +14,14 @@ import {
   Filter,
   CalendarDays,
   GlassWater,
-  Star,
   Mail,
   Phone,
   Ticket,
+  ArrowUpDown,
 } from 'lucide-react';
 import { SectionCard, StatusBadge } from '@/components/admin/UIComponents';
 import EmptyState from '@/components/common/EmptyState';
+import { GuestFinancialMetrics } from '@/lib/crm/financial-metrics';
 
 interface GuestItem {
   id: string;
@@ -42,6 +43,7 @@ interface GuestItem {
   whatsappNotifications: boolean;
   createdAt: string;
   updatedAt: string;
+  metrics?: GuestFinancialMetrics;
   user: {
     email: string;
     role: string;
@@ -66,6 +68,8 @@ export function GuestListClient() {
   const [hasReviews, setHasReviews] = useState('');
   const [status, setStatus] = useState('');
   const [tagId, setTagId] = useState('');
+  const [sortBy, setSortBy] = useState<'createdAt' | 'netRevenue' | 'totalSpend'>('createdAt');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [availableTags, setAvailableTags] = useState<{ id: string; name: string; color: string | null }[]>([]);
   const [showFilters, setShowFilters] = useState(false);
 
@@ -76,7 +80,9 @@ export function GuestListClient() {
     hasTastingsVal: string,
     hasReviewsVal: string,
     statusVal: string,
-    tagIdVal: string
+    tagIdVal: string,
+    sortByVal: 'createdAt' | 'netRevenue' | 'totalSpend' = sortBy,
+    sortOrderVal: 'asc' | 'desc' = sortOrder
   ) => {
     setLoading(true);
     setError('');
@@ -91,6 +97,8 @@ export function GuestListClient() {
       if (hasReviewsVal) params.set('hasReviews', hasReviewsVal);
       if (statusVal) params.set('status', statusVal);
       if (tagIdVal) params.set('tagId', tagIdVal);
+      if (sortByVal) params.set('sortBy', sortByVal);
+      if (sortOrderVal) params.set('sortOrder', sortOrderVal);
 
       const response = await fetch(`/api/admin/guests?${params.toString()}`);
       const result = await response.json();
@@ -106,7 +114,7 @@ export function GuestListClient() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [sortBy, sortOrder]);
 
   useEffect(() => {
     let cancelled = false;
@@ -117,6 +125,8 @@ export function GuestListClient() {
         const params = new URLSearchParams();
         params.set('page', '1');
         params.set('pageSize', '20');
+        params.set('sortBy', 'createdAt');
+        params.set('sortOrder', 'desc');
         const [guestsRes, tagsRes] = await Promise.all([
           fetch(`/api/admin/guests?${params.toString()}`),
           fetch('/api/admin/guest-tags').catch(() => null),
@@ -146,12 +156,18 @@ export function GuestListClient() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    fetchGuests(1, search, hasBookings, hasTastings, hasReviews, status, tagId);
+    fetchGuests(1, search, hasBookings, hasTastings, hasReviews, status, tagId, sortBy, sortOrder);
   };
 
   const handleClearSearch = () => {
     setSearch('');
-    fetchGuests(1, '', hasBookings, hasTastings, hasReviews, status, tagId);
+    fetchGuests(1, '', hasBookings, hasTastings, hasReviews, status, tagId, sortBy, sortOrder);
+  };
+
+  const handleSortChange = (newSortBy: 'createdAt' | 'netRevenue' | 'totalSpend', newSortOrder: 'asc' | 'desc') => {
+    setSortBy(newSortBy);
+    setSortOrder(newSortOrder);
+    fetchGuests(1, search, hasBookings, hasTastings, hasReviews, status, tagId, newSortBy, newSortOrder);
   };
 
   const handleFilterChange = (field: string, value: string) => {
@@ -167,7 +183,7 @@ export function GuestListClient() {
     if (field === 'status') setStatus(value);
     if (field === 'tagId') setTagId(value);
 
-    fetchGuests(1, search, newBookings, newTastings, newReviews, newStatus, newTagId);
+    fetchGuests(1, search, newBookings, newTastings, newReviews, newStatus, newTagId, sortBy, sortOrder);
   };
 
   const handleClearFilters = () => {
@@ -178,11 +194,11 @@ export function GuestListClient() {
     setStatus('');
     setTagId('');
     setShowFilters(false);
-    fetchGuests(1, '', '', '', '', '', '');
+    fetchGuests(1, '', '', '', '', '', '', sortBy, sortOrder);
   };
 
   const handlePageChange = (newPage: number) => {
-    fetchGuests(newPage, search, hasBookings, hasTastings, hasReviews, status, tagId);
+    fetchGuests(newPage, search, hasBookings, hasTastings, hasReviews, status, tagId, sortBy, sortOrder);
   };
 
   const hasActiveFilters = search || hasBookings || hasTastings || hasReviews || status || tagId;
@@ -243,23 +259,44 @@ export function GuestListClient() {
               )}
             </form>
 
-            <button
-              type="button"
-              onClick={() => setShowFilters(!showFilters)}
-              className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg border transition ${
-                showFilters || hasActiveFilters
-                  ? 'bg-[#461822]/5 border-[#461822]/20 text-[#6c2432]'
-                  : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50'
-              }`}
-            >
-              <Filter className="w-3.5 h-3.5" />
-              <span>Filters</span>
-              {hasActiveFilters && (
-                <span className="w-4 h-4 rounded-full bg-[#6c2432] text-white text-[10px] flex items-center justify-center">
-                  !
-                </span>
-              )}
-            </button>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-stone-200 rounded-lg text-xs text-stone-600">
+                <ArrowUpDown className="w-3.5 h-3.5 text-stone-400 shrink-0" />
+                <span className="text-[11px] text-stone-500 font-medium">Sort:</span>
+                <select
+                  value={`${sortBy}-${sortOrder}`}
+                  onChange={(e) => {
+                    const [newBy, newOrd] = e.target.value.split('-') as ['createdAt' | 'netRevenue' | 'totalSpend', 'asc' | 'desc'];
+                    handleSortChange(newBy, newOrd);
+                  }}
+                  className="bg-transparent text-xs font-medium text-stone-800 focus:outline-none cursor-pointer pr-1"
+                >
+                  <option value="createdAt-desc">Newest Joined</option>
+                  <option value="createdAt-asc">Oldest Joined</option>
+                  <option value="netRevenue-desc">Highest Net Revenue</option>
+                  <option value="netRevenue-asc">Lowest Net Revenue</option>
+                  <option value="totalSpend-desc">Highest Total Spend</option>
+                </select>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowFilters(!showFilters)}
+                className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg border transition ${
+                  showFilters || hasActiveFilters
+                    ? 'bg-[#461822]/5 border-[#461822]/20 text-[#6c2432]'
+                    : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50'
+                }`}
+              >
+                <Filter className="w-3.5 h-3.5" />
+                <span>Filters</span>
+                {hasActiveFilters && (
+                  <span className="w-4 h-4 rounded-full bg-[#6c2432] text-white text-[10px] flex items-center justify-center">
+                    !
+                  </span>
+                )}
+              </button>
+            </div>
           </div>
 
           {showFilters && (
@@ -386,8 +423,8 @@ export function GuestListClient() {
                     <th className="py-3 px-4">Contact</th>
                     <th className="py-3 px-4 text-center">Bookings</th>
                     <th className="py-3 px-4 text-center">Sessions</th>
-                    <th className="py-3 px-4 text-center">Reviews</th>
                     <th className="py-3 px-4 text-center">Events</th>
+                    <th className="py-3 px-4 text-right">Net Spend</th>
                     <th className="py-3 px-4">Joined</th>
                     <th className="py-3 px-5 text-right">Actions</th>
                   </tr>
@@ -448,15 +485,14 @@ export function GuestListClient() {
                       </td>
                       <td className="py-3.5 px-4 text-center whitespace-nowrap">
                         <div className="flex items-center justify-center gap-1">
-                          <Star className="w-3 h-3 text-stone-400" />
-                          <span className="font-semibold text-stone-900">{guest._count.reviews}</span>
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                        <div className="flex items-center justify-center gap-1">
                           <Ticket className="w-3 h-3 text-stone-400" />
                           <span className="font-semibold text-stone-900">{guest._count.eventBookings}</span>
                         </div>
+                      </td>
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <span className="font-mono font-medium text-stone-900">
+                          ${(guest.metrics?.netRevenue ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
                       </td>
                       <td className="py-3.5 px-4 whitespace-nowrap">
                         <span className="text-stone-600">{formatDate(guest.createdAt)}</span>
@@ -513,6 +549,12 @@ export function GuestListClient() {
                         )}
                       </div>
                     </div>
+                    <div className="text-right">
+                      <div className="text-xs font-mono font-medium text-stone-900">
+                        ${(guest.metrics?.netRevenue ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                      <span className="text-[10px] text-stone-400 font-mono">Net Spend</span>
+                    </div>
                   </div>
                   <div className="flex items-center gap-4 text-xs text-stone-600 mt-2">
                     <div className="flex items-center gap-1">
@@ -520,15 +562,13 @@ export function GuestListClient() {
                       {guest._count.bookings} bookings
                     </div>
                     <div className="flex items-center gap-1">
+                      <Ticket className="w-3 h-3" />
+                      {guest._count.eventBookings} events
+                    </div>
+                    <div className="flex items-center gap-1">
                       <GlassWater className="w-3 h-3" />
                       {guest._count.tastingRecords} tastings
                     </div>
-                    {guest._count.reviews > 0 && (
-                      <div className="flex items-center gap-1">
-                        <Star className="w-3 h-3" />
-                        {guest._count.reviews} reviews
-                      </div>
-                    )}
                   </div>
                 </Link>
               ))}

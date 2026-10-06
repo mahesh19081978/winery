@@ -1574,6 +1574,8 @@ export class GuestService {
     status?: string;
     tagId?: string;
     wineryId?: string;
+    sortBy?: 'createdAt' | 'netRevenue' | 'totalSpend';
+    sortOrder?: 'asc' | 'desc';
     page?: number;
     pageSize?: number;
   }) {

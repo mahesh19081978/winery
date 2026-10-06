@@ -16,6 +16,8 @@ export async function GET(request: NextRequest) {
     const hasReviews = searchParams.get('hasReviews') || undefined;
     const status = searchParams.get('status') || undefined;
     const tagId = searchParams.get('tagId') || undefined;
+    const sortBy = (searchParams.get('sortBy') as 'createdAt' | 'netRevenue' | 'totalSpend') || undefined;
+    const sortOrder = (searchParams.get('sortOrder') as 'asc' | 'desc') || undefined;
     const page = parseInt(searchParams.get('page') || '1', 10);
     const pageSize = parseInt(searchParams.get('pageSize') || '20', 10);
 
@@ -27,6 +29,8 @@ export async function GET(request: NextRequest) {
       status,
       tagId,
       wineryId,
+      sortBy,
+      sortOrder,
       page,
       pageSize: Math.min(pageSize, 50),
     });
