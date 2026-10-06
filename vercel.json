@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/reconcile-event-bookings",
+      "schedule": "*/15 * * * *"
+    }
+  ]
+}

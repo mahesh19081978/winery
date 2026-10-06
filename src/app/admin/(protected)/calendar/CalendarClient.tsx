@@ -51,11 +51,41 @@ interface EventCalendarItem {
   maxCapacity: number;
 }
 
+interface EventBookingCalendarItem {
+  id: string;
+  bookingNumber: string;
+  totalPrice: number | string;
+  status: string;
+  createdAt: string;
+  event: {
+    id: string;
+    title: string;
+    slug: string;
+    eventDate: string;
+    timeRange: string;
+    venue: string;
+  };
+  eventSchedule: {
+    id: string;
+    timeSlot: string;
+    activity: string;
+  };
+  guestProfile: {
+    name: string;
+    phone: string | null;
+    user: { email: string };
+  } | null;
+  tickets: {
+    ticketType: { name: string } | null;
+  }[];
+}
+
 export function CalendarClient() {
   const mounted = useIsMounted();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [bookings, setBookings] = useState<BookingCalendarItem[]>([]);
+  const [eventBookings, setEventBookings] = useState<EventBookingCalendarItem[]>([]);
   const [events, setEvents] = useState<EventCalendarItem[]>([]);
   const [currentDate, setCurrentDate] = useState(() => new Date(2026, 9, 1)); // October 2026 where estate data is centered
   const [selectedDay, setSelectedDay] = useState<string>('2026-10-04');
@@ -69,6 +99,7 @@ export function CalendarClient() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to load calendar schedule');
       setBookings(json.data.bookings || []);
+      setEventBookings(json.data.eventBookings || []);
       setEvents(json.data.events || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error fetching calendar');
@@ -88,6 +119,7 @@ export function CalendarClient() {
         if (!cancelled) {
           if (!res.ok) throw new Error(json.error || 'Failed to load calendar schedule');
           setBookings(json.data.bookings || []);
+          setEventBookings(json.data.eventBookings || []);
           setEvents(json.data.events || []);
         }
       } catch (err) {
@@ -125,35 +157,47 @@ export function CalendarClient() {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDayIndex = new Date(year, month, 1).getDay();
 
-  // Group events and bookings by date string YYYY-MM-DD
+  // Group events, bookings, and eventBookings by date string YYYY-MM-DD
   const dateMap = useMemo(() => {
-    const map = new Map<string, { bookings: BookingCalendarItem[]; events: EventCalendarItem[] }>();
+    const map = new Map<string, { bookings: BookingCalendarItem[]; eventBookings: EventBookingCalendarItem[]; events: EventCalendarItem[] }>();
 
     bookings.forEach((b) => {
       const dStr = b.date.split('T')[0];
-      if (!map.has(dStr)) map.set(dStr, { bookings: [], events: [] });
+      if (!map.has(dStr)) map.set(dStr, { bookings: [], eventBookings: [], events: [] });
       map.get(dStr)!.bookings.push(b);
+    });
+
+    eventBookings.forEach((eb) => {
+      const dStr = eb.event?.eventDate ? eb.event.eventDate.split('T')[0] : eb.createdAt.split('T')[0];
+      if (!map.has(dStr)) map.set(dStr, { bookings: [], eventBookings: [], events: [] });
+      map.get(dStr)!.eventBookings.push(eb);
     });
 
     events.forEach((e) => {
       const dStr = e.eventDate.split('T')[0];
-      if (!map.has(dStr)) map.set(dStr, { bookings: [], events: [] });
+      if (!map.has(dStr)) map.set(dStr, { bookings: [], eventBookings: [], events: [] });
       map.get(dStr)!.events.push(e);
     });
 
     return map;
-  }, [bookings, events]);
+  }, [bookings, eventBookings, events]);
 
   // Selected day items
   const selectedDayData = useMemo(() => {
-    const data = dateMap.get(selectedDay) || { bookings: [], events: [] };
+    const data = dateMap.get(selectedDay) || { bookings: [], eventBookings: [], events: [] };
     let filteredBookings = data.bookings;
+    let filteredEventBookings = data.eventBookings;
     let filteredEvents = data.events;
 
-    if (filterType === 'BOOKINGS') filteredEvents = [];
-    if (filterType === 'EVENTS') filteredBookings = [];
+    if (filterType === 'BOOKINGS') {
+      filteredEvents = [];
+    }
+    if (filterType === 'EVENTS') {
+      filteredBookings = [];
+      filteredEventBookings = [];
+    }
 
-    return { bookings: filteredBookings, events: filteredEvents };
+    return { bookings: filteredBookings, eventBookings: filteredEventBookings, events: filteredEvents };
   }, [dateMap, selectedDay, filterType]);
 
   const selectedDateFormatted = useMemo(() => {
@@ -297,7 +341,7 @@ export function CalendarClient() {
                     const dayNum = i + 1;
                     const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
                     const dayData = dateMap.get(dateStr);
-                    const bCount = dayData?.bookings.length || 0;
+                    const bCount = (dayData?.bookings.length || 0) + (dayData?.eventBookings.length || 0);
                     const eCount = dayData?.events.length || 0;
                     const isSelected = selectedDay === dateStr;
 
@@ -444,7 +488,7 @@ export function CalendarClient() {
                   </div>
                 ))}
 
-                {/* Bookings */}
+                {/* Experience Bookings */}
                 {selectedDayData.bookings.map((bk) => {
                   const experienceTitle = bk.items[0]?.experience?.title || 'Estate Tasting Experience';
                   return (
@@ -457,6 +501,9 @@ export function CalendarClient() {
                           <div className="flex items-center gap-2">
                             <span className="text-[11px] font-mono font-bold text-[#6c2432]">
                               {bk.bookingNumber}
+                            </span>
+                            <span className="rounded-full px-1.5 py-0.2 text-[9px] font-medium border border-stone-200 bg-stone-100 text-stone-700">
+                              Experience
                             </span>
                             <StatusBadge status={bk.status} size="sm" />
                           </div>
@@ -484,6 +531,61 @@ export function CalendarClient() {
                         </span>
                         <Link
                           href={`/admin/bookings/${bk.bookingNumber}`}
+                          className="text-[#6c2432] hover:text-[#461822] font-medium hover:underline text-xs"
+                        >
+                          View Details &rarr;
+                        </Link>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Event Bookings */}
+                {selectedDayData.eventBookings.map((eb) => {
+                  const eventTitle = eb.event?.title || 'Estate Event';
+                  const timeSlot = eb.eventSchedule?.timeSlot || eb.event?.timeRange?.split('–')[0]?.trim() || 'Scheduled';
+                  const totalTickets = eb.tickets?.length || 1;
+
+                  return (
+                    <div
+                      key={eb.id}
+                      className="p-3.5 rounded-xl border border-indigo-200/80 bg-white hover:bg-indigo-50/20 transition-colors shadow-2xs"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-mono font-bold text-[#6c2432]">
+                              {eb.bookingNumber}
+                            </span>
+                            <span className="rounded-full px-1.5 py-0.2 text-[9px] font-medium border border-indigo-200 bg-indigo-50 text-indigo-800">
+                              Event Booking
+                            </span>
+                            <StatusBadge status={eb.status} size="sm" />
+                          </div>
+                          <h4 className="font-serif font-medium text-sm text-stone-900 mt-1">
+                            {eb.guestProfile?.name || 'Guest'}
+                          </h4>
+                          <p className="text-xs text-stone-500 mt-0.5">{eventTitle}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-stone-600 font-mono">
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-stone-400" />
+                          <span>{timeSlot}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Users className="w-3.5 h-3.5 text-stone-400" />
+                          <span>{totalTickets} ticket(s)</span>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 pt-2.5 border-t border-stone-100 flex items-center justify-between text-xs">
+                        <span className="font-mono font-semibold text-stone-900">
+                          ${Number(eb.totalPrice).toFixed(2)}
+                        </span>
+                        <Link
+                          href={`/admin/event-bookings/${eb.bookingNumber}`}
                           className="text-[#6c2432] hover:text-[#461822] font-medium hover:underline text-xs"
                         >
                           View Details &rarr;

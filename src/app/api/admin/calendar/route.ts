@@ -7,7 +7,13 @@ export async function GET() {
     const guard = await requireApiPermission('calendar.view');
     if (!guard.ok) return guard.response;
 
-    const [bookings, events, closures, rules] = await Promise.all([
+    const { EventBookingService, BookingService } = await import('@/server/services');
+    await Promise.all([
+      EventBookingService.reconcileExpiredBookings(guard.session.wineryId || undefined),
+      BookingService.reconcileExpiredBookings(guard.session.wineryId || undefined),
+    ]);
+
+    const [bookings, eventBookings, events, closures, rules] = await Promise.all([
       prisma.booking.findMany({
         include: {
           guestProfile: {
@@ -18,6 +24,23 @@ export async function GET() {
           },
         },
         orderBy: { date: 'asc' },
+      }),
+      prisma.eventBooking.findMany({
+        include: {
+          event: {
+            select: { id: true, title: true, slug: true, eventDate: true, timeRange: true, venue: true },
+          },
+          eventSchedule: {
+            select: { id: true, timeSlot: true, activity: true },
+          },
+          guestProfile: {
+            select: { name: true, phone: true, user: { select: { email: true } } },
+          },
+          tickets: {
+            include: { ticketType: { select: { name: true } } },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
       }),
       prisma.event.findMany({
         include: { ticketTypes: true },
@@ -36,6 +59,7 @@ export async function GET() {
       success: true,
       data: {
         bookings,
+        eventBookings,
         events,
         closures,
         rules,

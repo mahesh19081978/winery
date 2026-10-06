@@ -192,35 +192,45 @@ export function EventBookingsListClient() {
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="border-b border-stone-100 bg-[#faf8f5]/60 text-stone-500 uppercase tracking-wider font-mono text-[10px]">
-                    <th className="py-3 px-5">Booking</th>
-                    <th className="py-3 px-4">Guest</th>
-                    <th className="py-3 px-4">Event</th>
-                    <th className="py-3 px-4">Schedule</th>
-                    <th className="py-3 px-4 text-center">Tickets</th>
-                    <th className="py-3 px-4 text-right">Total</th>
-                    <th className="py-3 px-4 text-center">Status</th>
-                    <th className="py-3 px-4">Created</th>
-                    <th className="py-3 px-5 text-right">Actions</th>
+                    <th className="py-3 px-4">Booking</th>
+                    <th className="py-3 px-3.5">Guest</th>
+                    <th className="py-3 px-3.5">Event</th>
+                    <th className="py-3 px-3.5">Event Date</th>
+                    <th className="py-3 px-3.5">Schedule</th>
+                    <th className="py-3 px-3 text-center">Tickets</th>
+                    <th className="py-3 px-3 text-right">Total</th>
+                    <th className="py-3 px-3 text-center">Status</th>
+                    <th className="py-3 px-3.5">Created</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
                   {bookings.map((b) => {
                     const ticketsSummary = b.tickets.map((t) => `${t.ticketType?.name || 'Ticket'} × ${t.quantity}`).join(', ') || '—';
                     const scheduleLabel = b.eventSchedule ? `${b.eventSchedule.timeSlot}` : '—';
+                    const eventDateFormatted = b.event?.eventDate
+                      ? new Date(b.event.eventDate).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                          timeZone: 'UTC',
+                        })
+                      : '—';
                     return (
                       <tr key={b.id} className="hover:bg-stone-50/80 transition-colors">
-                        <td className="py-3.5 px-5"><Link href={`/admin/event-bookings/${b.bookingNumber}`} className="font-mono font-medium text-[#6c2432] hover:text-[#461822] hover:underline">{b.bookingNumber}</Link></td>
-                        <td className="py-3.5 px-4">
+                        <td className="py-3.5 px-4 whitespace-nowrap"><Link href={`/admin/event-bookings/${b.bookingNumber}`} className="font-mono font-medium text-[#6c2432] hover:text-[#461822] hover:underline">{b.bookingNumber}</Link></td>
+                        <td className="py-3.5 px-3.5">
                           <div className="font-medium text-stone-900">{b.guestProfile?.name || 'Guest'}</div>
                           <div className="text-[11px] text-stone-500 truncate max-w-[140px]">{b.guestProfile?.user?.email || ''}</div>
                         </td>
-                        <td className="py-3.5 px-4 font-serif text-stone-800 truncate max-w-[150px]">{b.event?.title || '—'}</td>
-                        <td className="py-3.5 px-4 whitespace-nowrap text-stone-700">{scheduleLabel}<div className="text-[11px] text-stone-500 truncate max-w-[120px]">{b.eventSchedule?.activity || ''}</div></td>
-                        <td className="py-3.5 px-4 text-center whitespace-nowrap"><span className="font-medium text-stone-900">{b.tickets.reduce((s, t) => s + t.quantity, 0)}</span><div className="text-[11px] text-stone-500 truncate max-w-[120px]">{ticketsSummary}</div></td>
-                        <td className="py-3.5 px-4 text-right whitespace-nowrap font-mono font-semibold text-stone-900">${Number(b.totalPrice).toFixed(2)}</td>
-                        <td className="py-3.5 px-4 text-center"><StatusBadge status={b.status} /></td>
-                        <td className="py-3.5 px-4 whitespace-nowrap text-stone-600">{new Date(b.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
-                        <td className="py-3.5 px-5 text-right"><Link href={`/admin/event-bookings/${b.bookingNumber}`} className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-[#6c2432] bg-[#461822]/5 border border-[#461822]/10 rounded-md hover:bg-[#461822]/10 transition"><Eye className="w-3 h-3" />View</Link></td>
+                        <td className="py-3.5 px-3.5 font-serif text-stone-800 truncate max-w-[150px]">{b.event?.title || '—'}</td>
+                        <td className="py-3.5 px-3.5 whitespace-nowrap text-stone-700">{eventDateFormatted}</td>
+                        <td className="py-3.5 px-3.5 whitespace-nowrap text-stone-700">{scheduleLabel}<div className="text-[11px] text-stone-500 truncate max-w-[120px]">{b.eventSchedule?.activity || ''}</div></td>
+                        <td className="py-3.5 px-3 text-center whitespace-nowrap"><span className="font-medium text-stone-900">{b.tickets.reduce((s, t) => s + t.quantity, 0)}</span><div className="text-[11px] text-stone-500 truncate max-w-[120px]">{ticketsSummary}</div></td>
+                        <td className="py-3.5 px-3 text-right whitespace-nowrap font-mono font-semibold text-stone-900">${Number(b.totalPrice).toFixed(2)}</td>
+                        <td className="py-3.5 px-3 text-center"><StatusBadge status={b.status} /></td>
+                        <td className="py-3.5 px-3.5 whitespace-nowrap text-stone-600">{new Date(b.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap"><Link href={`/admin/event-bookings/${b.bookingNumber}`} className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-[#6c2432] bg-[#461822]/5 border border-[#461822]/10 rounded-md hover:bg-[#461822]/10 transition"><Eye className="w-3 h-3" />View</Link></td>
                       </tr>
                     );
                   })}
@@ -231,6 +241,14 @@ export function EventBookingsListClient() {
             <div className="mt-6 space-y-3 md:hidden">
               {bookings.map((b) => {
                 const ticketsSummary = b.tickets.map((t) => `${t.ticketType?.name || 'Ticket'} × ${t.quantity}`).join(', ');
+                const eventDateFormatted = b.event?.eventDate
+                  ? new Date(b.event.eventDate).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                      timeZone: 'UTC',
+                    })
+                  : '—';
                 return (
                   <Link key={b.id} href={`/admin/event-bookings/${b.bookingNumber}`} className="block p-4 rounded-xl border border-stone-200/80 bg-white hover:bg-[#faf8f5] transition">
                     <div className="flex items-start justify-between gap-2 mb-2">
@@ -239,6 +257,7 @@ export function EventBookingsListClient() {
                     </div>
                     <div className="flex items-center gap-4 text-xs text-stone-600 flex-wrap">
                       <div className="flex items-center gap-1"><Users className="w-3 h-3" />{b.guestProfile?.name || 'Guest'}</div>
+                      <div className="flex items-center gap-1"><CalendarDays className="w-3 h-3" />{eventDateFormatted}</div>
                       <div className="flex items-center gap-1"><Calendar className="w-3 h-3" />{b.eventSchedule?.timeSlot || 'Schedule'}</div>
                       <div className="flex items-center gap-1"><Ticket className="w-3 h-3" />{b.tickets.reduce((s, t) => s + t.quantity, 0)} tickets</div>
                       <div className="flex items-center gap-1"><DollarSign className="w-3 h-3" />${Number(b.totalPrice).toFixed(2)}</div>

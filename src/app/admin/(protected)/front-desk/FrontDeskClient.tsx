@@ -8,7 +8,6 @@ import {
   ArrowRight,
   CalendarDays,
   CheckCircle2,
-  CircleCheck,
   Clock,
   FileText,
   GlassWater,
@@ -30,6 +29,10 @@ type BookingStatus = 'PENDING' | 'CONFIRMED' | 'CHECKED_IN' | 'COMPLETED' | 'CAN
 interface FrontDeskBooking {
   id: string;
   bookingNumber: string;
+  bookingType?: 'EXPERIENCE' | 'EVENT';
+  isPast?: boolean;
+  isCheckInOpen?: boolean;
+  isBeforeCheckInWindow?: boolean;
   date: string;
   time: string;
   adults: number;
@@ -127,7 +130,7 @@ interface FrontDeskData {
   allBookings: FrontDeskBooking[];
 }
 
-type DialogAction = 'CHECKED_IN' | 'COMPLETED';
+type DialogAction = 'CHECKED_IN';
 
 function getPaymentAmounts(booking: FrontDeskBooking) {
   const total = Number(booking.totalPrice) || 0;
@@ -163,6 +166,9 @@ function PaymentStatusBadge({ booking }: { booking: FrontDeskBooking }) {
 }
 
 function getExperienceTitle(booking: FrontDeskBooking) {
+  if (booking.bookingType === 'EVENT' || booking.bookingNumber.startsWith('EVT-')) {
+    return booking.items[0]?.title || 'Winery Event';
+  }
   return booking.items[0]?.experience?.title || booking.items[0]?.title || 'Estate Experience';
 }
 
@@ -280,32 +286,45 @@ function OperationalBookingCard({
   onAction: (booking: FrontDeskBooking, action: DialogAction) => void;
   onRecordPayment: (booking: FrontDeskBooking) => void;
     }) {
+  const isEvent = booking.bookingType === 'EVENT' || booking.bookingNumber.startsWith('EVT-');
+  const detailUrl = isEvent
+    ? `/admin/event-bookings/${booking.bookingNumber}`
+    : `/admin/bookings/${booking.bookingNumber}`;
+
   return (
     <div className="rounded-xl border border-stone-200/80 bg-white p-4 hover:bg-[#faf8f5]/40 transition">
       <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 mb-1">
             <Link
-              href={`/admin/bookings/${booking.bookingNumber}`}
+              href={detailUrl}
               className="font-mono text-sm font-semibold text-[#6c2432] hover:underline"
             >
               {booking.bookingNumber}
             </Link>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                isEvent
+                  ? 'border border-indigo-200 bg-indigo-50 text-indigo-800'
+                  : 'border border-stone-200 bg-stone-100 text-stone-700'
+              }`}
+            >
+              {isEvent ? 'Event' : 'Experience'}
+            </span>
             <StatusBadge status={booking.status} size="sm" />
-              <PaymentStatusBadge booking={booking} />
-              
+            <PaymentStatusBadge booking={booking} />
           </div>
           <h3 className="font-serif text-base font-medium text-stone-900">{booking.guestProfile.name}</h3>
           <p className="text-xs text-stone-500 mt-0.5">{getExperienceTitle(booking)}</p>
           <div className="mt-3">
             <BookingQuickFacts booking={booking} />
-            </div>
-            <div className="mt-3 grid grid-cols-3 gap-2 border-t border-stone-100 pt-3">
-              <div><p className="text-[10px] uppercase font-mono tracking-wider text-stone-500">Total</p><p className="text-xs font-medium text-stone-900">{booking.currency} {getPaymentAmounts(booking).total.toFixed(2)}</p></div>
-              <div><p className="text-[10px] uppercase font-mono tracking-wider text-stone-500">Paid</p><p className="text-xs font-medium text-stone-900">{booking.currency} {getPaymentAmounts(booking).paid.toFixed(2)}</p></div>
-              <div><p className="text-[10px] uppercase font-mono tracking-wider text-stone-500">Outstanding</p><p className="text-xs font-semibold text-rose-700">{booking.currency} {getPaymentAmounts(booking).outstanding.toFixed(2)}</p></div>
-            </div>
-            {(booking.dietaryRequirements || booking.specialRequests || booking.guestProfile.notes) && (
+          </div>
+          <div className="mt-3 grid grid-cols-3 gap-2 border-t border-stone-100 pt-3">
+            <div><p className="text-[10px] uppercase font-mono tracking-wider text-stone-500">Total</p><p className="text-xs font-medium text-stone-900">{booking.currency} {getPaymentAmounts(booking).total.toFixed(2)}</p></div>
+            <div><p className="text-[10px] uppercase font-mono tracking-wider text-stone-500">Paid</p><p className="text-xs font-medium text-stone-900">{booking.currency} {getPaymentAmounts(booking).paid.toFixed(2)}</p></div>
+            <div><p className="text-[10px] uppercase font-mono tracking-wider text-stone-500">Outstanding</p><p className="text-xs font-semibold text-rose-700">{booking.currency} {getPaymentAmounts(booking).outstanding.toFixed(2)}</p></div>
+          </div>
+          {(booking.dietaryRequirements || booking.specialRequests || booking.guestProfile.notes) && (
             <div className="mt-3 grid gap-2 text-xs">
               {booking.dietaryRequirements && (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
@@ -335,35 +354,40 @@ function OperationalBookingCard({
             Guest CRM
           </Link>
           <Link
-            href={`/admin/bookings/${booking.bookingNumber}`}
+            href={detailUrl}
             className="inline-flex items-center justify-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-medium text-stone-700 hover:bg-stone-50"
           >
             <FileText className="w-3.5 h-3.5" />
-              Booking
-            </Link>
-            {getPaymentAmounts(booking).outstanding > 0 && (
-              <button
-                type="button"
-                onClick={() => onRecordPayment(booking)}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#6c2432] px-3 py-2 text-xs font-semibold text-white hover:bg-[#461822]"
-              >
-                Record Payment
-              </button>
-            )}
-            {booking.status === 'CONFIRMED' && (
+            {isEvent ? 'Event Booking' : 'Booking'}
+          </Link>
+          {getPaymentAmounts(booking).outstanding > 0 && (
             <button
               type="button"
-              onClick={() => onAction(booking, 'CHECKED_IN')}
+              onClick={() => onRecordPayment(booking)}
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#6c2432] px-3 py-2 text-xs font-semibold text-white hover:bg-[#461822]"
             >
-              <UserCheck className="w-3.5 h-3.5" />
-              Check In
+              Record Payment
             </button>
           )}
-          </div>
+          {booking.status === 'CONFIRMED' && !booking.isPast && (
+            booking.isCheckInOpen ? (
+              <button
+                type="button"
+                onClick={() => onAction(booking, 'CHECKED_IN')}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#6c2432] px-3 py-2 text-xs font-semibold text-white hover:bg-[#461822]"
+              >
+                <UserCheck className="w-3.5 h-3.5" />
+                Check In
+              </button>
+            ) : booking.isBeforeCheckInWindow ? (
+              <span className="text-[11px] font-medium text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1.5 rounded-lg text-center">
+                {isEvent ? 'Check-in opens 1 hour before the event.' : 'Check-in opens at the scheduled experience time.'}
+              </span>
+            ) : null
+          )}
+        </div>
       </div>
-
-      </div>
+    </div>
   );
 }
 
@@ -425,14 +449,13 @@ function ActionDialog({
 }) {
   if (!booking || !action) return null;
 
-  const isCheckIn = action === 'CHECKED_IN';
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/60 p-4 backdrop-blur-sm">
       <div className="w-full max-w-lg overflow-hidden rounded-xl border border-stone-200 bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-stone-100 bg-[#faf8f5] px-5 py-4">
           <div>
             <h3 className="font-serif text-lg font-medium text-stone-900">
-              {isCheckIn ? 'Check In Guest' : 'Complete Visit'}
+              Check In Guest
             </h3>
             <p className="text-xs text-stone-500 mt-0.5">{booking.bookingNumber}</p>
           </div>
@@ -494,12 +517,6 @@ function ActionDialog({
             </div>
           )}
 
-          {!isCheckIn && (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900">
-              This will move the booking from CHECKED_IN to COMPLETED and preserve the status history.
-            </div>
-          )}
-
           {error && (
             <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -523,8 +540,8 @@ function ActionDialog({
             disabled={updating}
             className="inline-flex items-center gap-2 rounded-lg bg-[#6c2432] px-4 py-2 text-xs font-semibold text-white hover:bg-[#461822] disabled:opacity-60"
           >
-            {updating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : isCheckIn ? <UserCheck className="w-3.5 h-3.5" /> : <CircleCheck className="w-3.5 h-3.5" />}
-            {isCheckIn ? 'Confirm Check-In' : 'Complete Visit'}
+            {updating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserCheck className="w-3.5 h-3.5" />}
+            Confirm Check-In
           </button>
         </div>
       </div>
@@ -600,14 +617,19 @@ export function FrontDeskClient() {
     setActionError('');
 
     try {
-      const response = await fetch(`/api/admin/bookings/${dialogBooking.bookingNumber}`, {
+      const isEvent = dialogBooking.bookingType === 'EVENT' || dialogBooking.bookingNumber.startsWith('EVT-');
+      const endpoint = isEvent
+        ? `/api/admin/event-bookings/${dialogBooking.bookingNumber}`
+        : `/api/admin/bookings/${dialogBooking.bookingNumber}`;
+
+      const response = await fetch(endpoint, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           status: dialogAction,
           notes: dialogAction === 'CHECKED_IN'
-            ? 'Guest checked in from Front Desk'
-            : 'Visit completed from Front Desk',
+            ? `${isEvent ? 'Event attendee' : 'Guest'} checked in from Front Desk`
+            : `${isEvent ? 'Event visit' : 'Visit'} completed from Front Desk`,
         }),
       });
       const result = await response.json();
@@ -703,7 +725,7 @@ export function FrontDeskClient() {
 
             <BookingTable
               title="Currently Checked-In"
-              description="Active visits ready for tasting or completion"
+              description="Active guests currently attending their tasting or event (automatically completes once concluded)"
               bookings={data.checkedIn}
               emptyTitle="No active checked-in visits"
               emptyDescription="Checked-in guests will appear here once arrivals are processed."
@@ -739,7 +761,7 @@ export function FrontDeskClient() {
       {paymentModalBooking && (
         <RecordPaymentModal
           bookingNumber={paymentModalBooking.bookingNumber}
-          bookingType="EXPERIENCE"
+          bookingType={paymentModalBooking.bookingType === 'EVENT' || paymentModalBooking.bookingNumber.startsWith('EVT-') ? 'EVENT' : 'EXPERIENCE'}
           outstandingAmount={getPaymentAmounts(paymentModalBooking).outstanding}
           onClose={closePaymentModal}
           onSuccess={handlePaymentSuccess}

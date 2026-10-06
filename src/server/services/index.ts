@@ -1,4 +1,5 @@
 import { calculateRefundEligibility } from '@/lib/payment/refund-policy';
+import { getEventCheckInWindow } from '@/lib/events/timing';
 import {
   WineRepository,
   WineVintageRepository,
@@ -800,10 +801,29 @@ export class AvailabilityService {
 
 export class BookingService {
   static async getBookingByNumber(bookingNumber: string) {
-    const booking = await BookingRepository.findByBookingNumber(bookingNumber);
+    let booking = await BookingRepository.findByBookingNumber(bookingNumber);
     if (!booking) {
       throw new Error(`Booking ${bookingNumber} not found`);
     }
+
+    // If active and past end time, reconcile this booking immediately
+    if (booking.status === BookingStatus.CONFIRMED || booking.status === BookingStatus.CHECKED_IN) {
+      const { isExperiencePastEndTime } = await import('@/lib/events/timing');
+      const duration = Math.max(...booking.items.map((i) => i.experience?.durationMinutes || 60), 60);
+      const isPast = isExperiencePastEndTime({
+        bookingDate: booking.date,
+        bookingTime: booking.time,
+        durationMinutes: duration,
+        timeZone: (booking as { winery?: { timezone?: string | null } }).winery?.timezone || 'America/Los_Angeles',
+      });
+
+      if (isPast) {
+        await BookingRepository.reconcileExpiredExperienceBookings(booking.wineryId);
+        const refreshed = await BookingRepository.findByBookingNumber(bookingNumber);
+        if (refreshed) booking = refreshed;
+      }
+    }
+
     return booking;
   }
 
@@ -816,6 +836,8 @@ export class BookingService {
     page?: number;
     pageSize?: number;
   }) {
+    // Automatically reconcile expired experience bookings so lists always reflect authoritative status
+    await BookingRepository.reconcileExpiredExperienceBookings();
     return BookingRepository.findMany(filters);
   }
 
@@ -828,7 +850,7 @@ export class BookingService {
 
   static async updateBookingStatus(
     bookingNumber: string,
-    toStatus: import('@prisma/client').BookingStatus,
+    toStatus: BookingStatus,
     changedBy: string,
     notes?: string
   ) {
@@ -838,6 +860,47 @@ export class BookingService {
     }
 
     return BookingRepository.updateStatus(booking.id, toStatus, changedBy, notes);
+  }
+
+  static async reconcileExpiredBookings(wineryId?: string) {
+    return BookingRepository.reconcileExpiredExperienceBookings(wineryId);
+  }
+
+  /**
+   * Reconciles expired experience bookings across all wineries (or a specific winery).
+   */
+  static async reconcileAllWineries(): Promise<{
+    processedWineries: number;
+    totalNoShowCount: number;
+    totalCompletedCount: number;
+    updatedBookingNumbers: string[];
+    wineryResults: Record<string, { noShowCount: number; completedCount: number; updatedBookingNumbers: string[] }>;
+  }> {
+    const wineries = await prisma.winery.findMany({
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+
+    let totalNoShowCount = 0;
+    let totalCompletedCount = 0;
+    const updatedBookingNumbers: string[] = [];
+    const wineryResults: Record<string, { noShowCount: number; completedCount: number; updatedBookingNumbers: string[] }> = {};
+
+    for (const winery of wineries) {
+      const result = await BookingRepository.reconcileExpiredExperienceBookings(winery.id);
+      totalNoShowCount += result.noShowCount;
+      totalCompletedCount += result.completedCount;
+      updatedBookingNumbers.push(...result.updatedBookingNumbers);
+      wineryResults[winery.id] = result;
+    }
+
+    return {
+      processedWineries: wineries.length,
+      totalNoShowCount,
+      totalCompletedCount,
+      updatedBookingNumbers,
+      wineryResults,
+    };
   }
 
   static async createBooking(
@@ -1234,16 +1297,91 @@ export class EventBookingService {
   }
 
   static async getEventBookingAdmin(bookingNumber: string) {
-    const booking = await EventBookingRepository.findByBookingNumberAdmin(bookingNumber);
+    let booking = await EventBookingRepository.findByBookingNumberAdmin(bookingNumber);
     if (!booking) {
       throw new EventBookingError(`Event booking ${bookingNumber} not found`, 404);
     }
+
+    // If active and past end time, reconcile this booking immediately
+    if (booking.event && (booking.status === BookingStatus.CONFIRMED || booking.status === BookingStatus.CHECKED_IN)) {
+      const { isEventPastEndTime } = await import('@/lib/events/timing');
+      const isPast = isEventPastEndTime({
+        eventDate: booking.event.eventDate,
+        timeRange: booking.event.timeRange,
+        scheduleTimeSlot: booking.eventSchedule?.timeSlot,
+        timeZone: booking.event.winery?.timezone || 'America/Los_Angeles',
+      });
+
+      if (isPast) {
+        await EventBookingRepository.reconcileExpiredEventBookings(booking.event.wineryId);
+        // Reload fresh state after reconciliation
+        const refreshed = await EventBookingRepository.findByBookingNumberAdmin(bookingNumber);
+        if (refreshed) booking = refreshed;
+      }
+    }
+
     return booking;
   }
 
   static async cancelBookingAdmin(bookingNumber: string, reason?: string) {
     // Reuse existing cancellation logic (transactional, capacity release)
     return EventBookingService.cancelBooking(bookingNumber, reason);
+  }
+
+  static async updateBookingStatus(
+    bookingNumber: string,
+    toStatus: import('@prisma/client').BookingStatus,
+    changedBy: string,
+    notes?: string
+  ) {
+    const booking = await EventBookingRepository.findByBookingNumberAdmin(bookingNumber);
+    if (!booking) {
+      throw new EventBookingError(`Event booking ${bookingNumber} not found`, 404);
+    }
+
+    return EventBookingRepository.updateStatus(booking.id, toStatus, changedBy, notes);
+  }
+
+  static async reconcileExpiredBookings(wineryId?: string) {
+    return EventBookingRepository.reconcileExpiredEventBookings(wineryId);
+  }
+
+  /**
+   * Reconciles expired event bookings across all wineries (or a specific winery).
+   * Iterates through each winery to guarantee winery-scoped tenant isolation.
+   */
+  static async reconcileAllWineries(): Promise<{
+    processedWineries: number;
+    totalNoShowCount: number;
+    totalCompletedCount: number;
+    updatedBookingNumbers: string[];
+    wineryResults: Record<string, { noShowCount: number; completedCount: number; updatedBookingNumbers: string[] }>;
+  }> {
+    const wineries = await prisma.winery.findMany({
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+
+    let totalNoShowCount = 0;
+    let totalCompletedCount = 0;
+    const updatedBookingNumbers: string[] = [];
+    const wineryResults: Record<string, { noShowCount: number; completedCount: number; updatedBookingNumbers: string[] }> = {};
+
+    for (const winery of wineries) {
+      const result = await EventBookingRepository.reconcileExpiredEventBookings(winery.id);
+      totalNoShowCount += result.noShowCount;
+      totalCompletedCount += result.completedCount;
+      updatedBookingNumbers.push(...result.updatedBookingNumbers);
+      wineryResults[winery.id] = result;
+    }
+
+    return {
+      processedWineries: wineries.length,
+      totalNoShowCount,
+      totalCompletedCount,
+      updatedBookingNumbers,
+      wineryResults,
+    };
   }
 }
 
@@ -1527,11 +1665,168 @@ export class FrontDeskService {
     const todayDate = new Date(`${today.dateString}T00:00:00.000Z`);
     const currentMinutes = getMinutesForTimeZone(now, timezone);
 
-    const bookings = await FrontDeskRepository.findBookingsForDate(todayDate);
-    const sortedBookings = [...bookings].sort((a, b) => {
+    // Reconcile any expired event bookings and completed checked-in experience bookings so Front Desk always reflects authoritative status
+    await Promise.all([
+      EventBookingService.reconcileExpiredBookings(winery?.id),
+      BookingRepository.reconcileCheckedInBookings(todayDate, winery?.id),
+    ]);
+
+    const [experienceBookings, eventBookings] = await Promise.all([
+      FrontDeskRepository.findBookingsForDate(todayDate),
+      FrontDeskRepository.findEventBookingsForDate(todayDate),
+    ]);
+
+    // Map experience bookings to unified front-desk operational shape
+    const { getExperienceTimingStatus } = await import('@/lib/events/timing');
+    const formattedExperienceBookings = experienceBookings.map((b) => {
+      const expDuration = Math.max(...b.items.map((i) => i.experience?.durationMinutes || 60), 60);
+      const expTimezone = b.winery?.timezone || timezone;
+      const timing = getExperienceTimingStatus({
+        bookingDate: b.date,
+        bookingTime: b.time,
+        durationMinutes: expDuration,
+        timeZone: expTimezone,
+        now,
+      });
+
+      return {
+        id: b.id,
+        bookingNumber: b.bookingNumber,
+        bookingType: 'EXPERIENCE' as const,
+        isPast: timing.isPastEnd,
+        isCheckInOpen: timing.isCheckInAvailable,
+        isBeforeCheckInWindow: timing.isBeforeStart,
+        durationMinutes: expDuration,
+        date: b.date.toISOString(),
+        time: b.time,
+        adults: b.adults,
+        children: b.children,
+        totalGuests: b.totalGuests,
+        totalPrice: b.totalPrice.toString(),
+        currency: b.currency,
+        status: b.status,
+      specialRequests: b.specialRequests,
+      dietaryRequirements: b.dietaryRequirements,
+      createdAt: b.createdAt.toISOString(),
+      guestProfile: b.guestProfile,
+      items: b.items.map((item) => ({
+        id: item.id,
+        title: item.title,
+        itemType: item.itemType,
+        quantity: item.quantity,
+        experience: item.experience,
+      })),
+      attendees: b.attendees,
+      statusHistory: b.statusHistory.map((sh) => ({
+        id: sh.id,
+        fromStatus: sh.fromStatus,
+        toStatus: sh.toStatus,
+        changedBy: sh.changedBy,
+        notes: sh.notes,
+        createdAt: sh.createdAt.toISOString(),
+      })),
+      payments: b.payments.map((p) => ({
+        amount: p.amount.toString(),
+        status: p.status,
+        provider: p.provider || '',
+        createdAt: p.createdAt.toISOString(),
+        refundAmount: p.refundAmount ? p.refundAmount.toString() : null,
+      })),
+        tastingSessions: b.tastingSessions.map((ts) => ({
+          id: ts.id,
+          sessionDate: ts.sessionDate.toISOString(),
+          location: ts.location,
+          notes: ts.notes,
+          createdAt: ts.createdAt.toISOString(),
+          records: ts.records.map((r) => ({
+            id: r.id,
+            wineNameSnapshot: r.wineNameSnapshot,
+            vintageYear: r.vintageYear,
+            rating: r.rating.toString(),
+            notes: r.notes,
+            wouldDrinkAgain: r.wouldDrinkAgain,
+            tastedAt: r.tastedAt.toISOString(),
+            wineVintage: r.wineVintage,
+          })),
+        })),
+      };
+    });
+
+    // Map event bookings to unified front-desk operational shape
+    const formattedEventBookings = eventBookings.map((eb) => {
+      const totalTickets = eb.tickets.reduce((sum, t) => sum + t.quantity, 0);
+      const timeSlot = eb.eventSchedule?.timeSlot || eb.event.timeRange.split('–')[0].trim() || 'TBD';
+      const eventTimezone = eb.event.winery?.timezone || timezone;
+      const checkInWindow = getEventCheckInWindow({
+        eventDate: eb.event.eventDate,
+        timeRange: eb.event.timeRange,
+        scheduleTimeSlot: eb.eventSchedule?.timeSlot,
+        timeZone: eventTimezone,
+        now,
+      });
+
+      return {
+        id: eb.id,
+        bookingNumber: eb.bookingNumber,
+        bookingType: 'EVENT' as const,
+        isPast: checkInWindow.isPastEnd,
+        isCheckInOpen: checkInWindow.isOpen,
+        isBeforeCheckInWindow: checkInWindow.isBeforeWindow,
+        date: eb.event.eventDate.toISOString(),
+        time: timeSlot,
+        adults: totalTickets,
+        children: 0,
+        totalGuests: totalTickets,
+        totalPrice: eb.totalPrice.toString(),
+        currency: 'USD',
+        status: eb.status,
+        specialRequests: null,
+        dietaryRequirements: null,
+        createdAt: eb.createdAt.toISOString(),
+        guestProfile: eb.guestProfile,
+        event: eb.event,
+        eventSchedule: eb.eventSchedule,
+        items: eb.tickets.map((t) => ({
+          id: t.id,
+          title: `${eb.event.title} (${t.ticketType?.name || 'General Admission'})`,
+          itemType: 'EVENT_TICKET',
+          quantity: t.quantity,
+          experience: null,
+        })),
+        attendees: [
+          {
+            id: eb.id,
+            fullName: eb.guestProfile?.name || 'Guest',
+            email: eb.guestProfile?.user?.email || null,
+            phone: eb.guestProfile?.phone || null,
+            isPrimary: true,
+            dietaryNotes: null,
+          },
+        ],
+        statusHistory: eb.statusHistory.map((sh) => ({
+          id: sh.id,
+          fromStatus: sh.fromStatus,
+          toStatus: sh.toStatus,
+          changedBy: sh.changedBy,
+          notes: sh.notes,
+          createdAt: sh.createdAt.toISOString(),
+        })),
+        payments: eb.payments.map((p) => ({
+          amount: p.amount.toString(),
+          status: p.status,
+          provider: p.provider || '',
+          createdAt: p.createdAt.toISOString(),
+          refundAmount: p.refundAmount ? p.refundAmount.toString() : null,
+        })),
+        tastingSessions: [],
+      };
+    });
+
+    const combinedBookings = [...formattedExperienceBookings, ...formattedEventBookings];
+    const sortedBookings = combinedBookings.sort((a, b) => {
       const byTime = parseBookingTimeToMinutes(a.time) - parseBookingTimeToMinutes(b.time);
       if (byTime !== 0) return byTime;
-      return a.createdAt.getTime() - b.createdAt.getTime();
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
     });
 
     const awaitingArrival = sortedBookings.filter((booking) =>

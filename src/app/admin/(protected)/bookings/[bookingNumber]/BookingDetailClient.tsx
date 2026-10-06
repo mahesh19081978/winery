@@ -37,6 +37,9 @@ interface BookingData {
   dietaryRequirements?: string;
   qrCodeUrl?: string;
   createdAt: string;
+  winery?: {
+    timezone?: string | null;
+  } | null;
   guestProfile: {
     id: string;
     name: string;
@@ -56,6 +59,7 @@ interface BookingData {
     experience?: {
       title: string;
       slug: string;
+      durationMinutes?: number;
     } | null;
   }[];
   attendees: {
@@ -146,6 +150,10 @@ export function BookingDetailClient({
           currentStatus={booking.status as 'PENDING' | 'CONFIRMED' | 'CHECKED_IN' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW'}
           bookingNumber={booking.bookingNumber}
           onStatusUpdated={handleStatusUpdated}
+          bookingDate={booking.date}
+          bookingTime={booking.time}
+          durationMinutes={Math.max(...booking.items.map((i) => i.experience?.durationMinutes || 60), 60)}
+          timeZone={booking.winery?.timezone || 'America/Los_Angeles'}
         />
       </div>
 

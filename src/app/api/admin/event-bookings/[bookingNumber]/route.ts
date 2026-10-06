@@ -75,3 +75,37 @@ export async function DELETE(
     return NextResponse.json({ success: false, error: message }, { status: 400 });
   }
 }
+
+export async function PATCH(
+  request: NextRequest,
+  context: { params: Promise<{ bookingNumber: string }> }
+) {
+  try {
+    const guard = await requireApiPermission('eventBookings.manage', request);
+    if (!guard.ok) return guard.response;
+    const session = guard.session;
+
+    const { bookingNumber } = await context.params;
+    const body = await request.json();
+    const { BookingStatusUpdateSchema } = await import('@/server/validators');
+    const validated = BookingStatusUpdateSchema.parse(body);
+
+    const updated = await EventBookingService.updateBookingStatus(
+      bookingNumber,
+      validated.status,
+      session.userId,
+      validated.notes
+    );
+
+    return NextResponse.json({ success: true, data: updated });
+  } catch (error: unknown) {
+    if (error && typeof error === 'object' && 'statusCode' in error) {
+      const statusCode = (error as { statusCode: number }).statusCode;
+      const message = error instanceof Error ? error.message : 'Failed to update event booking status';
+      return NextResponse.json({ success: false, error: message }, { status: statusCode });
+    }
+    const message = error instanceof Error ? error.message : 'Failed to update event booking status';
+    const status = message.includes('not found') ? 404 : 400;
+    return NextResponse.json({ success: false, error: message }, { status });
+  }
+}

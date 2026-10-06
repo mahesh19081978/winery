@@ -12,16 +12,34 @@ export default async function AdminBookingDetailPage({
   const session = await requirePagePermission('bookings.view');
   const { bookingNumber } = await params;
 
+  // Reconcile before display so status is authoritative
+  const { BookingRepository } = await import('@/server/repositories');
+  await BookingRepository.reconcileExpiredExperienceBookings(session.wineryId || undefined);
+
   const booking = await prisma.booking.findUnique({
     where: { bookingNumber },
     include: {
+      winery: {
+        select: {
+          timezone: true,
+        },
+      },
       guestProfile: {
         include: {
           user: true,
         },
       },
       items: {
-        include: { experience: true },
+        include: {
+          experience: {
+            select: {
+              id: true,
+              title: true,
+              slug: true,
+              durationMinutes: true,
+            },
+          },
+        },
       },
       attendees: true,
       statusHistory: {

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft, CalendarDays, Clock, Users, Mail, Phone, MapPin, Ticket, AlertCircle, Loader2, XCircle } from 'lucide-react';
 import { SectionCard, StatusBadge } from '@/components/admin/UIComponents';
 import { RecordPaymentModal } from '@/components/admin/bookings/RecordPaymentModal';
+import { getEventCheckInWindow } from '@/lib/events/timing';
 
 interface DetailBooking {
   id: string;
@@ -13,7 +14,7 @@ interface DetailBooking {
   totalPrice: number | string;
   createdAt: string;
   updatedAt: string;
-  event: { id: string; slug: string; title: string; eventDate: string; timeRange: string; venue: string; status: string; availability: string; isPast: boolean; featuredImage: string };
+  event: { id: string; slug: string; title: string; eventDate: string; timeRange: string; venue: string; status: string; availability: string; isPast: boolean; featuredImage: string; winery?: { timezone?: string | null } | null };
   eventSchedule: { id: string; timeSlot: string; activity: string; sortOrder: number };
   guestProfile: { id: string; name: string; phone: string | null; user: { email: string; id: string } };
   tickets: { id: string; quantity: number; unitPrice: number | string; eventTicketTypeId: string | null; ticketType: { id: string; name: string; price: number | string; capacity: number; soldCount: number } | null }[];
@@ -36,6 +37,8 @@ export function EventBookingDetailClient({
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [statusActionError, setStatusActionError] = useState<string | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
 
   const fetchBooking = useCallback(async () => {
@@ -57,6 +60,28 @@ export function EventBookingDetailClient({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchBooking();
   }, [fetchBooking]);
+
+  const handleStatusUpdate = async (newStatus: 'CHECKED_IN' | 'COMPLETED' | 'NO_SHOW', notes?: string) => {
+    setUpdatingStatus(true);
+    setStatusActionError(null);
+    try {
+      const res = await fetch(`/api/admin/event-bookings/${bookingNumber}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: newStatus,
+          notes: notes || `Event booking status updated to ${newStatus} by staff`,
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Failed to update booking status');
+      await fetchBooking();
+    } catch (e) {
+      setStatusActionError(e instanceof Error ? e.message : 'Failed to update status');
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
 
   const handleCancel = async () => {
     setCancelling(true);
@@ -109,6 +134,18 @@ export function EventBookingDetailClient({
     .reduce((sum, p) => sum + Number(p.amount), 0);
   const outstanding = Number(booking.totalPrice) - totalPaid;
 
+  const checkInWindow = booking.event
+    ? getEventCheckInWindow({
+        eventDate: booking.event.eventDate,
+        timeRange: booking.event.timeRange,
+        scheduleTimeSlot: booking.eventSchedule?.timeSlot,
+        timeZone: booking.event.winery?.timezone || 'America/Los_Angeles',
+      })
+    : null;
+  const isCheckInAvailable = checkInWindow ? checkInWindow.isOpen : false;
+  const isBeforeCheckInWindow = checkInWindow ? checkInWindow.isBeforeWindow : false;
+  const isEventEnded = checkInWindow ? checkInWindow.isPastEnd : false;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-stone-200/60">
@@ -122,12 +159,67 @@ export function EventBookingDetailClient({
             </div>
           </div>
         </div>
-        {isCancellable && (
-          <button type="button" onClick={() => setShowCancelConfirm(true)} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-sm transition">
-            <XCircle className="w-3.5 h-3.5" />Cancel Booking
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {booking.status === 'CONFIRMED' && (
+            <>
+              {isCheckInAvailable && (
+                <button
+                  type="button"
+                  onClick={() => handleStatusUpdate('CHECKED_IN')}
+                  disabled={updatingStatus}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#6c2432] hover:bg-[#461822] text-white text-xs font-semibold shadow-xs transition disabled:opacity-60"
+                >
+                  {updatingStatus ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                  Check In
+                </button>
+              )}
+              {isBeforeCheckInWindow && (
+                <span className="text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg">
+                  Check-in opens 1 hour before the event.
+                </span>
+              )}
+              {isEventEnded ? (
+                <button
+                  type="button"
+                  onClick={() => handleStatusUpdate('NO_SHOW', 'Marked as no-show by staff')}
+                  disabled={updatingStatus}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-stone-200 bg-white hover:bg-stone-50 text-stone-700 text-xs font-medium shadow-2xs transition disabled:opacity-60"
+                >
+                  Mark No-Show
+                </button>
+              ) : (
+                <span className="text-xs font-medium text-stone-500 bg-stone-100 border border-stone-200 px-3 py-1.5 rounded-lg">
+                  No-show can be marked after the event ends.
+                </span>
+              )}
+            </>
+          )}
+
+          {booking.status === 'CHECKED_IN' && (
+            <button
+              type="button"
+              onClick={() => handleStatusUpdate('COMPLETED')}
+              disabled={updatingStatus}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#6c2432] hover:bg-[#461822] text-white text-xs font-semibold shadow-xs transition disabled:opacity-60"
+            >
+              {updatingStatus ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+              Complete Event Visit
+            </button>
+          )}
+
+          {isCancellable && (
+            <button type="button" onClick={() => setShowCancelConfirm(true)} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs transition">
+              <XCircle className="w-3.5 h-3.5" />Cancel Booking
+            </button>
+          )}
+        </div>
       </div>
+
+      {statusActionError && (
+        <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-rose-600" /><p className="text-xs text-rose-700">{statusActionError}</p>
+        </div>
+      )}
 
       {cancelError && (
         <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 flex items-center gap-2">

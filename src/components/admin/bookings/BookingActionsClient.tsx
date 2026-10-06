@@ -3,6 +3,8 @@
 import React, { useState } from 'react';
 import { CheckCircle, UserCheck, CircleCheck, Ban, AlertTriangle, X } from 'lucide-react';
 
+import { getExperienceTimingStatus } from '@/lib/events/timing';
+
 type BookingStatus = 'PENDING' | 'CONFIRMED' | 'CHECKED_IN' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
 
 interface StatusTransition {
@@ -36,9 +38,21 @@ interface BookingActionsClientProps {
   currentStatus: BookingStatus;
   bookingNumber: string;
   onStatusUpdated: () => void;
+  bookingDate?: string | Date;
+  bookingTime?: string;
+  durationMinutes?: number;
+  timeZone?: string | null;
 }
 
-export function BookingActionsClient({ currentStatus, bookingNumber, onStatusUpdated }: BookingActionsClientProps) {
+export function BookingActionsClient({
+  currentStatus,
+  bookingNumber,
+  onStatusUpdated,
+  bookingDate,
+  bookingTime,
+  durationMinutes,
+  timeZone,
+}: BookingActionsClientProps) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [selectedTransition, setSelectedTransition] = useState<StatusTransition | null>(null);
   const [notes, setNotes] = useState('');
@@ -93,10 +107,30 @@ export function BookingActionsClient({ currentStatus, bookingNumber, onStatusUpd
     }
   };
 
+  const timing = (bookingDate && bookingTime)
+    ? getExperienceTimingStatus({
+        bookingDate,
+        bookingTime,
+        durationMinutes: durationMinutes || 60,
+        timeZone: timeZone || 'America/Los_Angeles',
+      })
+    : null;
+
   return (
     <>
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         {transitions.map((t) => {
+          // Check operational timing constraints
+          if (t.to === 'CHECKED_IN' && timing) {
+            if (!timing.isCheckInAvailable) return null;
+          }
+          if (t.to === 'NO_SHOW' && timing) {
+            if (!timing.isNoShowAvailable) return null;
+          }
+          if (t.to === 'COMPLETED' && timing) {
+            if (!timing.isCompleteAvailable) return null;
+          }
+
           const Icon = t.icon;
           return (
             <button
@@ -114,6 +148,23 @@ export function BookingActionsClient({ currentStatus, bookingNumber, onStatusUpd
             </button>
           );
         })}
+
+        {/* Informational badges when actions are restricted by operational timing */}
+        {currentStatus === 'CONFIRMED' && timing?.isBeforeStart && (
+          <span className="text-[11px] font-medium text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-md">
+            Check-in opens at the scheduled experience time.
+          </span>
+        )}
+        {currentStatus === 'CONFIRMED' && !timing?.isPastEnd && (
+          <span className="text-[11px] font-medium text-stone-500 bg-stone-100 border border-stone-200 px-2.5 py-1 rounded-md">
+            No-show can be marked after the experience ends.
+          </span>
+        )}
+        {currentStatus === 'CHECKED_IN' && timing && !timing.isPastEnd && (
+          <span className="text-[11px] font-medium text-sky-800 bg-sky-50 border border-sky-200 px-2.5 py-1 rounded-md">
+            Completion available after the experience ends.
+          </span>
+        )}
       </div>
 
       {showConfirm && selectedTransition && (

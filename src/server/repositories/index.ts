@@ -961,6 +961,14 @@ export class BookingRepository {
     return prisma.$transaction(async (tx) => {
       const existing = await tx.booking.findUnique({
         where: { id: bookingId },
+        include: {
+          winery: { select: { timezone: true } },
+          items: {
+            include: {
+              experience: { select: { durationMinutes: true } },
+            },
+          },
+        },
       });
 
       if (!existing) throw new Error('Booking not found');
@@ -979,8 +987,49 @@ export class BookingRepository {
         throw new Error('Cannot update a completed booking');
       }
 
+      if (fromStatus === BookingStatus.NO_SHOW) {
+        throw new Error('Cannot update a no-show booking');
+      }
+
       if (!VALID_BOOKING_TRANSITIONS[fromStatus].includes(toStatus)) {
         throw new Error(`Invalid booking status transition from ${fromStatus} to ${toStatus}`);
+      }
+
+      const { getExperienceTimingStatus } = await import('@/lib/events/timing');
+      const durationMinutes = Math.max(
+        ...existing.items.map((i) => i.experience?.durationMinutes || 60),
+        60
+      );
+      const timing = getExperienceTimingStatus({
+        bookingDate: existing.date,
+        bookingTime: existing.time,
+        durationMinutes,
+        timeZone: existing.winery?.timezone || 'America/Los_Angeles',
+      });
+
+      // Operational timing protection:
+      // 1. CHECK-IN: Valid only when currentTime >= experienceStart and currentTime < experienceEnd
+      if (toStatus === BookingStatus.CHECKED_IN) {
+        if (timing.isBeforeStart) {
+          throw new Error('Check-in is not available until the experience start time.');
+        }
+        if (timing.isPastEnd) {
+          throw new Error('Cannot check in guests for an experience that has already ended.');
+        }
+      }
+
+      // 2. NO-SHOW: Valid only after experience has ended (currentTime >= experienceEnd)
+      if (toStatus === BookingStatus.NO_SHOW) {
+        if (!timing.isPastEnd) {
+          throw new Error('No-show can only be marked after the experience has ended.');
+        }
+      }
+
+      // 3. COMPLETED: Valid only after experience has ended (currentTime >= experienceEnd)
+      if (toStatus === BookingStatus.COMPLETED) {
+        if (!timing.isPastEnd) {
+          throw new Error('Experience cannot be completed before it has ended.');
+        }
       }
 
       const updated = await tx.booking.update({
@@ -1147,6 +1196,124 @@ export class BookingRepository {
     { maxWait: 30000, timeout: 30000 }
     );
   }
+  /**
+   * Reconciles expired experience bookings:
+   * - CONFIRMED bookings past experience end time -> NO_SHOW
+   * - CHECKED_IN bookings past experience end time -> COMPLETED
+   * Returns count of updated bookings.
+   */
+  static async reconcileExpiredExperienceBookings(wineryId?: string): Promise<{
+    noShowCount: number;
+    completedCount: number;
+    updatedBookingNumbers: string[];
+  }> {
+    const { isExperiencePastEndTime } = await import('@/lib/events/timing');
+
+    // Find active candidates (CONFIRMED or CHECKED_IN)
+    const where: Prisma.BookingWhereInput = {
+      status: { in: [BookingStatus.CONFIRMED, BookingStatus.CHECKED_IN] },
+      ...(wineryId ? { wineryId } : {}),
+    };
+
+    const candidates = await prisma.booking.findMany({
+      where,
+      include: {
+        winery: { select: { timezone: true } },
+        items: {
+          include: {
+            experience: { select: { durationMinutes: true } },
+          },
+        },
+      },
+    });
+
+    const now = new Date();
+    let noShowCount = 0;
+    let completedCount = 0;
+    const updatedBookingNumbers: string[] = [];
+
+    for (const booking of candidates) {
+      const timezone = booking.winery?.timezone || 'America/Los_Angeles';
+      const duration = Math.max(...booking.items.map((i) => i.experience?.durationMinutes || 60), 60);
+
+      const isPast = isExperiencePastEndTime({
+        bookingDate: booking.date,
+        bookingTime: booking.time,
+        durationMinutes: duration,
+        timeZone: timezone,
+        now,
+      });
+
+      if (!isPast) continue;
+
+      if (booking.status === BookingStatus.CONFIRMED) {
+        const updated = await prisma.$transaction(async (tx) => {
+          const res = await tx.booking.updateMany({
+            where: { id: booking.id, status: BookingStatus.CONFIRMED },
+            data: { status: BookingStatus.NO_SHOW },
+          });
+
+          if (res.count === 0) {
+            return false;
+          }
+
+          await tx.bookingStatusHistory.create({
+            data: {
+              bookingId: booking.id,
+              fromStatus: BookingStatus.CONFIRMED,
+              toStatus: BookingStatus.NO_SHOW,
+              changedBy: 'SYSTEM_RECONCILIATION',
+              notes: 'Automatically transitioned to NO_SHOW after scheduled experience end time passed without check-in.',
+            },
+          });
+
+          return true;
+        });
+
+        if (updated) {
+          noShowCount++;
+          updatedBookingNumbers.push(booking.bookingNumber);
+        }
+      } else if (booking.status === BookingStatus.CHECKED_IN) {
+        const updated = await prisma.$transaction(async (tx) => {
+          const res = await tx.booking.updateMany({
+            where: { id: booking.id, status: BookingStatus.CHECKED_IN },
+            data: { status: BookingStatus.COMPLETED },
+          });
+
+          if (res.count === 0) {
+            return false;
+          }
+
+          await tx.bookingStatusHistory.create({
+            data: {
+              bookingId: booking.id,
+              fromStatus: BookingStatus.CHECKED_IN,
+              toStatus: BookingStatus.COMPLETED,
+              changedBy: 'SYSTEM_RECONCILIATION',
+              notes: 'Automatically transitioned to COMPLETED after scheduled experience completed.',
+            },
+          });
+
+          return true;
+        });
+
+        if (updated) {
+          completedCount++;
+          updatedBookingNumbers.push(booking.bookingNumber);
+        }
+      }
+    }
+
+    return { noShowCount, completedCount, updatedBookingNumbers };
+  }
+
+  /**
+   * Backwards-compatible alias for existing Front Desk callers.
+   */
+  static async reconcileCheckedInBookings(_date: Date, wineryId?: string) {
+    return BookingRepository.reconcileExpiredExperienceBookings(wineryId);
+  }
 }
 
 export class FrontDeskRepository {
@@ -1161,6 +1328,7 @@ export class FrontDeskRepository {
     return prisma.booking.findMany({
       where: { date },
       include: {
+        winery: { select: { timezone: true } },
         guestProfile: {
           include: {
             user: { select: { email: true } },
@@ -1181,7 +1349,7 @@ export class FrontDeskRepository {
         },
         items: {
           include: {
-            experience: { select: { id: true, title: true, slug: true } },
+            experience: { select: { id: true, title: true, slug: true, durationMinutes: true } },
           },
         },
         attendees: true,
@@ -1207,6 +1375,67 @@ export class FrontDeskRepository {
         },
       },
       orderBy: [{ time: 'asc' }, { createdAt: 'asc' }],
+    });
+  }
+
+  static async findEventBookingsForDate(date: Date) {
+    return prisma.eventBooking.findMany({
+      where: {
+        event: {
+          eventDate: date,
+        },
+      },
+      include: {
+        event: {
+          select: {
+            id: true,
+            slug: true,
+            title: true,
+            eventDate: true,
+            timeRange: true,
+            venue: true,
+            status: true,
+            winery: { select: { timezone: true } },
+          },
+        },
+        eventSchedule: {
+          select: {
+            id: true,
+            timeSlot: true,
+            activity: true,
+            sortOrder: true,
+          },
+        },
+        guestProfile: {
+          include: {
+            user: { select: { email: true } },
+            winePreference: {
+              include: {
+                favoriteWine: { select: { name: true, slug: true, category: true } },
+              },
+            },
+            _count: {
+              select: {
+                bookings: true,
+                tastingSessions: true,
+                tastingRecords: true,
+                reviews: true,
+              },
+            },
+          },
+        },
+        tickets: {
+          include: {
+            ticketType: true,
+          },
+        },
+        statusHistory: { orderBy: { createdAt: 'asc' } },
+        payments: {
+          select: { amount: true, status: true, provider: true, createdAt: true, refundAmount: true },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+      orderBy: [{ createdAt: 'asc' }],
     });
   }
 }
@@ -2687,6 +2916,7 @@ export class EventBookingRepository {
             availability: true,
             isPast: true,
             featuredImage: true,
+            winery: { select: { timezone: true } },
           },
         },
         eventSchedule: true,
@@ -2972,6 +3202,261 @@ export class EventBookingRepository {
       },
       { maxWait: 15000, timeout: 15000 }
     );
+  }
+
+  static async updateStatus(
+    bookingId: string,
+    toStatus: BookingStatus,
+    changedBy: string,
+    notes?: string
+  ) {
+    return prisma.$transaction(async (tx) => {
+      const existing = await tx.eventBooking.findUnique({
+        where: { id: bookingId },
+        include: { tickets: true },
+      });
+
+      if (!existing) throw new Error('Event booking not found');
+
+      const fromStatus = existing.status;
+
+      if (fromStatus === toStatus) {
+        throw new Error(`Event booking is already in ${toStatus} status`);
+      }
+
+      if (fromStatus === BookingStatus.CANCELLED) {
+        throw new Error('Cannot update a cancelled booking');
+      }
+
+      if (fromStatus === BookingStatus.COMPLETED) {
+        throw new Error('Cannot update a completed booking');
+      }
+
+      if (fromStatus === BookingStatus.NO_SHOW) {
+        throw new Error('Cannot update a no-show booking');
+      }
+
+      if (!VALID_BOOKING_TRANSITIONS[fromStatus].includes(toStatus)) {
+        throw new Error(`Invalid booking status transition from ${fromStatus} to ${toStatus}`);
+      }
+
+      // Event check-in window enforcement:
+      // Check-in opens exactly 1 hour before event start and closes at event end
+      if (toStatus === BookingStatus.CHECKED_IN) {
+        const fullBooking = await tx.eventBooking.findUnique({
+          where: { id: bookingId },
+          include: {
+            event: {
+              include: {
+                winery: { select: { timezone: true } },
+              },
+            },
+            eventSchedule: { select: { timeSlot: true } },
+          },
+        });
+
+        if (fullBooking?.event) {
+          const { getEventCheckInWindow } = await import('@/lib/events/timing');
+          const windowStatus = getEventCheckInWindow({
+            eventDate: fullBooking.event.eventDate,
+            timeRange: fullBooking.event.timeRange,
+            scheduleTimeSlot: fullBooking.eventSchedule?.timeSlot,
+            timeZone: fullBooking.event.winery?.timezone || 'America/Los_Angeles',
+          });
+
+          if (windowStatus.isBeforeWindow) {
+            throw new Error('Check-in opens 1 hour before the event.');
+          }
+          if (windowStatus.isPastEnd) {
+            throw new Error('Cannot check in guests for an event that has already ended.');
+          }
+        }
+      }
+
+      // Event no-show enforcement:
+      // CONFIRMED -> NO_SHOW must only be allowed AFTER the event has ended.
+      if (toStatus === BookingStatus.NO_SHOW) {
+        const fullBooking = await tx.eventBooking.findUnique({
+          where: { id: bookingId },
+          include: {
+            event: {
+              include: {
+                winery: { select: { timezone: true } },
+              },
+            },
+            eventSchedule: { select: { timeSlot: true } },
+          },
+        });
+
+        if (fullBooking?.event) {
+          const { calculateEventEndBoundary } = await import('@/lib/events/timing');
+          const eventEnd = calculateEventEndBoundary({
+            eventDate: fullBooking.event.eventDate,
+            timeRange: fullBooking.event.timeRange,
+            scheduleTimeSlot: fullBooking.eventSchedule?.timeSlot,
+            timeZone: fullBooking.event.winery?.timezone || 'America/Los_Angeles',
+          });
+
+          if (Date.now() < eventEnd.getTime()) {
+            throw new Error('No-show can only be marked after the event has ended.');
+          }
+        }
+      }
+
+      // If transitioning to CANCELLED via status update, release ticket capacity
+      if (toStatus === BookingStatus.CANCELLED) {
+        const ticketTypeIds = existing.tickets
+          .filter((t) => t.eventTicketTypeId)
+          .map((t) => t.eventTicketTypeId as string)
+          .sort();
+
+        if (ticketTypeIds.length > 0) {
+          await tx.$queryRaw`SELECT id FROM "event_ticket_types" WHERE id IN (${Prisma.join(ticketTypeIds)}) ORDER BY id FOR UPDATE`;
+        }
+
+        for (const t of existing.tickets) {
+          if (!t.eventTicketTypeId) continue;
+          const tt = await tx.eventTicketType.findUnique({ where: { id: t.eventTicketTypeId } });
+          if (!tt) continue;
+          const newSoldCount = Math.max(0, tt.soldCount - t.quantity);
+          await tx.eventTicketType.update({
+            where: { id: t.eventTicketTypeId },
+            data: { soldCount: newSoldCount },
+          });
+        }
+      }
+
+      const updated = await tx.eventBooking.update({
+        where: { id: bookingId },
+        data: { status: toStatus },
+        include: { tickets: true, statusHistory: true },
+      });
+
+      await tx.eventBookingStatusHistory.create({
+        data: {
+          eventBookingId: existing.id,
+          fromStatus,
+          toStatus,
+          changedBy,
+          notes: notes || `Status changed from ${fromStatus} to ${toStatus} by staff`,
+        },
+      });
+
+      return updated;
+    });
+  }
+
+  /**
+   * Reconciles expired event bookings:
+   * - CONFIRMED bookings past event end time -> NO_SHOW
+   * - CHECKED_IN bookings past event end time -> COMPLETED
+   * Returns count of updated bookings.
+   */
+  static async reconcileExpiredEventBookings(wineryId?: string): Promise<{
+    noShowCount: number;
+    completedCount: number;
+    updatedBookingNumbers: string[];
+  }> {
+    const { isEventPastEndTime } = await import('@/lib/events/timing');
+
+    // Find active candidates (CONFIRMED or CHECKED_IN)
+    const where: Prisma.EventBookingWhereInput = {
+      status: { in: [BookingStatus.CONFIRMED, BookingStatus.CHECKED_IN] },
+      ...(wineryId ? { event: { wineryId } } : {}),
+    };
+
+    const candidates = await prisma.eventBooking.findMany({
+      where,
+      include: {
+        event: {
+          include: {
+            winery: { select: { timezone: true } },
+          },
+        },
+        eventSchedule: { select: { timeSlot: true } },
+      },
+    });
+
+    const now = new Date();
+    let noShowCount = 0;
+    let completedCount = 0;
+    const updatedBookingNumbers: string[] = [];
+
+    for (const booking of candidates) {
+      if (!booking.event) continue;
+
+      const isPast = isEventPastEndTime({
+        eventDate: booking.event.eventDate,
+        timeRange: booking.event.timeRange,
+        scheduleTimeSlot: booking.eventSchedule?.timeSlot,
+        timeZone: booking.event.winery?.timezone || 'America/Los_Angeles',
+        now,
+      });
+
+      if (!isPast) continue;
+
+      if (booking.status === BookingStatus.CONFIRMED) {
+        const updated = await prisma.$transaction(async (tx) => {
+          // Idempotent conditional update: only update if status is STILL CONFIRMED
+          const res = await tx.eventBooking.updateMany({
+            where: { id: booking.id, status: BookingStatus.CONFIRMED },
+            data: { status: BookingStatus.NO_SHOW },
+          });
+
+          if (res.count === 0) {
+            return false;
+          }
+
+          await tx.eventBookingStatusHistory.create({
+            data: {
+              eventBookingId: booking.id,
+              fromStatus: BookingStatus.CONFIRMED,
+              toStatus: BookingStatus.NO_SHOW,
+              changedBy: 'SYSTEM_RECONCILIATION',
+              notes: 'Automatically transitioned to NO_SHOW after scheduled event end time passed without check-in.',
+            },
+          });
+
+          return true;
+        });
+
+        if (updated) {
+          noShowCount++;
+          updatedBookingNumbers.push(booking.bookingNumber);
+        }
+      } else if (booking.status === BookingStatus.CHECKED_IN) {
+        const updated = await prisma.$transaction(async (tx) => {
+          // Idempotent conditional update: only update if status is STILL CHECKED_IN
+          const res = await tx.eventBooking.updateMany({
+            where: { id: booking.id, status: BookingStatus.CHECKED_IN },
+            data: { status: BookingStatus.COMPLETED },
+          });
+
+          if (res.count === 0) {
+            return false;
+          }
+
+          await tx.eventBookingStatusHistory.create({
+            data: {
+              eventBookingId: booking.id,
+              fromStatus: BookingStatus.CHECKED_IN,
+              toStatus: BookingStatus.COMPLETED,
+              changedBy: 'SYSTEM_RECONCILIATION',
+              notes: 'Automatically transitioned to COMPLETED after scheduled event end time.',
+            },
+          });
+
+          return true;
+        });
+
+        if (updated) {
+          completedCount++;
+          updatedBookingNumbers.push(booking.bookingNumber);
+        }
+      }
+    }
+
+    return { noShowCount, completedCount, updatedBookingNumbers };
   }
 }
 
