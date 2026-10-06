@@ -112,6 +112,14 @@ enum NotificationType {
   REVIEW_REQUEST
 }
 
+enum GuestStatus {
+  ACTIVE
+  VIP
+  PROSPECT
+  INACTIVE
+  BLOCKED
+}
+
 enum ContactInquiryStatus {
   NEW
   IN_PROGRESS
@@ -158,6 +166,7 @@ model Winery {
   contactInquiries   ContactInquiry[]
   conversations      Conversation[]
   aiSettings         AISettings?
+  guestTags          GuestTag[]
 
   @@map("wineries")
 }
@@ -227,6 +236,7 @@ model GuestProfile {
   emailNotifications  Boolean  @default(true)
   smsNotifications    Boolean  @default(false)
   whatsappNotifications Boolean @default(false)
+  status              GuestStatus @default(ACTIVE)
   visitsCount         Int      @default(0)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -241,7 +251,9 @@ model GuestProfile {
   conversations       Conversation[]
   voiceCalls          VoiceCall[]
   eventBookings       EventBooking[]
+  tags                GuestTagAssignment[]
 
+  @@index([status])
   @@map("guest_profiles")
 }
 
@@ -261,6 +273,38 @@ model GuestWinePreference {
 
   @@index([favoriteWineId])
   @@map("guest_wine_preferences")
+}
+
+model GuestTag {
+  id          String   @id @default(uuid())
+  wineryId    String
+  name        String
+  description String?
+  color       String?  @default("#6c2432")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  winery      Winery   @relation(fields: [wineryId], references: [id], onDelete: Cascade)
+  assignments GuestTagAssignment[]
+
+  @@unique([wineryId, name])
+  @@index([wineryId])
+  @@map("guest_tags")
+}
+
+model GuestTagAssignment {
+  id             String       @id @default(uuid())
+  guestProfileId String
+  guestTagId     String
+  createdAt      DateTime     @default(now())
+
+  guestProfile   GuestProfile @relation(fields: [guestProfileId], references: [id], onDelete: Cascade)
+  tag            GuestTag     @relation(fields: [guestTagId], references: [id], onDelete: Cascade)
+
+  @@unique([guestProfileId, guestTagId])
+  @@index([guestProfileId])
+  @@index([guestTagId])
+  @@map("guest_tag_assignments")
 }
 
 // ----------------------------------------------------

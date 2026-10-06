@@ -14,6 +14,8 @@ export async function GET(request: NextRequest) {
     const hasBookings = searchParams.get('hasBookings') || undefined;
     const hasTastings = searchParams.get('hasTastings') || undefined;
     const hasReviews = searchParams.get('hasReviews') || undefined;
+    const status = searchParams.get('status') || undefined;
+    const tagId = searchParams.get('tagId') || undefined;
     const page = parseInt(searchParams.get('page') || '1', 10);
     const pageSize = parseInt(searchParams.get('pageSize') || '20', 10);
 
@@ -22,6 +24,8 @@ export async function GET(request: NextRequest) {
       hasBookings,
       hasTastings,
       hasReviews,
+      status,
+      tagId,
       wineryId,
       page,
       pageSize: Math.min(pageSize, 50),

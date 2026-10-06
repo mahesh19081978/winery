@@ -85,9 +85,14 @@ export const GuestProfileUpdateSchema = z.object({
 
 export type GuestProfileUpdateInput = z.infer<typeof GuestProfileUpdateSchema>;
 
+export const GuestStatusSchema = z.enum(['ACTIVE', 'VIP', 'PROSPECT', 'INACTIVE', 'BLOCKED']);
+export type GuestStatusType = z.infer<typeof GuestStatusSchema>;
+
 export const AdminGuestUpdateSchema = z.object({
   name: z.string().trim().min(2, 'Name must be at least 2 characters').max(100, 'Name must not exceed 100 characters').optional(),
   phone: z.string().trim().max(30, 'Phone must not exceed 30 characters').optional().nullable(),
+  status: GuestStatusSchema.optional(),
+  tagIds: z.array(z.string().uuid()).optional(),
   dateOfBirth: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional().nullable(),
   dietaryPreferences: z.string().max(1000).optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
@@ -99,6 +104,20 @@ export const AdminGuestUpdateSchema = z.object({
 });
 
 export type AdminGuestUpdateInput = z.infer<typeof AdminGuestUpdateSchema>;
+
+export const GuestTagCreateSchema = z.object({
+  name: z.string().trim().min(1, 'Tag name is required').max(50, 'Tag name cannot exceed 50 characters'),
+  description: z.string().trim().max(255).optional().nullable(),
+  color: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, 'Color must be a valid hex code (e.g. #6c2432)').optional(),
+});
+export type GuestTagCreateInput = z.infer<typeof GuestTagCreateSchema>;
+
+export const GuestTagUpdateSchema = z.object({
+  name: z.string().trim().min(1, 'Tag name is required').max(50, 'Tag name cannot exceed 50 characters').optional(),
+  description: z.string().trim().max(255).optional().nullable(),
+  color: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, 'Color must be a valid hex code (e.g. #6c2432)').optional(),
+});
+export type GuestTagUpdateInput = z.infer<typeof GuestTagUpdateSchema>;
 
 /**
  * Destructive guest erasure request. The literal word is checked by the service

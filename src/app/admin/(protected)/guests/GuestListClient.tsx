@@ -19,7 +19,7 @@ import {
   Phone,
   Ticket,
 } from 'lucide-react';
-import { SectionCard } from '@/components/admin/UIComponents';
+import { SectionCard, StatusBadge } from '@/components/admin/UIComponents';
 import EmptyState from '@/components/common/EmptyState';
 
 interface GuestItem {
@@ -27,6 +27,14 @@ interface GuestItem {
   name: string;
   phone: string | null;
   avatar: string | null;
+  status: 'ACTIVE' | 'VIP' | 'PROSPECT' | 'INACTIVE' | 'BLOCKED';
+  tags: {
+    tag: {
+      id: string;
+      name: string;
+      color: string | null;
+    };
+  }[];
   dateOfBirth: string | null;
   visitsCount: number;
   emailNotifications: boolean;
@@ -56,6 +64,9 @@ export function GuestListClient() {
   const [hasBookings, setHasBookings] = useState('');
   const [hasTastings, setHasTastings] = useState('');
   const [hasReviews, setHasReviews] = useState('');
+  const [status, setStatus] = useState('');
+  const [tagId, setTagId] = useState('');
+  const [availableTags, setAvailableTags] = useState<{ id: string; name: string; color: string | null }[]>([]);
   const [showFilters, setShowFilters] = useState(false);
 
   const fetchGuests = useCallback(async (
@@ -63,7 +74,9 @@ export function GuestListClient() {
     searchVal: string,
     hasBookingsVal: string,
     hasTastingsVal: string,
-    hasReviewsVal: string
+    hasReviewsVal: string,
+    statusVal: string,
+    tagIdVal: string
   ) => {
     setLoading(true);
     setError('');
@@ -76,6 +89,8 @@ export function GuestListClient() {
       if (hasBookingsVal) params.set('hasBookings', hasBookingsVal);
       if (hasTastingsVal) params.set('hasTastings', hasTastingsVal);
       if (hasReviewsVal) params.set('hasReviews', hasReviewsVal);
+      if (statusVal) params.set('status', statusVal);
+      if (tagIdVal) params.set('tagId', tagIdVal);
 
       const response = await fetch(`/api/admin/guests?${params.toString()}`);
       const result = await response.json();
@@ -102,12 +117,22 @@ export function GuestListClient() {
         const params = new URLSearchParams();
         params.set('page', '1');
         params.set('pageSize', '20');
-        const response = await fetch(`/api/admin/guests?${params.toString()}`);
-        const result = await response.json();
+        const [guestsRes, tagsRes] = await Promise.all([
+          fetch(`/api/admin/guests?${params.toString()}`),
+          fetch('/api/admin/guest-tags').catch(() => null),
+        ]);
+        const result = await guestsRes.json();
         if (!cancelled) {
-          if (!response.ok) throw new Error(result.error || 'Failed to fetch guests');
+          if (!guestsRes.ok) throw new Error(result.error || 'Failed to fetch guests');
           setGuests(result.data.guests);
           setPagination(result.data.pagination);
+
+          if (tagsRes && tagsRes.ok) {
+            const tagsJson = await tagsRes.json().catch(() => ({}));
+            if (Array.isArray(tagsJson.data)) {
+              setAvailableTags(tagsJson.data);
+            }
+          }
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'An error occurred');
@@ -121,24 +146,28 @@ export function GuestListClient() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    fetchGuests(1, search, hasBookings, hasTastings, hasReviews);
+    fetchGuests(1, search, hasBookings, hasTastings, hasReviews, status, tagId);
   };
 
   const handleClearSearch = () => {
     setSearch('');
-    fetchGuests(1, '', hasBookings, hasTastings, hasReviews);
+    fetchGuests(1, '', hasBookings, hasTastings, hasReviews, status, tagId);
   };
 
   const handleFilterChange = (field: string, value: string) => {
     const newBookings = field === 'hasBookings' ? value : hasBookings;
     const newTastings = field === 'hasTastings' ? value : hasTastings;
     const newReviews = field === 'hasReviews' ? value : hasReviews;
+    const newStatus = field === 'status' ? value : status;
+    const newTagId = field === 'tagId' ? value : tagId;
 
     if (field === 'hasBookings') setHasBookings(value);
     if (field === 'hasTastings') setHasTastings(value);
     if (field === 'hasReviews') setHasReviews(value);
+    if (field === 'status') setStatus(value);
+    if (field === 'tagId') setTagId(value);
 
-    fetchGuests(1, search, newBookings, newTastings, newReviews);
+    fetchGuests(1, search, newBookings, newTastings, newReviews, newStatus, newTagId);
   };
 
   const handleClearFilters = () => {
@@ -146,15 +175,17 @@ export function GuestListClient() {
     setHasBookings('');
     setHasTastings('');
     setHasReviews('');
+    setStatus('');
+    setTagId('');
     setShowFilters(false);
-    fetchGuests(1, '', '', '', '');
+    fetchGuests(1, '', '', '', '', '', '');
   };
 
   const handlePageChange = (newPage: number) => {
-    fetchGuests(newPage, search, hasBookings, hasTastings, hasReviews);
+    fetchGuests(newPage, search, hasBookings, hasTastings, hasReviews, status, tagId);
   };
 
-  const hasActiveFilters = search || hasBookings || hasTastings || hasReviews;
+  const hasActiveFilters = search || hasBookings || hasTastings || hasReviews || status || tagId;
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -233,6 +264,40 @@ export function GuestListClient() {
 
           {showFilters && (
             <div className="flex flex-col sm:flex-row gap-3 p-3 bg-[#faf8f5] rounded-lg border border-stone-200/80">
+              <div className="flex-1 space-y-1">
+                <label className="text-[10px] uppercase font-mono tracking-wider text-stone-500">Status</label>
+                <select
+                  value={status}
+                  onChange={(e) => handleFilterChange('status', e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs bg-white border border-stone-200 rounded-lg text-stone-700 focus:outline-none focus:ring-1 focus:ring-[#6c2432]"
+                >
+                  <option value="">All Statuses</option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="VIP">VIP</option>
+                  <option value="PROSPECT">Prospect</option>
+                  <option value="INACTIVE">Inactive</option>
+                  <option value="BLOCKED">Blocked</option>
+                </select>
+              </div>
+
+              {availableTags.length > 0 && (
+                <div className="flex-1 space-y-1">
+                  <label className="text-[10px] uppercase font-mono tracking-wider text-stone-500">Tag</label>
+                  <select
+                    value={tagId}
+                    onChange={(e) => handleFilterChange('tagId', e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-stone-200 rounded-lg text-stone-700 focus:outline-none focus:ring-1 focus:ring-[#6c2432]"
+                  >
+                    <option value="">All Tags</option>
+                    {availableTags.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div className="flex-1 space-y-1">
                 <label className="text-[10px] uppercase font-mono tracking-wider text-stone-500">Bookings</label>
                 <select
@@ -336,13 +401,30 @@ export function GuestListClient() {
                             {guest.name?.charAt(0)?.toUpperCase() || 'G'}
                           </div>
                           <div>
-                            <div className="font-medium text-stone-900">{guest.name}</div>
-                            {guest.phone && (
-                              <div className="text-[11px] text-stone-500 flex items-center gap-1 mt-0.5">
-                                <Phone className="w-2.5 h-2.5" />
-                                {guest.phone}
-                              </div>
-                            )}
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-stone-900">{guest.name}</span>
+                              <StatusBadge status={guest.status || 'ACTIVE'} size="sm" />
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1 mt-1">
+                              {guest.phone && (
+                                <span className="text-[11px] text-stone-500 flex items-center gap-1 mr-1">
+                                  <Phone className="w-2.5 h-2.5" />
+                                  {guest.phone}
+                                </span>
+                              )}
+                              {guest.tags && guest.tags.map(({ tag }) => (
+                                <span
+                                  key={tag.id}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[10px] font-medium border bg-white text-stone-700 border-stone-200"
+                                >
+                                  <span
+                                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                                    style={{ backgroundColor: tag.color || '#6c2432' }}
+                                  />
+                                  <span>{tag.name}</span>
+                                </span>
+                              ))}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -408,8 +490,27 @@ export function GuestListClient() {
                         {guest.name?.charAt(0)?.toUpperCase() || 'G'}
                       </div>
                       <div>
-                        <h4 className="font-serif font-medium text-stone-900">{guest.name}</h4>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-serif font-medium text-stone-900">{guest.name}</h4>
+                          <StatusBadge status={guest.status || 'ACTIVE'} size="sm" />
+                        </div>
                         <p className="text-[11px] text-stone-500 mt-0.5">{guest.user.email}</p>
+                        {guest.tags && guest.tags.length > 0 && (
+                          <div className="flex flex-wrap items-center gap-1 mt-1">
+                            {guest.tags.map(({ tag }) => (
+                              <span
+                                key={tag.id}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[10px] font-medium border bg-white text-stone-700 border-stone-200"
+                              >
+                                <span
+                                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                                  style={{ backgroundColor: tag.color || '#6c2432' }}
+                                />
+                                <span>{tag.name}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

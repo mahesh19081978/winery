@@ -13,6 +13,7 @@ import {
   FrontDeskRepository,
   GuestRepository,
   GuestWinePreferenceRepository,
+  GuestTagRepository,
   TastingRepository,
   ReviewRepository,
   GuestBookingTimelineFilter,
@@ -33,6 +34,8 @@ import {
   EventBookingCreateRawInput,
   GuestProfileUpdateInput,
   AdminGuestUpdateInput,
+  GuestTagCreateInput,
+  GuestTagUpdateInput,
   GuestWineProfileUpdateInput,
   GuestDeletionConfirmInput,
   TastingRecordCreateInput,
@@ -1568,6 +1571,8 @@ export class GuestService {
     hasBookings?: string;
     hasTastings?: string;
     hasReviews?: string;
+    status?: string;
+    tagId?: string;
     wineryId?: string;
     page?: number;
     pageSize?: number;
@@ -1590,14 +1595,20 @@ export class GuestService {
       throw new Error(`Guest with id '${id}' not found`);
     }
 
-    const updated = await GuestRepository.updateProfile(id, {
-      name: input.name,
-      phone: input.phone,
-      dateOfBirth: input.dateOfBirth,
-      dietaryPreferences: input.dietaryPreferences,
-      notes: input.notes,
-      notifications: input.notifications,
-    });
+    const updated = await GuestRepository.updateProfile(
+      id,
+      {
+        name: input.name,
+        phone: input.phone,
+        status: input.status,
+        tagIds: input.tagIds,
+        dateOfBirth: input.dateOfBirth,
+        dietaryPreferences: input.dietaryPreferences,
+        notes: input.notes,
+        notifications: input.notifications,
+      },
+      wineryId
+    );
 
     return updated;
   }
@@ -4917,5 +4928,48 @@ export class WebsiteImageService {
       updatedByName: row.updatedBy ? row.updatedBy.name || row.updatedBy.email : null,
       updatedAt: row.updatedAt.toISOString(),
     };
+  }
+}
+
+export class GuestTagService {
+  static async listTags(wineryId: string) {
+    if (!wineryId) return [];
+    return GuestTagRepository.findByWineryId(wineryId);
+  }
+
+  static async getTag(id: string, wineryId?: string) {
+    const tag = await GuestTagRepository.findById(id, wineryId);
+    if (!tag) {
+      throw new Error(`Guest tag with id '${id}' not found`);
+    }
+    return tag;
+  }
+
+  static async createTag(wineryId: string, input: GuestTagCreateInput) {
+    if (!wineryId) {
+      throw new Error('A valid winery context is required to create guest tags');
+    }
+    return GuestTagRepository.create({
+      wineryId,
+      name: input.name,
+      description: input.description,
+      color: input.color,
+    });
+  }
+
+  static async updateTag(id: string, wineryId: string | undefined, input: GuestTagUpdateInput) {
+    const existing = await GuestTagRepository.findById(id, wineryId);
+    if (!existing) {
+      throw new Error(`Guest tag with id '${id}' not found`);
+    }
+    return GuestTagRepository.update(id, input, wineryId);
+  }
+
+  static async deleteTag(id: string, wineryId?: string) {
+    const existing = await GuestTagRepository.findById(id, wineryId);
+    if (!existing) {
+      throw new Error(`Guest tag with id '${id}' not found`);
+    }
+    return GuestTagRepository.delete(id, wineryId);
   }
 }

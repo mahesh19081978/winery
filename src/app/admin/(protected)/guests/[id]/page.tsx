@@ -29,6 +29,7 @@ export default async function AdminGuestDetailPage({
     <GuestDetailClient
       guest={JSON.parse(JSON.stringify(guest))}
       permissions={getPermissions(session.role)}
+      wineryId={session.wineryId ?? undefined}
     />
   );
 }

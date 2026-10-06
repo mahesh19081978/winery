@@ -41,6 +41,15 @@ interface GuestData {
   name: string;
   phone: string | null;
   avatar: string | null;
+  status: 'ACTIVE' | 'VIP' | 'PROSPECT' | 'INACTIVE' | 'BLOCKED';
+  tags: {
+    tag: {
+      id: string;
+      name: string;
+      description: string | null;
+      color: string | null;
+    };
+  }[];
   dateOfBirth: string | null;
   dietaryPreferences: string | null;
   notes: string | null;
@@ -545,9 +554,11 @@ function DeleteGuestDialog({ guest, onClose }: { guest: GuestData; onClose: () =
 export function GuestDetailClient({
   guest: initialGuest,
   permissions,
+  wineryId,
 }: {
   guest: GuestData;
   permissions: Permission[];
+  wineryId?: string;
 }) {
   const [guest, setGuest] = useState<GuestData>(initialGuest);
   const [activeTab, setActiveTab] = useState<TabId>('profile');
@@ -607,8 +618,24 @@ export function GuestDetailClient({
               <h1 className="text-2xl sm:text-3xl font-serif text-stone-900 font-medium">
                 {guest.name}
               </h1>
-              <StatusBadge status="ACTIVE" size="md" />
+              <StatusBadge status={guest.status || 'ACTIVE'} size="md" />
             </div>
+            {guest.tags && guest.tags.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                {guest.tags.map(({ tag }) => (
+                  <span
+                    key={tag.id}
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium border bg-white text-stone-700 border-stone-200 shadow-2xs"
+                  >
+                    <span
+                      className="w-1.5 h-1.5 rounded-full shrink-0"
+                      style={{ backgroundColor: tag.color || '#6c2432' }}
+                    />
+                    <span>{tag.name}</span>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -710,6 +737,39 @@ export function GuestDetailClient({
                     <div>
                       <h2 className="font-serif font-medium text-lg text-stone-900">{guest.name}</h2>
                       <p className="text-xs text-stone-500 mt-0.5">Guest ID: {guest.id.slice(0, 8)}...</p>
+                    </div>
+                  </div>
+
+                  {/* Lifecycle Status & Tags */}
+                  <div className="p-4 rounded-xl border border-stone-200/80 bg-white space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] uppercase font-mono tracking-wider text-stone-500">
+                        Lifecycle Status
+                      </span>
+                      <StatusBadge status={guest.status || 'ACTIVE'} size="sm" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-mono tracking-wider text-stone-500 block mb-1.5">
+                        Assigned Tags
+                      </span>
+                      {(!guest.tags || guest.tags.length === 0) ? (
+                        <p className="text-xs text-stone-400">No tags assigned</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {guest.tags.map(({ tag }) => (
+                            <span
+                              key={tag.id}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border bg-[#faf8f5] text-stone-800 border-stone-300"
+                            >
+                              <span
+                                className="w-2 h-2 rounded-full shrink-0"
+                                style={{ backgroundColor: tag.color || '#6c2432' }}
+                              />
+                              <span>{tag.name}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -1383,6 +1443,7 @@ export function GuestDetailClient({
         <EditGuestDialog
           guest={guest}
           isOpen={showEditDialog}
+          wineryId={wineryId}
           onClose={() => setShowEditDialog(false)}
           onUpdated={(updated) => {
             setGuest((prev) => ({

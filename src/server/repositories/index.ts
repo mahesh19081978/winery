@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { BookingStatus, PaymentStatus, ReviewStatus, Prisma, NotificationChannel, NotificationType } from '@prisma/client';
+import { BookingStatus, PaymentStatus, ReviewStatus, Prisma, NotificationChannel, NotificationType, GuestStatus } from '@prisma/client';
 import { deriveEventAvailability } from '@/lib/events/availability';
 
 const VALID_BOOKING_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
@@ -1216,6 +1216,8 @@ export class GuestRepository {
     hasBookings?: string;
     hasTastings?: string;
     hasReviews?: string;
+    status?: GuestStatus | string;
+    tagId?: string;
     wineryId?: string;
     page?: number;
     pageSize?: number;
@@ -1268,6 +1270,14 @@ export class GuestRepository {
       conditions.push(filters.wineryId ? { reviews: { none: { wineryId: filters.wineryId } } } : { reviews: { none: {} } });
     }
 
+    if (filters.status && Object.values(GuestStatus).includes(filters.status as GuestStatus)) {
+      conditions.push({ status: filters.status as GuestStatus });
+    }
+
+    if (filters.tagId) {
+      conditions.push({ tags: { some: { guestTagId: filters.tagId } } });
+    }
+
     const where: Prisma.GuestProfileWhereInput = conditions.length > 0 ? { AND: conditions } : {};
 
     const [guests, total] = await Promise.all([
@@ -1275,6 +1285,11 @@ export class GuestRepository {
         where,
         include: {
           user: { select: { email: true, role: true, wineryId: true } },
+          tags: {
+            include: {
+              tag: { select: { id: true, name: true, color: true, wineryId: true } },
+            },
+          },
           _count: {
             select: {
               bookings: filters.wineryId ? { where: { wineryId: filters.wineryId } } : true,
@@ -1308,6 +1323,11 @@ export class GuestRepository {
       where: { id },
       include: {
         user: { select: { id: true, email: true, role: true, wineryId: true, createdAt: true } },
+        tags: {
+          include: {
+            tag: { select: { id: true, name: true, description: true, color: true, wineryId: true } },
+          },
+        },
         winePreference: {
           include: { favoriteWine: { select: { id: true, name: true, slug: true, category: true } } },
         },
@@ -1419,6 +1439,8 @@ export class GuestRepository {
     name?: string;
     phone?: string | null;
     avatar?: string | null;
+    status?: GuestStatus;
+    tagIds?: string[];
     dateOfBirth?: Date | string | null;
     dietaryPreferences?: string | null;
     notes?: string | null;
@@ -1430,12 +1452,13 @@ export class GuestRepository {
       preferredAcidity?: string | null;
       favoriteWineId?: string | null;
     };
-  }) {
+  }, wineryId?: string) {
     return prisma.$transaction(async (tx) => {
       const updateData: Prisma.GuestProfileUpdateInput = {};
       if (data.name) updateData.name = data.name;
       if (data.phone !== undefined) updateData.phone = data.phone;
       if (data.avatar !== undefined) updateData.avatar = data.avatar;
+      if (data.status) updateData.status = data.status;
       if (data.dateOfBirth !== undefined) {
         updateData.dateOfBirth = data.dateOfBirth ? new Date(data.dateOfBirth) : null;
       }
@@ -1471,6 +1494,47 @@ export class GuestRepository {
             favoriteWineId: data.winePreferences.favoriteWineId,
           },
         });
+      }
+
+      if (data.tagIds !== undefined) {
+        if (wineryId) {
+          // Verify that all tags belong to this winery
+          const validTags = await tx.guestTag.findMany({
+            where: { id: { in: data.tagIds }, wineryId },
+            select: { id: true },
+          });
+          // Remove existing assignments for this winery
+          await tx.guestTagAssignment.deleteMany({
+            where: {
+              guestProfileId: id,
+              tag: { wineryId },
+            },
+          });
+          // Insert valid new assignments
+          if (validTags.length > 0) {
+            await tx.guestTagAssignment.createMany({
+              data: validTags.map((t) => ({
+                guestProfileId: id,
+                guestTagId: t.id,
+              })),
+              skipDuplicates: true,
+            });
+          }
+        } else {
+          // SUPER_ADMIN (no specific wineryId provided)
+          await tx.guestTagAssignment.deleteMany({
+            where: { guestProfileId: id },
+          });
+          if (data.tagIds.length > 0) {
+            await tx.guestTagAssignment.createMany({
+              data: data.tagIds.map((tagId) => ({
+                guestProfileId: id,
+                guestTagId: tagId,
+              })),
+              skipDuplicates: true,
+            });
+          }
+        }
       }
 
       return profile;
@@ -3894,6 +3958,7 @@ export class GuestDeletionRepository {
     const reviews = await db.review.deleteMany({ where: { guestProfileId } });
     const tastingRecords = await db.tastingRecord.deleteMany({ where: { guestProfileId } });
     const tastingSessions = await db.tastingSession.deleteMany({ where: { guestProfileId } });
+    await db.guestTagAssignment.deleteMany({ where: { guestProfileId } });
     const winePreferences = await db.guestWinePreference.deleteMany({ where: { guestProfileId } });
 
     const bookingItems = await db.bookingItem.deleteMany({ where: { booking: { guestProfileId } } });
@@ -4028,6 +4093,69 @@ export class WebsiteImageRepository {
         OR: [{ url }, { originalUrl: url }],
         key: { not: excludeKey },
       },
+    });
+  }
+}
+export class GuestTagRepository {
+  static async findByWineryId(wineryId: string) {
+    return prisma.guestTag.findMany({
+      where: { wineryId },
+      include: {
+        _count: {
+          select: { assignments: true },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  static async findById(id: string, wineryId?: string) {
+    return prisma.guestTag.findFirst({
+      where: wineryId ? { id, wineryId } : { id },
+      include: {
+        _count: {
+          select: { assignments: true },
+        },
+      },
+    });
+  }
+
+  static async create(data: {
+    wineryId: string;
+    name: string;
+    description?: string | null;
+    color?: string;
+  }) {
+    return prisma.guestTag.create({
+      data: {
+        wineryId: data.wineryId,
+        name: data.name,
+        description: data.description,
+        color: data.color || '#6c2432',
+      },
+    });
+  }
+
+  static async update(
+    id: string,
+    data: {
+      name?: string;
+      description?: string | null;
+      color?: string;
+    },
+    wineryId?: string
+  ) {
+    const where: Prisma.GuestTagWhereUniqueInput = wineryId ? { id, wineryId } : { id };
+    return prisma.guestTag.update({
+      where,
+      data,
+    });
+  }
+
+  static async delete(id: string, wineryId?: string) {
+    const where: Prisma.GuestTagWhereUniqueInput = wineryId ? { id, wineryId } : { id };
+    return prisma.guestTag.delete({
+      where,
     });
   }
 }
