@@ -833,11 +833,12 @@ export class BookingService {
     experienceId?: string;
     dateFrom?: string;
     dateTo?: string;
+    wineryId?: string;
     page?: number;
     pageSize?: number;
   }) {
-    // Automatically reconcile expired experience bookings so lists always reflect authoritative status
-    await BookingRepository.reconcileExpiredExperienceBookings();
+    // Automatically reconcile expired experience bookings scoped by wineryId if provided
+    await BookingRepository.reconcileExpiredExperienceBookings(filters.wineryId);
     return BookingRepository.findMany(filters);
   }
 
@@ -852,14 +853,26 @@ export class BookingService {
     bookingNumber: string,
     toStatus: BookingStatus,
     changedBy: string,
-    notes?: string
+    notes?: string,
+    sessionContext?: { role: UserRole; wineryId: string | null }
   ) {
     const booking = await BookingRepository.findByBookingNumber(bookingNumber);
     if (!booking) {
       throw new Error(`Booking ${bookingNumber} not found`);
     }
 
-    return BookingRepository.updateStatus(booking.id, toStatus, changedBy, notes);
+    if (sessionContext) {
+      if (sessionContext.role !== UserRole.SUPER_ADMIN) {
+        if (!sessionContext.wineryId) {
+          throw new Error('Forbidden: session is not bound to a winery');
+        }
+        if (booking.wineryId !== sessionContext.wineryId) {
+          throw new Error('Forbidden: reservation belongs to another winery');
+        }
+      }
+    }
+
+    return BookingRepository.updateStatus(booking.id, toStatus, changedBy, notes, sessionContext?.role !== UserRole.SUPER_ADMIN ? (sessionContext?.wineryId || undefined) : undefined);
   }
 
   static async reconcileExpiredBookings(wineryId?: string) {
@@ -1290,16 +1303,31 @@ export class EventBookingService {
     eventScheduleId?: string;
     dateFrom?: string;
     dateTo?: string;
+    wineryId?: string;
     page?: number;
     pageSize?: number;
   }) {
     return EventBookingRepository.findManyAdmin(filters);
   }
 
-  static async getEventBookingAdmin(bookingNumber: string) {
-    let booking = await EventBookingRepository.findByBookingNumberAdmin(bookingNumber);
+  static async getEventBookingAdmin(
+    bookingNumber: string,
+    sessionContext?: { role: UserRole; wineryId: string | null }
+  ) {
+    let booking = await EventBookingRepository.findByBookingNumberAdmin(
+      bookingNumber,
+      sessionContext && sessionContext.role !== UserRole.SUPER_ADMIN
+        ? (sessionContext.wineryId ?? '__no_tenant__')
+        : undefined
+    );
     if (!booking) {
       throw new EventBookingError(`Event booking ${bookingNumber} not found`, 404);
+    }
+
+    if (sessionContext && sessionContext.role !== UserRole.SUPER_ADMIN) {
+      if (!sessionContext.wineryId || booking.event.wineryId !== sessionContext.wineryId) {
+        throw new EventBookingError('Forbidden: event booking belongs to another winery', 403);
+      }
     }
 
     // If active and past end time, reconcile this booking immediately
@@ -1323,7 +1351,20 @@ export class EventBookingService {
     return booking;
   }
 
-  static async cancelBookingAdmin(bookingNumber: string, reason?: string) {
+  static async cancelBookingAdmin(
+    bookingNumber: string,
+    reason?: string,
+    sessionContext?: { role: UserRole; wineryId: string | null }
+  ) {
+    if (sessionContext && sessionContext.role !== UserRole.SUPER_ADMIN) {
+      const existing = await EventBookingRepository.findByBookingNumberAdmin(bookingNumber);
+      if (!existing) {
+        throw new EventBookingError(`Event booking ${bookingNumber} not found`, 404);
+      }
+      if (!sessionContext.wineryId || existing.event.wineryId !== sessionContext.wineryId) {
+        throw new EventBookingError('Forbidden: event booking belongs to another winery', 403);
+      }
+    }
     // Reuse existing cancellation logic (transactional, capacity release)
     return EventBookingService.cancelBooking(bookingNumber, reason);
   }
@@ -1332,14 +1373,30 @@ export class EventBookingService {
     bookingNumber: string,
     toStatus: import('@prisma/client').BookingStatus,
     changedBy: string,
-    notes?: string
+    notes?: string,
+    sessionContext?: { role: UserRole; wineryId: string | null }
   ) {
     const booking = await EventBookingRepository.findByBookingNumberAdmin(bookingNumber);
     if (!booking) {
       throw new EventBookingError(`Event booking ${bookingNumber} not found`, 404);
     }
 
-    return EventBookingRepository.updateStatus(booking.id, toStatus, changedBy, notes);
+    if (sessionContext && sessionContext.role !== UserRole.SUPER_ADMIN) {
+      if (!sessionContext.wineryId) {
+        throw new EventBookingError('Forbidden: session is not bound to a winery', 403);
+      }
+      if (booking.event.wineryId !== sessionContext.wineryId) {
+        throw new EventBookingError('Forbidden: event booking belongs to another winery', 403);
+      }
+    }
+
+    return EventBookingRepository.updateStatus(
+      booking.id,
+      toStatus,
+      changedBy,
+      notes,
+      sessionContext && sessionContext.role !== UserRole.SUPER_ADMIN ? (sessionContext.wineryId || undefined) : undefined
+    );
   }
 
   static async reconcileExpiredBookings(wineryId?: string) {
@@ -1657,8 +1714,30 @@ function parseBookingTimeToMinutes(time: string) {
 }
 
 export class FrontDeskService {
-  static async getTodayOperations() {
-    const winery = await FrontDeskRepository.getDefaultWinery();
+  static async getTodayOperations(sessionContext?: { role: UserRole; wineryId: string | null } | string) {
+    let targetWineryId: string | undefined;
+
+    if (typeof sessionContext === 'string') {
+      targetWineryId = sessionContext;
+    } else if (sessionContext) {
+      if (sessionContext.role !== UserRole.SUPER_ADMIN) {
+        if (!sessionContext.wineryId) {
+          throw new Error('Forbidden: staff session has no assigned winery');
+        }
+        targetWineryId = sessionContext.wineryId;
+      } else {
+        targetWineryId = sessionContext.wineryId || undefined;
+      }
+    }
+
+    const winery = targetWineryId
+      ? await FrontDeskRepository.getWineryById(targetWineryId)
+      : await FrontDeskRepository.getDefaultWinery();
+
+    if (!winery) {
+      throw new Error(targetWineryId ? `Winery ${targetWineryId} not found` : 'No winery configured');
+    }
+
     const timezone = winery?.timezone || 'America/Los_Angeles';
     const now = new Date();
     const today = getDatePartsForTimeZone(now, timezone);
@@ -1667,13 +1746,13 @@ export class FrontDeskService {
 
     // Reconcile any expired event bookings and completed checked-in experience bookings so Front Desk always reflects authoritative status
     await Promise.all([
-      EventBookingService.reconcileExpiredBookings(winery?.id),
-      BookingRepository.reconcileCheckedInBookings(todayDate, winery?.id),
+      EventBookingService.reconcileExpiredBookings(winery.id),
+      BookingRepository.reconcileCheckedInBookings(todayDate, winery.id),
     ]);
 
     const [experienceBookings, eventBookings] = await Promise.all([
-      FrontDeskRepository.findBookingsForDate(todayDate),
-      FrontDeskRepository.findEventBookingsForDate(todayDate),
+      FrontDeskRepository.findBookingsForDate(todayDate, winery.id),
+      FrontDeskRepository.findEventBookingsForDate(todayDate, winery.id),
     ]);
 
     // Map experience bookings to unified front-desk operational shape
@@ -2247,24 +2326,48 @@ export class TastingService {
     dateFrom?: string;
     dateTo?: string;
     hasBooking?: string;
+    wineryId?: string;
     page?: number;
     pageSize?: number;
   }) {
     return TastingRepository.findAllSessionsAdmin(filters);
   }
 
-  static async getTastingSessionAdmin(sessionId: string) {
+  static async getTastingSessionAdmin(
+    sessionId: string,
+    sessionContext?: { role: UserRole; wineryId: string | null }
+  ) {
     const session = await TastingRepository.findSessionByIdAdmin(sessionId);
     if (!session) {
       throw new Error(`Tasting session '${sessionId}' not found`);
     }
+
+    if (sessionContext && sessionContext.role !== UserRole.SUPER_ADMIN) {
+      const sessionWineryId = session.booking?.wineryId || session.records[0]?.wineVintage?.wine?.wineryId;
+      if (sessionWineryId && sessionContext.wineryId && sessionWineryId !== sessionContext.wineryId) {
+        throw new Error('Forbidden: tasting session belongs to another winery');
+      }
+    }
+
     return session;
   }
 
-  static async startSessionForBooking(input: TastingSessionCreateInput) {
+  static async startSessionForBooking(
+    input: TastingSessionCreateInput,
+    sessionContext?: { role: UserRole; wineryId: string | null }
+  ) {
     const booking = await BookingRepository.findByBookingNumber(input.bookingNumber);
     if (!booking) {
       throw new Error(`Booking ${input.bookingNumber} not found`);
+    }
+
+    if (sessionContext && sessionContext.role !== UserRole.SUPER_ADMIN) {
+      if (!sessionContext.wineryId) {
+        throw new Error('Forbidden: session is not bound to a winery');
+      }
+      if (booking.wineryId !== sessionContext.wineryId) {
+        throw new Error('Forbidden: reservation belongs to another winery');
+      }
     }
 
     if (booking.status !== BookingStatus.CHECKED_IN) {

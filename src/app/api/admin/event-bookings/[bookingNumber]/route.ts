@@ -11,7 +11,10 @@ export async function GET(
     if (!guard.ok) return guard.response;
 
     const { bookingNumber } = await context.params;
-    const booking = await EventBookingService.getEventBookingAdmin(bookingNumber);
+    const booking = await EventBookingService.getEventBookingAdmin(bookingNumber, {
+      role: guard.session.role,
+      wineryId: guard.session.wineryId,
+    });
 
     // Admin-safe DTO (no passwords, session data, etc.)
     const dto = {
@@ -59,7 +62,10 @@ export async function DELETE(
       // body optional
     }
 
-    const cancelled = await EventBookingService.cancelBookingAdmin(bookingNumber, reason);
+    const cancelled = await EventBookingService.cancelBookingAdmin(bookingNumber, reason, {
+      role: guard.session.role,
+      wineryId: guard.session.wineryId,
+    });
 
     return NextResponse.json({ success: true, data: cancelled, message: 'Event booking cancelled successfully' });
   } catch (error: unknown) {
@@ -94,7 +100,8 @@ export async function PATCH(
       bookingNumber,
       validated.status,
       session.userId,
-      validated.notes
+      validated.notes,
+      { role: session.role, wineryId: session.wineryId }
     );
 
     return NextResponse.json({ success: true, data: updated });

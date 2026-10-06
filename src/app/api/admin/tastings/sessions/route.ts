@@ -10,7 +10,10 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const validated = TastingSessionCreateSchema.parse(body);
-    const tastingSession = await TastingService.startSessionForBooking(validated);
+    const tastingSession = await TastingService.startSessionForBooking(validated, {
+      role: guard.session.role,
+      wineryId: guard.session.wineryId,
+    });
 
     return NextResponse.json({ success: true, data: tastingSession }, { status: 201 });
   } catch (error: unknown) {

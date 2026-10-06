@@ -13,8 +13,12 @@ export async function GET() {
       BookingService.reconcileExpiredBookings(guard.session.wineryId || undefined),
     ]);
 
+    const isSuperAdmin = guard.session.role === 'SUPER_ADMIN';
+    const wineryId = isSuperAdmin ? undefined : (guard.session.wineryId ?? '__no_tenant__');
+
     const [bookings, eventBookings, events, closures, rules] = await Promise.all([
       prisma.booking.findMany({
+        where: wineryId ? { wineryId } : {},
         include: {
           guestProfile: {
             select: { name: true, phone: true, user: { select: { email: true } } },
@@ -26,6 +30,7 @@ export async function GET() {
         orderBy: { date: 'asc' },
       }),
       prisma.eventBooking.findMany({
+        where: wineryId ? { event: { wineryId } } : {},
         include: {
           event: {
             select: { id: true, title: true, slug: true, eventDate: true, timeRange: true, venue: true },
@@ -43,13 +48,16 @@ export async function GET() {
         orderBy: { createdAt: 'asc' },
       }),
       prisma.event.findMany({
+        where: wineryId ? { wineryId } : {},
         include: { ticketTypes: true },
         orderBy: { eventDate: 'asc' },
       }),
       prisma.wineryClosure.findMany({
+        where: wineryId ? { wineryId } : {},
         orderBy: { startDate: 'asc' },
       }),
       prisma.availabilityRule.findMany({
+        where: wineryId ? { wineryId } : {},
         include: { experience: { select: { title: true } } },
         orderBy: { dayOfWeek: 'asc' },
       }),

@@ -58,6 +58,14 @@ export async function DELETE(
         if (!can(adminSession.role, 'bookings.manage')) {
           return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
         }
+        if (adminSession.role !== 'SUPER_ADMIN') {
+          if (!adminSession.wineryId) {
+            return NextResponse.json({ success: false, error: 'Forbidden: staff session has no assigned winery' }, { status: 403 });
+          }
+          if (booking.wineryId !== adminSession.wineryId) {
+            return NextResponse.json({ success: false, error: 'Forbidden: reservation belongs to another winery' }, { status: 403 });
+          }
+        }
       } else {
         // Unauthenticated public cancellation - only permitted if booking was unauthenticated (not belonging to a registered user with password)
         const isRegisteredAccount = booking.guestProfile?.user?.passwordHash !== null && booking.guestProfile?.user?.passwordHash !== undefined;

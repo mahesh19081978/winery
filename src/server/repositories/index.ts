@@ -832,9 +832,13 @@ export class AvailabilityRepository {
 }
 
 export class BookingRepository {
-  static async findByBookingNumber(bookingNumber: string) {
-    return prisma.booking.findUnique({
-      where: { bookingNumber },
+  static async findByBookingNumber(bookingNumber: string, wineryId?: string) {
+    const where: Prisma.BookingWhereInput = {
+      bookingNumber,
+      ...(wineryId ? { wineryId } : {}),
+    };
+    return prisma.booking.findFirst({
+      where,
       include: {
         guestProfile: {
           include: { user: true },
@@ -854,6 +858,7 @@ export class BookingRepository {
     experienceId?: string;
     dateFrom?: string;
     dateTo?: string;
+    wineryId?: string;
     page?: number;
     pageSize?: number;
   }) {
@@ -862,6 +867,10 @@ export class BookingRepository {
     const skip = (page - 1) * pageSize;
 
     const where: Prisma.BookingWhereInput = {};
+
+    if (filters.wineryId) {
+      where.wineryId = filters.wineryId;
+    }
 
     if (filters.search) {
       const searchTerm = filters.search.trim();
@@ -956,7 +965,8 @@ export class BookingRepository {
     bookingId: string,
     toStatus: BookingStatus,
     changedBy: string,
-    notes?: string
+    notes?: string,
+    wineryId?: string
   ) {
     return prisma.$transaction(async (tx) => {
       const existing = await tx.booking.findUnique({
@@ -972,6 +982,10 @@ export class BookingRepository {
       });
 
       if (!existing) throw new Error('Booking not found');
+
+      if (wineryId && existing.wineryId !== wineryId) {
+        throw new Error('Forbidden: booking belongs to another winery');
+      }
 
       const fromStatus = existing.status;
 
@@ -1324,9 +1338,20 @@ export class FrontDeskRepository {
     });
   }
 
-  static async findBookingsForDate(date: Date) {
+  static async getWineryById(wineryId: string) {
+    return prisma.winery.findUnique({
+      where: { id: wineryId },
+      select: { id: true, name: true, timezone: true },
+    });
+  }
+
+  static async findBookingsForDate(date: Date, wineryId?: string) {
+    const where: Prisma.BookingWhereInput = {
+      date,
+      ...(wineryId ? { wineryId } : {}),
+    };
     return prisma.booking.findMany({
-      where: { date },
+      where,
       include: {
         winery: { select: { timezone: true } },
         guestProfile: {
@@ -1378,13 +1403,15 @@ export class FrontDeskRepository {
     });
   }
 
-  static async findEventBookingsForDate(date: Date) {
-    return prisma.eventBooking.findMany({
-      where: {
-        event: {
-          eventDate: date,
-        },
+  static async findEventBookingsForDate(date: Date, wineryId?: string) {
+    const where: Prisma.EventBookingWhereInput = {
+      event: {
+        eventDate: date,
+        ...(wineryId ? { wineryId } : {}),
       },
+    };
+    return prisma.eventBooking.findMany({
+      where,
       include: {
         event: {
           select: {
@@ -2023,6 +2050,7 @@ export class TastingRepository {
     dateFrom?: string;
     dateTo?: string;
     hasBooking?: string;
+    wineryId?: string;
     page?: number;
     pageSize?: number;
   }) {
@@ -2032,15 +2060,29 @@ export class TastingRepository {
 
     const where: Prisma.TastingSessionWhereInput = {};
 
+    if (filters.wineryId) {
+      where.OR = [
+        { booking: { wineryId: filters.wineryId } },
+        { records: { some: { wineVintage: { wine: { wineryId: filters.wineryId } } } } },
+      ];
+    }
+
     if (filters.search) {
       const searchTerm = filters.search.trim();
-      where.OR = [
-        { guestProfile: { name: { contains: searchTerm, mode: 'insensitive' } } },
-        { guestProfile: { user: { email: { contains: searchTerm, mode: 'insensitive' } } } },
-        { booking: { bookingNumber: { contains: searchTerm, mode: 'insensitive' } } },
-        { location: { contains: searchTerm, mode: 'insensitive' } },
-        { notes: { contains: searchTerm, mode: 'insensitive' } },
-      ];
+      const searchCondition = {
+        OR: [
+          { guestProfile: { name: { contains: searchTerm, mode: 'insensitive' as const } } },
+          { guestProfile: { user: { email: { contains: searchTerm, mode: 'insensitive' as const } } } },
+          { booking: { bookingNumber: { contains: searchTerm, mode: 'insensitive' as const } } },
+          { location: { contains: searchTerm, mode: 'insensitive' as const } },
+          { notes: { contains: searchTerm, mode: 'insensitive' as const } },
+        ],
+      };
+      if (where.OR) {
+        where.AND = [searchCondition];
+      } else {
+        where.OR = searchCondition.OR;
+      }
     }
 
     if (filters.dateFrom || filters.dateTo) {
@@ -2833,6 +2875,7 @@ export class EventBookingRepository {
     eventScheduleId?: string;
     dateFrom?: string;
     dateTo?: string;
+    wineryId?: string;
     page?: number;
     pageSize?: number;
   }) {
@@ -2841,6 +2884,10 @@ export class EventBookingRepository {
     const skip = (page - 1) * pageSize;
 
     const where: Prisma.EventBookingWhereInput = {};
+
+    if (filters.wineryId) {
+      where.event = { wineryId: filters.wineryId };
+    }
 
     if (filters.search) {
       const term = filters.search.trim();
@@ -2899,9 +2946,13 @@ export class EventBookingRepository {
     };
   }
 
-  static async findByBookingNumberAdmin(bookingNumber: string) {
-    return prisma.eventBooking.findUnique({
-      where: { bookingNumber },
+  static async findByBookingNumberAdmin(bookingNumber: string, wineryId?: string) {
+    const where: Prisma.EventBookingWhereInput = {
+      bookingNumber,
+      ...(wineryId ? { event: { wineryId } } : {}),
+    };
+    return prisma.eventBooking.findFirst({
+      where,
       include: {
         event: {
           select: {
@@ -3208,15 +3259,20 @@ export class EventBookingRepository {
     bookingId: string,
     toStatus: BookingStatus,
     changedBy: string,
-    notes?: string
+    notes?: string,
+    wineryId?: string
   ) {
     return prisma.$transaction(async (tx) => {
       const existing = await tx.eventBooking.findUnique({
         where: { id: bookingId },
-        include: { tickets: true },
+        include: { tickets: true, event: { select: { wineryId: true } } },
       });
 
       if (!existing) throw new Error('Event booking not found');
+
+      if (wineryId && existing.event.wineryId !== wineryId) {
+        throw new Error('Forbidden: event booking belongs to another winery');
+      }
 
       const fromStatus = existing.status;
 

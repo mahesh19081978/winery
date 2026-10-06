@@ -7,7 +7,10 @@ export async function GET() {
     const guard = await requireApiPermission('frontDesk.access');
     if (!guard.ok) return guard.response;
 
-    const data = await FrontDeskService.getTodayOperations();
+    const data = await FrontDeskService.getTodayOperations({
+      role: guard.session.role,
+      wineryId: guard.session.wineryId,
+    });
     return NextResponse.json({ success: true, data });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to fetch front desk operations';

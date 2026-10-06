@@ -20,7 +20,8 @@ export async function PATCH(
       bookingNumber,
       validated.status,
       session.userId,
-      validated.notes
+      validated.notes,
+      { role: session.role, wineryId: session.wineryId }
     );
 
     return NextResponse.json({ success: true, data: updated });

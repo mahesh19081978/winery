@@ -18,6 +18,8 @@ export async function GET(request: NextRequest) {
     const dateTo = searchParams.get('dateTo') || undefined;
     const page = parseInt(searchParams.get('page') || '1', 10);
     const pageSize = parseInt(searchParams.get('pageSize') || '20', 10);
+    const session = guard.session;
+    const wineryId = session.role === 'SUPER_ADMIN' ? undefined : (session.wineryId ?? '__no_tenant__');
 
     const result = await EventBookingService.listEventBookingsAdmin({
       search,
@@ -26,6 +28,7 @@ export async function GET(request: NextRequest) {
       eventScheduleId,
       dateFrom,
       dateTo,
+      wineryId,
       page,
       pageSize: Math.min(pageSize, 50),
     });

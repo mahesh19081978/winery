@@ -11,7 +11,10 @@ export async function GET(
     if (!guard.ok) return guard.response;
 
     const { id } = await params;
-    const tastingSession = await TastingService.getTastingSessionAdmin(id);
+    const tastingSession = await TastingService.getTastingSessionAdmin(id, {
+      role: guard.session.role,
+      wineryId: guard.session.wineryId,
+    });
 
     return NextResponse.json({ success: true, data: tastingSession });
   } catch (error: unknown) {
