@@ -14,6 +14,7 @@ import {
   GuestRepository,
   GuestWinePreferenceRepository,
   GuestTagRepository,
+  GuestMergeRepository,
   TastingRepository,
   ReviewRepository,
   GuestBookingTimelineFilter,
@@ -36,6 +37,7 @@ import {
   AdminGuestUpdateInput,
   GuestTagCreateInput,
   GuestTagUpdateInput,
+  GuestMergeRequestInput,
   GuestWineProfileUpdateInput,
   GuestDeletionConfirmInput,
   TastingRecordCreateInput,
@@ -5018,5 +5020,76 @@ export class GuestTagService {
       throw new Error(`Guest tag with id '${id}' not found`);
     }
     return GuestTagRepository.delete(id, wineryId);
+  }
+}
+
+export class GuestMergeService {
+  /**
+   * Retrieves groups of suspected duplicate guests within tenant winery scope (or all for SUPER_ADMIN).
+   */
+  static async getDuplicates(wineryId?: string) {
+    return GuestMergeRepository.findDuplicates(wineryId);
+  }
+
+  /**
+   * Executes a safe, transactional merge between two guest profiles.
+   * Enforces:
+   * 1. Cannot merge guest with self
+   * 2. Both guests must exist and belong to the staff's winery (tenant boundary)
+   * 3. Target profile survives; source profile is removed
+   * 4. Audit history is created
+   */
+  static async mergeGuests(
+    input: GuestMergeRequestInput,
+    mergedByUserId: string,
+    wineryId?: string
+  ) {
+    const { targetGuestId, sourceGuestId, reason } = input;
+
+    if (targetGuestId === sourceGuestId) {
+      throw new Error('A guest profile cannot be merged with itself');
+    }
+
+    // Verify target guest exists and belongs to winery
+    const targetGuest = await GuestRepository.findByIdAdmin(targetGuestId, wineryId);
+    if (!targetGuest) {
+      throw new Error(`Surviving guest profile '${targetGuestId}' not found within your winery`);
+    }
+
+    // Verify source guest exists and belongs to winery
+    const sourceGuest = await GuestRepository.findByIdAdmin(sourceGuestId, wineryId);
+    if (!sourceGuest) {
+      throw new Error(`Source guest profile '${sourceGuestId}' not found within your winery`);
+    }
+
+    // Determine the wineryId context for the audit record
+    let resolvedWineryId = wineryId;
+    if (!resolvedWineryId) {
+      resolvedWineryId =
+        targetGuest.user?.wineryId ||
+        targetGuest.bookings[0]?.wineryId ||
+        sourceGuest.user?.wineryId ||
+        sourceGuest.bookings[0]?.wineryId;
+    }
+
+    if (!resolvedWineryId) {
+      const defaultWinery = await prisma.winery.findFirst({
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      });
+      resolvedWineryId = defaultWinery?.id;
+    }
+
+    if (!resolvedWineryId) {
+      throw new Error('Could not determine winery context for merge audit log');
+    }
+
+    return GuestMergeRepository.executeMerge({
+      wineryId: resolvedWineryId,
+      targetGuestId,
+      sourceGuestId,
+      mergedByUserId,
+      reason,
+    });
   }
 }

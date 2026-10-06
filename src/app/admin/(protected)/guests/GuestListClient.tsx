@@ -18,6 +18,7 @@ import {
   Phone,
   Ticket,
   ArrowUpDown,
+  GitMerge,
 } from 'lucide-react';
 import { SectionCard, StatusBadge } from '@/components/admin/UIComponents';
 import EmptyState from '@/components/common/EmptyState';
@@ -224,6 +225,13 @@ export function GuestListClient() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <Link
+            href="/admin/guests/duplicates"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 border border-stone-200 text-stone-700 hover:text-stone-900 text-xs font-medium transition"
+          >
+            <GitMerge className="w-3.5 h-3.5 text-[#6c2432]" />
+            <span>Duplicate Guests</span>
+          </Link>
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-stone-200/80 shadow-xs">
             <Users className="w-3.5 h-3.5 text-stone-500" />
             <span className="text-xs font-mono font-medium text-stone-700">

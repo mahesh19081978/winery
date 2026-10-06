@@ -4323,3 +4323,454 @@ export class GuestTagRepository {
     });
   }
 }
+
+export interface DuplicateGuestCandidate {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  status: GuestStatus;
+  createdAt: Date;
+  bookingsCount: number;
+  tags: string[];
+}
+
+export interface DuplicateGroup {
+  id: string;
+  primaryMatchReason: string;
+  confidence: 'HIGH' | 'MEDIUM';
+  reasons: string[];
+  guests: DuplicateGuestCandidate[];
+}
+
+export class GuestMergeRepository {
+  /**
+   * Identifies candidate duplicate guests belonging to the given winery (or across system if wineryId not provided).
+   * Match criteria:
+   * 1. Exact normalized email match
+   * 2. Exact phone match (cleaned of punctuation/spaces)
+   * 3. Strong name similarity + phone/email prefix similarity
+   */
+  static async findDuplicates(wineryId?: string): Promise<DuplicateGroup[]> {
+    const wineryCondition: Prisma.GuestProfileWhereInput = wineryId
+      ? {
+          OR: [
+            { user: { wineryId } },
+            { bookings: { some: { wineryId } } },
+            { eventBookings: { some: { event: { wineryId } } } },
+            { reviews: { some: { wineryId } } },
+            { guestNotes: { some: { wineryId } } },
+          ],
+        }
+      : {};
+
+    const guests = await prisma.guestProfile.findMany({
+      where: wineryCondition,
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        status: true,
+        createdAt: true,
+        user: { select: { email: true } },
+        _count: {
+          select: {
+            bookings: wineryId ? { where: { wineryId } } : true,
+            eventBookings: wineryId ? { where: { event: { wineryId } } } : true,
+          },
+        },
+        tags: {
+          select: { tag: { select: { name: true } } },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+
+    if (guests.length < 2) {
+      return [];
+    }
+
+    const cleanPhone = (p: string | null) => (p ? p.replace(/[\s\(\)\-\+\.]/g, '') : '');
+    const normalizeStr = (s: string) => s.toLowerCase().trim().replace(/\s+/g, ' ');
+
+    const groups: DuplicateGroup[] = [];
+    const matchedGuestIds = new Set<string>();
+
+    // 1. Group by exact normalized email
+    const emailMap = new Map<string, typeof guests>();
+    for (const g of guests) {
+      const email = g.user?.email ? normalizeStr(g.user.email) : '';
+      if (!email) continue;
+      const arr = emailMap.get(email) || [];
+      arr.push(g);
+      emailMap.set(email, arr);
+    }
+
+    for (const [email, list] of emailMap.entries()) {
+      if (list.length > 1) {
+        const groupGuestIds = list.map((x) => x.id);
+        groupGuestIds.forEach((id) => matchedGuestIds.add(id));
+        groups.push({
+          id: `email-${email}`,
+          primaryMatchReason: `Exact email match (${email})`,
+          confidence: 'HIGH',
+          reasons: [`Matches email: ${email}`],
+          guests: list.map((g) => ({
+            id: g.id,
+            name: g.name,
+            email: g.user.email,
+            phone: g.phone,
+            status: g.status,
+            createdAt: g.createdAt,
+            bookingsCount: g._count.bookings + g._count.eventBookings,
+            tags: g.tags.map((t) => t.tag.name),
+          })),
+        });
+      }
+    }
+
+    // 2. Group by exact clean phone (for guests not already grouped together)
+    const phoneMap = new Map<string, typeof guests>();
+    for (const g of guests) {
+      const ph = cleanPhone(g.phone);
+      if (ph.length < 7) continue;
+      const arr = phoneMap.get(ph) || [];
+      arr.push(g);
+      phoneMap.set(ph, arr);
+    }
+
+    for (const [phone, list] of phoneMap.entries()) {
+      if (list.length > 1) {
+        // Check if this pair/group was already completely captured in an existing group
+        const existing = groups.find((grp) => {
+          const ids = new Set(grp.guests.map((x) => x.id));
+          return list.every((item) => ids.has(item.id));
+        });
+        if (!existing) {
+          list.forEach((x) => matchedGuestIds.add(x.id));
+          groups.push({
+            id: `phone-${phone}`,
+            primaryMatchReason: `Exact phone match (${list[0].phone})`,
+            confidence: 'HIGH',
+            reasons: [`Matches contact phone: ${list[0].phone}`],
+            guests: list.map((g) => ({
+              id: g.id,
+              name: g.name,
+              email: g.user.email,
+              phone: g.phone,
+              status: g.status,
+              createdAt: g.createdAt,
+              bookingsCount: g._count.bookings + g._count.eventBookings,
+              tags: g.tags.map((t) => t.tag.name),
+            })),
+          });
+        }
+      }
+    }
+
+    // 3. Match by identical normalized name + partial email or phone overlap
+    for (let i = 0; i < guests.length; i++) {
+      for (let j = i + 1; j < guests.length; j++) {
+        const g1 = guests[i];
+        const g2 = guests[j];
+
+        const normName1 = normalizeStr(g1.name);
+        const normName2 = normalizeStr(g2.name);
+        if (normName1.length < 3 || normName1 !== normName2) continue;
+
+        // Same name: check if phone or email is similar
+        const ph1 = cleanPhone(g1.phone);
+        const ph2 = cleanPhone(g2.phone);
+        const email1User = g1.user.email.split('@')[0].toLowerCase();
+        const email2User = g2.user.email.split('@')[0].toLowerCase();
+
+        let isMatch = false;
+        const reasons: string[] = [`Exact name match: "${g1.name}"`];
+
+        if (ph1 && ph2 && (ph1.includes(ph2) || ph2.includes(ph1))) {
+          isMatch = true;
+          reasons.push(`Similar phone numbers (${g1.phone} vs ${g2.phone})`);
+        } else if (
+          email1User.length > 3 &&
+          email2User.length > 3 &&
+          (email1User.includes(email2User) || email2User.includes(email1User))
+        ) {
+          isMatch = true;
+          reasons.push(`Similar email usernames (${g1.user.email} vs ${g2.user.email})`);
+        }
+
+        if (isMatch) {
+          const alreadyInGroup = groups.some(
+            (grp) =>
+              grp.guests.some((x) => x.id === g1.id) &&
+              grp.guests.some((x) => x.id === g2.id)
+          );
+          if (!alreadyInGroup) {
+            groups.push({
+              id: `name-${g1.id}-${g2.id}`,
+              primaryMatchReason: `Matching name and similar contact info`,
+              confidence: 'MEDIUM',
+              reasons,
+              guests: [g1, g2].map((g) => ({
+                id: g.id,
+                name: g.name,
+                email: g.user.email,
+                phone: g.phone,
+                status: g.status,
+                createdAt: g.createdAt,
+                bookingsCount: g._count.bookings + g._count.eventBookings,
+                tags: g.tags.map((t) => t.tag.name),
+              })),
+            });
+          }
+        }
+      }
+    }
+
+    return groups;
+  }
+
+  /**
+   * Executes a safe, transactional merge of sourceGuest into targetGuest.
+   * - Reassigns all relational entities (bookings, eventBookings, tastingSessions, tastingRecords, reviews, conversations, voiceCalls, notes, bookingGuests).
+   * - Reconciles tags (unique constraint safe) and wine preferences (retains best).
+   * - Backfills empty target profile fields from source if target fields are blank.
+   * - Records audit history in GuestMergeAudit.
+   * - Safely deletes source profile and source guest user account.
+   */
+  static async executeMerge(params: {
+    wineryId: string;
+    targetGuestId: string;
+    sourceGuestId: string;
+    mergedByUserId: string;
+    reason?: string | null;
+  }) {
+    const { wineryId, targetGuestId, sourceGuestId, mergedByUserId, reason } = params;
+
+    return prisma.$transaction(
+      async (tx) => {
+        // 1. Fetch target and source profiles with comprehensive details
+      const [target, source] = await Promise.all([
+        tx.guestProfile.findUnique({
+          where: { id: targetGuestId },
+          include: {
+            user: true,
+            winePreference: true,
+            tags: true,
+          },
+        }),
+        tx.guestProfile.findUnique({
+          where: { id: sourceGuestId },
+          include: {
+            user: true,
+            winePreference: true,
+            tags: true,
+            guestNotes: true,
+          },
+        }),
+      ]);
+
+      if (!target) throw new Error(`Surviving guest profile '${targetGuestId}' not found`);
+      if (!source) throw new Error(`Source guest profile '${sourceGuestId}' not found`);
+      if (target.id === source.id) throw new Error('Cannot merge a guest profile with itself');
+
+      // 2-10. Reassign related records in parallel across relations
+      const [
+        bookingsMoved,
+        eventBookingsMoved,
+        bookingGuestsMoved,
+        tastingSessionsMoved,
+        tastingRecordsMoved,
+        reviewsMoved,
+        conversationsMoved,
+        voiceCallsMoved,
+        notesMoved,
+      ] = await Promise.all([
+        tx.booking.updateMany({
+          where: { guestProfileId: source.id },
+          data: { guestProfileId: target.id },
+        }),
+        tx.eventBooking.updateMany({
+          where: { guestProfileId: source.id },
+          data: { guestProfileId: target.id },
+        }),
+        tx.bookingGuest.updateMany({
+          where: { guestProfileId: source.id },
+          data: { guestProfileId: target.id },
+        }),
+        tx.tastingSession.updateMany({
+          where: { guestProfileId: source.id },
+          data: { guestProfileId: target.id },
+        }),
+        tx.tastingRecord.updateMany({
+          where: { guestProfileId: source.id },
+          data: { guestProfileId: target.id },
+        }),
+        tx.review.updateMany({
+          where: { guestProfileId: source.id },
+          data: { guestProfileId: target.id },
+        }),
+        tx.conversation.updateMany({
+          where: { guestProfileId: source.id },
+          data: { guestProfileId: target.id },
+        }),
+        tx.voiceCall.updateMany({
+          where: { guestProfileId: source.id },
+          data: { guestProfileId: target.id },
+        }),
+        tx.guestNote.updateMany({
+          where: { guestProfileId: source.id },
+          data: { guestProfileId: target.id },
+        }),
+      ]);
+
+      // 11. Handle Tags
+      // Find tags present on source but missing on target
+      const targetTagIds = new Set(target.tags.map((t) => t.guestTagId));
+      const missingTagsToAssign = source.tags
+        .filter((t) => !targetTagIds.has(t.guestTagId))
+        .map((t) => t.guestTagId);
+
+      // Remove source tag assignments first to satisfy foreign keys
+      await tx.guestTagAssignment.deleteMany({
+        where: { guestProfileId: source.id },
+      });
+
+      if (missingTagsToAssign.length > 0) {
+        await tx.guestTagAssignment.createMany({
+          data: missingTagsToAssign.map((tagId) => ({
+            guestProfileId: target.id,
+            guestTagId: tagId,
+          })),
+          skipDuplicates: true,
+        });
+      }
+
+      // 12. Handle Wine Preferences
+      if (source.winePreference) {
+        if (!target.winePreference) {
+          // Target had no wine preference, transfer source preference to target
+          await tx.guestWinePreference.delete({
+            where: { id: source.winePreference.id },
+          });
+          await tx.guestWinePreference.create({
+            data: {
+              guestProfileId: target.id,
+              favoriteWineId: source.winePreference.favoriteWineId,
+              favoriteVarietals: source.winePreference.favoriteVarietals,
+              preferredSweetness: source.winePreference.preferredSweetness,
+              preferredBody: source.winePreference.preferredBody,
+              preferredAcidity: source.winePreference.preferredAcidity,
+            },
+          });
+        } else {
+          // Target already has preference: delete source preference, optionally backfill empty fields
+          await tx.guestWinePreference.delete({
+            where: { id: source.winePreference.id },
+          });
+          const updatePref: Prisma.GuestWinePreferenceUpdateInput = {};
+          if (!target.winePreference.favoriteWineId && source.winePreference.favoriteWineId) {
+            updatePref.favoriteWine = { connect: { id: source.winePreference.favoriteWineId } };
+          }
+          if (
+            (!target.winePreference.favoriteVarietals || target.winePreference.favoriteVarietals.length === 0) &&
+            source.winePreference.favoriteVarietals?.length > 0
+          ) {
+            updatePref.favoriteVarietals = source.winePreference.favoriteVarietals;
+          }
+          if (!target.winePreference.preferredSweetness && source.winePreference.preferredSweetness) {
+            updatePref.preferredSweetness = source.winePreference.preferredSweetness;
+          }
+          if (!target.winePreference.preferredBody && source.winePreference.preferredBody) {
+            updatePref.preferredBody = source.winePreference.preferredBody;
+          }
+          if (!target.winePreference.preferredAcidity && source.winePreference.preferredAcidity) {
+            updatePref.preferredAcidity = source.winePreference.preferredAcidity;
+          }
+
+          if (Object.keys(updatePref).length > 0) {
+            await tx.guestWinePreference.update({
+              where: { id: target.winePreference.id },
+              data: updatePref,
+            });
+          }
+        }
+      }
+
+      // 13. Backfill Profile Fields (never overwrite populated target fields with blanks)
+      const targetUpdate: Prisma.GuestProfileUpdateInput = {};
+      if (!target.phone && source.phone) targetUpdate.phone = source.phone;
+      if (!target.avatar && source.avatar) targetUpdate.avatar = source.avatar;
+      if (!target.dateOfBirth && source.dateOfBirth) targetUpdate.dateOfBirth = source.dateOfBirth;
+      if (!target.dietaryPreferences && source.dietaryPreferences) {
+        targetUpdate.dietaryPreferences = source.dietaryPreferences;
+      }
+      if (!target.notes && source.notes) {
+        targetUpdate.notes = source.notes;
+      } else if (target.notes && source.notes && !target.notes.includes(source.notes)) {
+        targetUpdate.notes = `${target.notes}\n\n[Merged notes from ${source.name}]: ${source.notes}`;
+      }
+      targetUpdate.visitsCount = (target.visitsCount || 0) + (source.visitsCount || 0);
+
+      await tx.guestProfile.update({
+        where: { id: target.id },
+        data: targetUpdate,
+      });
+
+      // 14. Create Audit Log
+      const statsSnapshot = {
+        reassignedBookings: bookingsMoved.count,
+        reassignedEventBookings: eventBookingsMoved.count,
+        reassignedBookingGuests: bookingGuestsMoved.count,
+        reassignedTastingSessions: tastingSessionsMoved.count,
+        reassignedTastingRecords: tastingRecordsMoved.count,
+        reassignedReviews: reviewsMoved.count,
+        reassignedConversations: conversationsMoved.count,
+        reassignedVoiceCalls: voiceCallsMoved.count,
+        reassignedNotes: notesMoved.count,
+        tagsAppended: missingTagsToAssign.length,
+        sourceGuestPhone: source.phone,
+        sourceGuestCreatedAt: source.createdAt,
+      };
+
+      const auditRecord = await tx.guestMergeAudit.create({
+        data: {
+          wineryId,
+          targetGuestId: target.id,
+          sourceGuestId: source.id,
+          sourceGuestEmail: source.user.email,
+          sourceGuestName: source.name,
+          mergedByUserId,
+          reason: reason || 'CRM Duplicate Merge',
+          details: statsSnapshot,
+        },
+      });
+
+      // 15. Delete Source Guest Profile
+      await tx.guestProfile.delete({
+        where: { id: source.id },
+      });
+
+      // 16. Delete Source User Account (if role === GUEST)
+      if (source.user.role === 'GUEST') {
+        await tx.passwordResetToken.deleteMany({
+          where: { userId: source.user.id },
+        });
+        await tx.user.delete({
+          where: { id: source.user.id },
+        });
+      }
+
+      return {
+        audit: auditRecord,
+        mergedStats: statsSnapshot,
+      };
+    },
+    {
+      maxWait: 10000, // 10s wait to acquire transaction connection
+      timeout: 30000, // 30s timeout for sequential cloud database operations
+    }
+  );
+  }
+}

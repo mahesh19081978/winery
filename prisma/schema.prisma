@@ -168,6 +168,7 @@ model Winery {
   aiSettings         AISettings?
   guestTags          GuestTag[]
   guestNotes         GuestNote[]
+  guestMerges        GuestMergeAudit[]
 
   @@map("wineries")
 }
@@ -207,6 +208,7 @@ model User {
   assignedContactInquiries ContactInquiry[]
   updatedWebsiteImages WebsiteImage[]
   authoredGuestNotes GuestNote[]
+  performedGuestMerges GuestMergeAudit[]
 
   @@index([role])
   @@map("users")
@@ -255,6 +257,7 @@ model GuestProfile {
   eventBookings       EventBooking[]
   tags                GuestTagAssignment[]
   guestNotes          GuestNote[]
+  targetMerges        GuestMergeAudit[]
 
   @@index([status])
   @@map("guest_profiles")
@@ -326,6 +329,29 @@ model GuestNote {
   @@index([wineryId])
   @@index([authorId])
   @@map("guest_notes")
+}
+
+model GuestMergeAudit {
+  id               String       @id @default(uuid())
+  wineryId         String
+  targetGuestId    String
+  sourceGuestId    String       // historic reference (source guest profile was removed)
+  sourceGuestEmail String
+  sourceGuestName  String
+  mergedByUserId   String
+  reason           String?
+  details          Json?        // snapshot of fields / counts merged
+  createdAt        DateTime     @default(now())
+
+  winery           Winery       @relation(fields: [wineryId], references: [id], onDelete: Cascade)
+  targetGuest      GuestProfile @relation(fields: [targetGuestId], references: [id], onDelete: Cascade)
+  mergedByUser     User         @relation(fields: [mergedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([wineryId, createdAt])
+  @@index([targetGuestId])
+  @@index([sourceGuestId])
+  @@index([mergedByUserId])
+  @@map("guest_merge_audits")
 }
 
 // ----------------------------------------------------

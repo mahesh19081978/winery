@@ -129,6 +129,14 @@ export const GuestDeletionConfirmSchema = z.object({
 
 export type GuestDeletionConfirmInput = z.infer<typeof GuestDeletionConfirmSchema>;
 
+export const GuestMergeRequestSchema = z.object({
+  targetGuestId: z.string().uuid('Valid target guest ID is required'),
+  sourceGuestId: z.string().uuid('Valid source guest ID is required'),
+  reason: z.string().trim().max(500, 'Reason cannot exceed 500 characters').optional().nullable(),
+});
+
+export type GuestMergeRequestInput = z.infer<typeof GuestMergeRequestSchema>;
+
 export const TastingRecordCreateSchema = z.object({
   guestEmail: z.string().email('Guest email is required'),
   wineSlug: z.string().min(1, 'Wine slug is required'),
