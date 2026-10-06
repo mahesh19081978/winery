@@ -66,6 +66,7 @@ export const GuestProfileUpdateSchema = z.object({
   name: z.string().trim().min(2, 'Name must be at least 2 characters').max(100, 'Name must not exceed 100 characters').optional(),
   phone: z.string().trim().max(30, 'Phone must not exceed 30 characters').optional().nullable(),
   avatar: z.string().url('Avatar must be a valid URL').optional().nullable(),
+  dateOfBirth: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional().nullable(),
   dietaryPreferences: z.string().max(1000).optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
   notifications: z.object({
@@ -83,6 +84,21 @@ export const GuestProfileUpdateSchema = z.object({
 });
 
 export type GuestProfileUpdateInput = z.infer<typeof GuestProfileUpdateSchema>;
+
+export const AdminGuestUpdateSchema = z.object({
+  name: z.string().trim().min(2, 'Name must be at least 2 characters').max(100, 'Name must not exceed 100 characters').optional(),
+  phone: z.string().trim().max(30, 'Phone must not exceed 30 characters').optional().nullable(),
+  dateOfBirth: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional().nullable(),
+  dietaryPreferences: z.string().max(1000).optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
+  notifications: z.object({
+    email: z.boolean().optional(),
+    sms: z.boolean().optional(),
+    whatsapp: z.boolean().optional(),
+  }).optional(),
+});
+
+export type AdminGuestUpdateInput = z.infer<typeof AdminGuestUpdateSchema>;
 
 /**
  * Destructive guest erasure request. The literal word is checked by the service

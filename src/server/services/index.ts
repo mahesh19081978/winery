@@ -32,6 +32,7 @@ import {
   EventBookingCreateSchema,
   EventBookingCreateRawInput,
   GuestProfileUpdateInput,
+  AdminGuestUpdateInput,
   GuestWineProfileUpdateInput,
   GuestDeletionConfirmInput,
   TastingRecordCreateInput,
@@ -1567,18 +1568,38 @@ export class GuestService {
     hasBookings?: string;
     hasTastings?: string;
     hasReviews?: string;
+    wineryId?: string;
     page?: number;
     pageSize?: number;
   }) {
     return GuestRepository.findAllAdmin(filters);
   }
 
-  static async getGuestAdmin(id: string) {
-    const guest = await GuestRepository.findByIdAdmin(id);
+  static async getGuestAdmin(id: string, wineryId?: string) {
+    const guest = await GuestRepository.findByIdAdmin(id, wineryId);
     if (!guest) {
       throw new Error(`Guest with id '${id}' not found`);
     }
     return guest;
+  }
+
+  static async updateGuestAdmin(id: string, input: AdminGuestUpdateInput, wineryId?: string) {
+    // Verify guest exists and is within tenant boundary
+    const existing = await GuestRepository.findByIdAdmin(id, wineryId);
+    if (!existing) {
+      throw new Error(`Guest with id '${id}' not found`);
+    }
+
+    const updated = await GuestRepository.updateProfile(id, {
+      name: input.name,
+      phone: input.phone,
+      dateOfBirth: input.dateOfBirth,
+      dietaryPreferences: input.dietaryPreferences,
+      notes: input.notes,
+      notifications: input.notifications,
+    });
+
+    return updated;
   }
 
   static async getGuestProfile(email: string) {

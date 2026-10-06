@@ -1216,6 +1216,7 @@ export class GuestRepository {
     hasBookings?: string;
     hasTastings?: string;
     hasReviews?: string;
+    wineryId?: string;
     page?: number;
     pageSize?: number;
   }) {
@@ -1223,47 +1224,64 @@ export class GuestRepository {
     const pageSize = filters.pageSize || 20;
     const skip = (page - 1) * pageSize;
 
-    const where: Prisma.GuestProfileWhereInput = {};
+    const conditions: Prisma.GuestProfileWhereInput[] = [];
 
     if (filters.search) {
       const searchTerm = filters.search.trim();
-      where.OR = [
-        { name: { contains: searchTerm, mode: 'insensitive' } },
-        { user: { email: { contains: searchTerm, mode: 'insensitive' } } },
-        { phone: { contains: searchTerm, mode: 'insensitive' } },
-      ];
+      conditions.push({
+        OR: [
+          { name: { contains: searchTerm, mode: 'insensitive' } },
+          { user: { email: { contains: searchTerm, mode: 'insensitive' } } },
+          { phone: { contains: searchTerm, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    if (filters.wineryId) {
+      const wId = filters.wineryId;
+      conditions.push({
+        OR: [
+          { user: { wineryId: wId } },
+          { bookings: { some: { wineryId: wId } } },
+          { eventBookings: { some: { event: { wineryId: wId } } } },
+          { reviews: { some: { wineryId: wId } } },
+          { conversations: { some: { wineryId: wId } } },
+        ],
+      });
     }
 
     if (filters.hasBookings === 'yes') {
-      where.bookings = { some: {} };
+      conditions.push(filters.wineryId ? { bookings: { some: { wineryId: filters.wineryId } } } : { bookings: { some: {} } });
     } else if (filters.hasBookings === 'no') {
-      where.bookings = { none: {} };
+      conditions.push(filters.wineryId ? { bookings: { none: { wineryId: filters.wineryId } } } : { bookings: { none: {} } });
     }
 
     if (filters.hasTastings === 'yes') {
-      where.tastingRecords = { some: {} };
+      conditions.push({ tastingRecords: { some: {} } });
     } else if (filters.hasTastings === 'no') {
-      where.tastingRecords = { none: {} };
+      conditions.push({ tastingRecords: { none: {} } });
     }
 
     if (filters.hasReviews === 'yes') {
-      where.reviews = { some: {} };
+      conditions.push(filters.wineryId ? { reviews: { some: { wineryId: filters.wineryId } } } : { reviews: { some: {} } });
     } else if (filters.hasReviews === 'no') {
-      where.reviews = { none: {} };
+      conditions.push(filters.wineryId ? { reviews: { none: { wineryId: filters.wineryId } } } : { reviews: { none: {} } });
     }
+
+    const where: Prisma.GuestProfileWhereInput = conditions.length > 0 ? { AND: conditions } : {};
 
     const [guests, total] = await Promise.all([
       prisma.guestProfile.findMany({
         where,
         include: {
-          user: { select: { email: true, role: true } },
+          user: { select: { email: true, role: true, wineryId: true } },
           _count: {
             select: {
-              bookings: true,
+              bookings: filters.wineryId ? { where: { wineryId: filters.wineryId } } : true,
               tastingSessions: true,
               tastingRecords: true,
-              reviews: true,
-              eventBookings: true,
+              reviews: filters.wineryId ? { where: { wineryId: filters.wineryId } } : true,
+              eventBookings: filters.wineryId ? { where: { event: { wineryId: filters.wineryId } } } : true,
             },
           },
         },
@@ -1285,11 +1303,11 @@ export class GuestRepository {
     };
   }
 
-  static async findByIdAdmin(id: string) {
-    return prisma.guestProfile.findUnique({
+  static async findByIdAdmin(id: string, wineryId?: string) {
+    const guest = await prisma.guestProfile.findUnique({
       where: { id },
       include: {
-        user: { select: { id: true, email: true, role: true, createdAt: true } },
+        user: { select: { id: true, email: true, role: true, wineryId: true, createdAt: true } },
         winePreference: {
           include: { favoriteWine: { select: { id: true, name: true, slug: true, category: true } } },
         },
@@ -1328,7 +1346,7 @@ export class GuestRepository {
         },
         eventBookings: {
           include: {
-            event: { select: { id: true, title: true, slug: true, eventDate: true, status: true } },
+            event: { select: { id: true, title: true, slug: true, eventDate: true, status: true, wineryId: true } },
             eventSchedule: { select: { id: true, timeSlot: true, activity: true } },
             tickets: {
               select: {
@@ -1342,6 +1360,37 @@ export class GuestRepository {
         },
       },
     });
+
+    if (!guest) return null;
+
+    if (wineryId) {
+      const isAssociated =
+        guest.user?.wineryId === wineryId ||
+        guest.bookings.some((b) => b.wineryId === wineryId) ||
+        guest.eventBookings.some((eb) => eb.event?.wineryId === wineryId) ||
+        guest.reviews.some((r) => r.wineryId === wineryId);
+
+      if (!isAssociated) {
+        const hasWineryBooking = await prisma.booking.findFirst({
+          where: { guestProfileId: id, wineryId },
+          select: { id: true },
+        });
+        const hasWineryEventBooking = !hasWineryBooking && await prisma.eventBooking.findFirst({
+          where: { guestProfileId: id, event: { wineryId } },
+          select: { id: true },
+        });
+        const hasWineryReview = !hasWineryBooking && !hasWineryEventBooking && await prisma.review.findFirst({
+          where: { guestProfileId: id, wineryId },
+          select: { id: true },
+        });
+
+        if (!hasWineryBooking && !hasWineryEventBooking && !hasWineryReview) {
+          return null;
+        }
+      }
+    }
+
+    return guest;
   }
 
   static async findByEmail(email: string) {
@@ -1370,6 +1419,7 @@ export class GuestRepository {
     name?: string;
     phone?: string | null;
     avatar?: string | null;
+    dateOfBirth?: Date | string | null;
     dietaryPreferences?: string | null;
     notes?: string | null;
     notifications?: { email?: boolean; sms?: boolean; whatsapp?: boolean };
@@ -1386,6 +1436,9 @@ export class GuestRepository {
       if (data.name) updateData.name = data.name;
       if (data.phone !== undefined) updateData.phone = data.phone;
       if (data.avatar !== undefined) updateData.avatar = data.avatar;
+      if (data.dateOfBirth !== undefined) {
+        updateData.dateOfBirth = data.dateOfBirth ? new Date(data.dateOfBirth) : null;
+      }
       if (data.dietaryPreferences !== undefined) updateData.dietaryPreferences = data.dietaryPreferences;
       if (data.notes !== undefined) updateData.notes = data.notes;
       if (data.notifications) {

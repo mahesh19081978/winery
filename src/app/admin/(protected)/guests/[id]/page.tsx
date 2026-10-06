@@ -12,9 +12,11 @@ export default async function AdminGuestDetailPage({
   const session = await requirePagePermission('guests.view');
   const { id } = await params;
 
+  const wineryId = session.role === 'SUPER_ADMIN' ? undefined : (session.wineryId ?? '__no_tenant__');
+
   let guest;
   try {
-    guest = await GuestService.getGuestAdmin(id);
+    guest = await GuestService.getGuestAdmin(id, wineryId);
   } catch {
     notFound();
   }

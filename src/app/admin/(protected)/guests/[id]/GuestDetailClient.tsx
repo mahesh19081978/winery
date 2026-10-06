@@ -30,7 +30,9 @@ import {
   AlertTriangle,
   Trash2,
   X,
+  Edit3,
 } from 'lucide-react';
+import { EditGuestDialog } from './EditGuestDialog';
 import { SectionCard, StatCard, StatusBadge } from '@/components/admin/UIComponents';
 import type { Permission } from '@/lib/auth/permissions-client';
 
@@ -541,15 +543,18 @@ function DeleteGuestDialog({ guest, onClose }: { guest: GuestData; onClose: () =
 }
 
 export function GuestDetailClient({
-  guest,
+  guest: initialGuest,
   permissions,
 }: {
   guest: GuestData;
   permissions: Permission[];
 }) {
+  const [guest, setGuest] = useState<GuestData>(initialGuest);
   const [activeTab, setActiveTab] = useState<TabId>('profile');
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
   const canDeleteGuest = permissions.includes('guest.delete');
+  const canEditGuest = permissions.includes('guests.edit');
 
   const completedBookings = guest.bookings.filter((b) => b.status === 'COMPLETED').length;
   const uniqueWinesTasted = new Set(guest.tastingRecords.map((r) => r.wineVintage.wine.name)).size;
@@ -606,6 +611,19 @@ export function GuestDetailClient({
             </div>
           </div>
         </div>
+
+        {canEditGuest && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowEditDialog(true)}
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-medium text-stone-700 bg-white border border-stone-300 hover:bg-stone-50 hover:text-stone-900 shadow-sm transition"
+            >
+              <Edit3 className="w-3.5 h-3.5 text-stone-500" />
+              <span>Edit Profile</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* CRM Summary Cards */}
@@ -1359,6 +1377,20 @@ export function GuestDetailClient({
 
       {showDeleteDialog && (
         <DeleteGuestDialog guest={guest} onClose={() => setShowDeleteDialog(false)} />
+      )}
+
+      {showEditDialog && (
+        <EditGuestDialog
+          guest={guest}
+          isOpen={showEditDialog}
+          onClose={() => setShowEditDialog(false)}
+          onUpdated={(updated) => {
+            setGuest((prev) => ({
+              ...prev,
+              ...updated,
+            }));
+          }}
+        />
       )}
     </div>
   );

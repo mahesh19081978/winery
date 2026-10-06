@@ -7,6 +7,8 @@ export async function GET(request: NextRequest) {
     const guard = await requireApiPermission('guests.view');
     if (!guard.ok) return guard.response;
 
+    const wineryId = guard.session.role === 'SUPER_ADMIN' ? undefined : (guard.session.wineryId ?? '__no_tenant__');
+
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search') || undefined;
     const hasBookings = searchParams.get('hasBookings') || undefined;
@@ -20,6 +22,7 @@ export async function GET(request: NextRequest) {
       hasBookings,
       hasTastings,
       hasReviews,
+      wineryId,
       page,
       pageSize: Math.min(pageSize, 50),
     });
