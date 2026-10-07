@@ -42,6 +42,8 @@ interface BookingActionsClientProps {
   bookingTime?: string;
   durationMinutes?: number;
   timeZone?: string | null;
+  canReschedule?: boolean;
+  onRescheduleClick?: () => void;
 }
 
 export function BookingActionsClient({
@@ -52,6 +54,8 @@ export function BookingActionsClient({
   bookingTime,
   durationMinutes,
   timeZone,
+  canReschedule = false,
+  onRescheduleClick,
 }: BookingActionsClientProps) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [selectedTransition, setSelectedTransition] = useState<StatusTransition | null>(null);
@@ -148,6 +152,16 @@ export function BookingActionsClient({
             </button>
           );
         })}
+
+        {currentStatus === 'CONFIRMED' && canReschedule && onRescheduleClick && (
+          <button
+            type="button"
+            onClick={onRescheduleClick}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-stone-700 bg-white hover:bg-stone-50 border border-stone-300 rounded-md transition shadow-2xs"
+          >
+            Reschedule
+          </button>
+        )}
 
         {/* Informational badges when actions are restricted by operational timing */}
         {currentStatus === 'CONFIRMED' && timing?.isBeforeStart && (

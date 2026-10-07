@@ -45,6 +45,9 @@ export default async function AdminBookingDetailPage({
       statusHistory: {
         orderBy: { createdAt: 'asc' },
       },
+      rescheduleHistory: {
+        orderBy: { createdAt: 'asc' },
+      },
       payments: true,
     },
   });

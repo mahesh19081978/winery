@@ -19,6 +19,8 @@ import {
 import { SectionCard, StatusBadge } from '@/components/admin/UIComponents';
 import { BookingActionsClient } from '@/components/admin/bookings/BookingActionsClient';
 import { RecordPaymentModal } from '@/components/admin/bookings/RecordPaymentModal';
+import { RescheduleBookingModal } from '@/components/admin/bookings/RescheduleBookingModal';
+import { RescheduleHistoryCard } from '@/components/admin/bookings/RescheduleHistoryCard';
 
 interface BookingData {
   id: string;
@@ -78,6 +80,16 @@ interface BookingData {
     notes?: string;
     createdAt: string;
   }[];
+  rescheduleHistory?: {
+    id: string;
+    previousDate: string;
+    previousTime: string;
+    newDate: string;
+    newTime: string;
+    rescheduledBy?: string | null;
+    reason?: string | null;
+    createdAt: string;
+  }[];
   payments: {
     id: string;
     amount: number;
@@ -104,7 +116,11 @@ export function BookingDetailClient({
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+  const [rescheduleSuccessNotice, setRescheduleSuccessNotice] = useState<string | null>(null);
+
   const canRecordPayment = permissions.includes('payments.record');
+  const canManageBookings = permissions.includes('bookings.manage');
 
   const handleStatusUpdated = async () => {
     setRefreshing(true);
@@ -154,8 +170,23 @@ export function BookingDetailClient({
           bookingTime={booking.time}
           durationMinutes={Math.max(...booking.items.map((i) => i.experience?.durationMinutes || 60), 60)}
           timeZone={booking.winery?.timezone || 'America/Los_Angeles'}
+          canReschedule={canManageBookings}
+          onRescheduleClick={() => setShowRescheduleModal(true)}
         />
       </div>
+
+      {rescheduleSuccessNotice && (
+        <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center justify-between">
+          <span>{rescheduleSuccessNotice}</span>
+          <button
+            type="button"
+            onClick={() => setRescheduleSuccessNotice(null)}
+            className="text-emerald-700 hover:text-emerald-900 font-medium ml-2"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {refreshing && (
         <div className="flex items-center gap-2 text-xs text-stone-500 font-mono">
@@ -452,8 +483,38 @@ export function BookingDetailClient({
               )}
             </div>
           </SectionCard>
+
+          {/* Reschedule History (Phase 3.3) */}
+          <RescheduleHistoryCard
+            entries={(booking.rescheduleHistory || []).map((entry) => ({
+              id: entry.id,
+              fromSchedule: `${entry.previousDate.split('T')[0]} @ ${entry.previousTime}`,
+              toSchedule: `${entry.newDate.split('T')[0]} @ ${entry.newTime}`,
+              rescheduledBy: entry.rescheduledBy,
+              reason: entry.reason,
+              createdAt: entry.createdAt,
+            }))}
+          />
         </div>
       </div>
+
+      {showRescheduleModal && (
+        <RescheduleBookingModal
+          bookingNumber={booking.bookingNumber}
+          experienceSlug={booking.items[0]?.experience?.slug || ''}
+          experienceTitle={booking.items[0]?.experience?.title || booking.items[0]?.title || 'Experience'}
+          currentDate={booking.date}
+          currentTime={booking.time}
+          totalGuests={booking.totalGuests}
+          timeZone={booking.winery?.timezone || 'America/Los_Angeles'}
+          onClose={() => setShowRescheduleModal(false)}
+          onSuccess={() => {
+            setShowRescheduleModal(false);
+            setRescheduleSuccessNotice(`Booking ${booking.bookingNumber} was successfully rescheduled.`);
+            handleStatusUpdated();
+          }}
+        />
+      )}
 
       {showPaymentModal && (
         <RecordPaymentModal

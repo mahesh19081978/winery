@@ -29,6 +29,7 @@ export async function GET(
       guestProfile: booking.guestProfile,
       tickets: booking.tickets,
       statusHistory: booking.statusHistory,
+      rescheduleHistory: booking.rescheduleHistory,
       payments: booking.payments,
     };
 

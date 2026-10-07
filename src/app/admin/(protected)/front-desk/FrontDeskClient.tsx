@@ -23,6 +23,8 @@ import {
 import { SectionCard, StatCard, StatusBadge } from '@/components/admin/UIComponents';
 import EmptyState from '@/components/common/EmptyState';
 import { RecordPaymentModal } from '@/components/admin/bookings/RecordPaymentModal';
+import { RescheduleBookingModal } from '@/components/admin/bookings/RescheduleBookingModal';
+import { RescheduleEventBookingModal } from '@/components/admin/event-bookings/RescheduleEventBookingModal';
 
 type BookingStatus = 'PENDING' | 'CONFIRMED' | 'CHECKED_IN' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
 
@@ -89,6 +91,21 @@ interface FrontDeskBooking {
     createdAt: string;
   }[];
   payments: { amount: string | number; status: string; provider: string; createdAt: string; refundAmount?: string | number | null }[];
+  event?: {
+    id: string;
+    slug: string;
+    title: string;
+    eventDate: string;
+    venue: string;
+    timeRange: string;
+    status: string;
+  } | null;
+  eventSchedule?: {
+    id: string;
+    timeSlot: string;
+    activity: string;
+    sortOrder: number;
+  } | null;
   tastingSessions: {
     id: string;
     sessionDate: string;
@@ -279,13 +296,17 @@ function BookingQuickFacts({ booking }: { booking: FrontDeskBooking }) {
 
 function OperationalBookingCard({
   booking,
+  canReschedule,
   onAction,
   onRecordPayment,
-  }: {
+  onReschedule,
+}: {
   booking: FrontDeskBooking;
+  canReschedule: boolean;
   onAction: (booking: FrontDeskBooking, action: DialogAction) => void;
   onRecordPayment: (booking: FrontDeskBooking) => void;
-    }) {
+  onReschedule: (booking: FrontDeskBooking) => void;
+}) {
   const isEvent = booking.bookingType === 'EVENT' || booking.bookingNumber.startsWith('EVT-');
   const detailUrl = isEvent
     ? `/admin/event-bookings/${booking.bookingNumber}`
@@ -385,6 +406,15 @@ function OperationalBookingCard({
               </span>
             ) : null
           )}
+          {booking.status === 'CONFIRMED' && canReschedule && (
+            <button
+              type="button"
+              onClick={() => onReschedule(booking)}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-2 text-xs font-medium text-stone-800 hover:bg-stone-50 shadow-2xs"
+            >
+              Reschedule
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -397,17 +427,21 @@ function BookingTable({
   bookings,
   emptyTitle,
   emptyDescription,
+  permissions,
   onAction,
   onRecordPayment,
-  }: {
+  onReschedule,
+}: {
   title: string;
   description: string;
   bookings: FrontDeskBooking[];
   emptyTitle: string;
   emptyDescription: string;
+  permissions: string[];
   onAction: (booking: FrontDeskBooking, action: DialogAction) => void;
   onRecordPayment: (booking: FrontDeskBooking) => void;
-    }) {
+  onReschedule: (booking: FrontDeskBooking) => void;
+}) {
   return (
     <SectionCard title={title} description={description}>
       {bookings.length === 0 ? (
@@ -418,14 +452,23 @@ function BookingTable({
         />
       ) : (
         <div className="space-y-3">
-          {bookings.map((booking) => (
-            <OperationalBookingCard
-              key={booking.id}
-              booking={booking}
-              onAction={onAction}
-              onRecordPayment={onRecordPayment}
+          {bookings.map((booking) => {
+            const isEvent = booking.bookingType === 'EVENT' || booking.bookingNumber.startsWith('EVT-');
+            const canReschedule = isEvent
+              ? permissions.includes('eventBookings.manage')
+              : permissions.includes('bookings.manage');
+
+            return (
+              <OperationalBookingCard
+                key={booking.id}
+                booking={booking}
+                canReschedule={canReschedule}
+                onAction={onAction}
+                onRecordPayment={onRecordPayment}
+                onReschedule={onReschedule}
               />
-          ))}
+            );
+          })}
         </div>
       )}
     </SectionCard>
@@ -549,7 +592,11 @@ function ActionDialog({
   );
 }
 
-export function FrontDeskClient() {
+export function FrontDeskClient({
+  permissions = [],
+}: {
+  permissions?: string[];
+}) {
   const router = useRouter();
   const [data, setData] = useState<FrontDeskData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -560,6 +607,8 @@ export function FrontDeskClient() {
   const [actionError, setActionError] = useState('');
   const [updating, setUpdating] = useState(false);
   const [paymentModalBooking, setPaymentModalBooking] = useState<FrontDeskBooking | null>(null);
+  const [rescheduleBooking, setRescheduleBooking] = useState<FrontDeskBooking | null>(null);
+  const [rescheduleNotice, setRescheduleNotice] = useState<string | null>(null);
 
   const loadFrontDesk = useCallback(async (quiet = false) => {
     if (quiet) setRefreshing(true);
@@ -596,6 +645,18 @@ export function FrontDeskClient() {
   const openPaymentModal = (booking: FrontDeskBooking) => setPaymentModalBooking(booking);
   const closePaymentModal = () => setPaymentModalBooking(null);
   const handlePaymentSuccess = async () => { closePaymentModal(); await loadFrontDesk(true); router.refresh(); };
+
+  const openRescheduleModal = (booking: FrontDeskBooking) => setRescheduleBooking(booking);
+  const closeRescheduleModal = () => setRescheduleBooking(null);
+  const handleRescheduleSuccess = async () => {
+    const bNum = rescheduleBooking?.bookingNumber;
+    closeRescheduleModal();
+    if (bNum) {
+      setRescheduleNotice(`Booking ${bNum} was rescheduled. Operational queues have refreshed.`);
+    }
+    await loadFrontDesk(true);
+    router.refresh();
+  };
 
   const openAction = (booking: FrontDeskBooking, action: DialogAction) => {
     setDialogBooking(booking);
@@ -691,6 +752,19 @@ export function FrontDeskClient() {
         </div>
       )}
 
+      {rescheduleNotice && (
+        <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
+          <span>{rescheduleNotice}</span>
+          <button
+            type="button"
+            onClick={() => setRescheduleNotice(null)}
+            className="text-emerald-700 hover:text-emerald-900 font-medium ml-2"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {data && selectedSummary && (
         <>
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
@@ -708,9 +782,11 @@ export function FrontDeskClient() {
             bookings={data.todayArrivals}
             emptyTitle="No arrivals waiting"
             emptyDescription="There are no pending or confirmed bookings for today."
+            permissions={permissions}
             onAction={openAction}
             onRecordPayment={openPaymentModal}
-            />
+            onReschedule={openRescheduleModal}
+          />
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             <BookingTable
@@ -719,9 +795,11 @@ export function FrontDeskClient() {
               bookings={data.upcomingArrivals}
               emptyTitle="No upcoming arrivals"
               emptyDescription="No later arrivals are scheduled for the remainder of today."
+              permissions={permissions}
               onAction={openAction}
               onRecordPayment={openPaymentModal}
-              />
+              onReschedule={openRescheduleModal}
+            />
 
             <BookingTable
               title="Currently Checked-In"
@@ -729,21 +807,24 @@ export function FrontDeskClient() {
               bookings={data.checkedIn}
               emptyTitle="No active checked-in visits"
               emptyDescription="Checked-in guests will appear here once arrivals are processed."
+              permissions={permissions}
               onAction={openAction}
               onRecordPayment={openPaymentModal}
-              />
+              onReschedule={openRescheduleModal}
+            />
           </div>
 
-          
-                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             <BookingTable
               title="No-Shows"
               description="Bookings already marked with the existing NO_SHOW status"
               bookings={data.noShows}
               emptyTitle="No no-shows today"
               emptyDescription="Bookings marked NO_SHOW will appear here."
+              permissions={permissions}
               onAction={openAction}
               onRecordPayment={openPaymentModal}
+              onReschedule={openRescheduleModal}
             />
           </div>
         </>
@@ -766,6 +847,36 @@ export function FrontDeskClient() {
           onClose={closePaymentModal}
           onSuccess={handlePaymentSuccess}
         />
+      )}
+
+      {rescheduleBooking && (
+        (rescheduleBooking.bookingType === 'EVENT' || rescheduleBooking.bookingNumber.startsWith('EVT-')) ? (
+          <RescheduleEventBookingModal
+            bookingNumber={rescheduleBooking.bookingNumber}
+            eventId={rescheduleBooking.event?.id || ''}
+            eventTitle={rescheduleBooking.event?.title || rescheduleBooking.items[0]?.title || 'Event'}
+            eventDate={rescheduleBooking.date}
+            currentScheduleId={rescheduleBooking.eventSchedule?.id || ''}
+            currentTimeSlot={rescheduleBooking.time}
+            currentActivity={rescheduleBooking.eventSchedule?.activity}
+            totalTickets={rescheduleBooking.totalGuests}
+            timeZone={data?.timezone || 'America/Los_Angeles'}
+            onClose={closeRescheduleModal}
+            onSuccess={handleRescheduleSuccess}
+          />
+        ) : (
+          <RescheduleBookingModal
+            bookingNumber={rescheduleBooking.bookingNumber}
+            experienceSlug={rescheduleBooking.items[0]?.experience?.slug || ''}
+            experienceTitle={rescheduleBooking.items[0]?.experience?.title || rescheduleBooking.items[0]?.title || 'Experience'}
+            currentDate={rescheduleBooking.date}
+            currentTime={rescheduleBooking.time}
+            totalGuests={rescheduleBooking.totalGuests}
+            timeZone={data?.timezone || 'America/Los_Angeles'}
+            onClose={closeRescheduleModal}
+            onSuccess={handleRescheduleSuccess}
+          />
+        )
       )}
     </div>
   );

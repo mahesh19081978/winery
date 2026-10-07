@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { ArrowLeft, CalendarDays, Clock, Users, Mail, Phone, MapPin, Ticket, AlertCircle, Loader2, XCircle } from 'lucide-react';
 import { SectionCard, StatusBadge } from '@/components/admin/UIComponents';
 import { RecordPaymentModal } from '@/components/admin/bookings/RecordPaymentModal';
+import { RescheduleEventBookingModal } from '@/components/admin/event-bookings/RescheduleEventBookingModal';
+import { RescheduleHistoryCard } from '@/components/admin/bookings/RescheduleHistoryCard';
 import { getEventCheckInWindow } from '@/lib/events/timing';
 
 interface DetailBooking {
@@ -19,6 +21,16 @@ interface DetailBooking {
   guestProfile: { id: string; name: string; phone: string | null; user: { email: string; id: string } };
   tickets: { id: string; quantity: number; unitPrice: number | string; eventTicketTypeId: string | null; ticketType: { id: string; name: string; price: number | string; capacity: number; soldCount: number } | null }[];
   statusHistory: { id: string; fromStatus: string; toStatus: string; changedBy: string | null; notes: string | null; createdAt: string }[];
+  rescheduleHistory?: {
+    id: string;
+    previousScheduleId: string;
+    previousTimeSlot: string;
+    newScheduleId: string;
+    newTimeSlot: string;
+    rescheduledBy: string | null;
+    reason: string | null;
+    createdAt: string;
+  }[];
   payments: { id: string; amount: number; currency: string; status: string; provider?: string | null; paymentMethod?: string | null; createdAt: string }[];
 }
 
@@ -30,6 +42,7 @@ export function EventBookingDetailClient({
   permissions?: string[];
 }) {
   const canRecordPayment = permissions.includes('payments.record');
+  const canManageEventBookings = permissions.includes('eventBookings.manage');
   const [booking, setBooking] = useState<DetailBooking | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +53,8 @@ export function EventBookingDetailClient({
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [statusActionError, setStatusActionError] = useState<string | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+  const [rescheduleSuccessNotice, setRescheduleSuccessNotice] = useState<string | null>(null);
 
   const fetchBooking = useCallback(async () => {
     setLoading(true);
@@ -192,6 +207,16 @@ export function EventBookingDetailClient({
                   No-show can be marked after the event ends.
                 </span>
               )}
+
+              {canManageEventBookings && !booking.event.isPast && (
+                <button
+                  type="button"
+                  onClick={() => setShowRescheduleModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-stone-300 bg-white hover:bg-stone-50 text-stone-800 text-xs font-medium shadow-2xs transition"
+                >
+                  Reschedule
+                </button>
+              )}
             </>
           )}
 
@@ -214,6 +239,19 @@ export function EventBookingDetailClient({
           )}
         </div>
       </div>
+
+      {rescheduleSuccessNotice && (
+        <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center justify-between">
+          <span>{rescheduleSuccessNotice}</span>
+          <button
+            type="button"
+            onClick={() => setRescheduleSuccessNotice(null)}
+            className="text-emerald-700 hover:text-emerald-900 font-medium ml-2"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {statusActionError && (
         <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 flex items-center gap-2">
@@ -451,6 +489,18 @@ export function EventBookingDetailClient({
             </div>
           </SectionCard>
 
+          {/* Reschedule History (Phase 3.3) */}
+          <RescheduleHistoryCard
+            entries={(booking.rescheduleHistory || []).map((entry) => ({
+              id: entry.id,
+              fromSchedule: entry.previousTimeSlot,
+              toSchedule: entry.newTimeSlot,
+              rescheduledBy: entry.rescheduledBy,
+              reason: entry.reason,
+              createdAt: entry.createdAt,
+            }))}
+          />
+
           <SectionCard title="Quick Actions" description="Operational shortcuts">
             <div className="space-y-2">
               <Link href={`/admin/events/${booking.event?.id || ''}`} className="flex items-center justify-between p-3 rounded-lg border border-stone-200 bg-white hover:bg-stone-50 text-xs">
@@ -475,6 +525,26 @@ export function EventBookingDetailClient({
           onClose={() => setShowPaymentModal(false)}
           onSuccess={() => {
             setShowPaymentModal(false);
+            fetchBooking();
+          }}
+        />
+      )}
+
+      {showRescheduleModal && (
+        <RescheduleEventBookingModal
+          bookingNumber={booking.bookingNumber}
+          eventId={booking.event.id}
+          eventTitle={booking.event.title}
+          eventDate={booking.event.eventDate}
+          currentScheduleId={booking.eventSchedule?.id || ''}
+          currentTimeSlot={booking.eventSchedule?.timeSlot || ''}
+          currentActivity={booking.eventSchedule?.activity}
+          totalTickets={totalTickets}
+          timeZone={booking.event.winery?.timezone || 'America/Los_Angeles'}
+          onClose={() => setShowRescheduleModal(false)}
+          onSuccess={() => {
+            setShowRescheduleModal(false);
+            setRescheduleSuccessNotice(`Event booking ${booking.bookingNumber} was successfully rescheduled.`);
             fetchBooking();
           }}
         />
