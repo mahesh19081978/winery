@@ -733,6 +733,14 @@ export class AvailabilityRepository {
     });
   }
 
+  static async findEligibleExperiences(wineryId: string) {
+    return prisma.experience.findMany({
+      where: { wineryId, isActive: true },
+      select: { id: true, title: true, slug: true, capacity: true },
+      orderBy: { title: 'asc' },
+    });
+  }
+
   static async findAllRules(wineryId: string) {
     return prisma.availabilityRule.findMany({
       where: { wineryId },

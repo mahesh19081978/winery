@@ -54,16 +54,19 @@ export function AvailabilityClient() {
         setOverrides(json.data.overrides || []);
         setClosures(json.data.closures || []);
         
-        // Extract unique experiences from rules for the dropdown
-        const expsMap = new Map();
-        (json.data.rules || []).forEach((r: any) => {
-          if (r.experience) expsMap.set(r.experience.id, r.experience);
-        });
-        const exps = Array.from(expsMap.values());
-        setExperiences(exps);
-        if (exps.length > 0 && !selectedExpId) {
-          setSelectedExpId(exps[0].id);
+        let exps: any[] = json.data.experiences || [];
+        if (exps.length === 0 && json.data.rules?.length > 0) {
+          const expsMap = new Map();
+          json.data.rules.forEach((r: any) => {
+            if (r.experience) expsMap.set(r.experience.id, r.experience);
+          });
+          exps = Array.from(expsMap.values());
         }
+        setExperiences(exps);
+        setSelectedExpId((prev: string) => {
+          if (prev && exps.some(e => e.id === prev)) return prev;
+          return exps.length > 0 ? exps[0].id : '';
+        });
       }
     } catch (err: any) {
       setError(err.message);
@@ -111,8 +114,12 @@ export function AvailabilityClient() {
   // HANDLERS
   const saveRule = async () => {
     if (!selectedExpId) return alert('Select an experience first');
-    const action = ruleForm.id ? 'UPDATE_RULE' : 'CREATE_RULE';
-    const success = await apiCall(action, { ...ruleForm, experienceId: selectedExpId });
+    const isUpdate = Boolean(ruleForm.id);
+    const action = isUpdate ? 'UPDATE_RULE' : 'CREATE_RULE';
+    const payload = isUpdate
+      ? { id: ruleForm.id, time: ruleForm.time, capacity: ruleForm.capacity, isActive: ruleForm.isActive }
+      : { experienceId: selectedExpId, dayOfWeek: ruleForm.dayOfWeek, time: ruleForm.time, capacity: ruleForm.capacity, isActive: ruleForm.isActive };
+    const success = await apiCall(action, payload);
     if (success) setShowRuleModal(false);
   };
 
@@ -158,20 +165,6 @@ export function AvailabilityClient() {
   const expOverrides = overrides.filter(o => o.experienceId === selectedExpId);
   const expClosures = closures.filter(c => c.experienceId === selectedExpId);
   
-  // GET EXPERIENCES MANUALLY IF NEEDED
-  useEffect(() => {
-    // If we need to load experiences without relying on rules
-    fetch('/api/admin/availability?view=schedule&startDate=2020-01-01&endDate=2020-01-01')
-      .then(r => r.json())
-      .then(j => {
-        if (j.success && j.data && j.data.experiences) {
-           setExperiences(j.data.experiences);
-           if (!selectedExpId && j.data.experiences.length > 0) {
-             setSelectedExpId(j.data.experiences[0].id);
-           }
-        }
-      });
-  }, []);
 
   return (
     <div className="space-y-6">

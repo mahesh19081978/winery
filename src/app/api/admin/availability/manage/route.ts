@@ -79,16 +79,24 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: 'Experience not found or unauthorized' }, { status: 403 });
         }
 
+        // Check if rule already exists for this day and time
         const exists = await prisma.availabilityRule.findUnique({
           where: { experienceId_dayOfWeek_time: { experienceId: parsed.experienceId, dayOfWeek: parsed.dayOfWeek, time: parsed.time } }
         });
         if (exists) {
           return NextResponse.json({ success: false, error: 'Rule already exists for this time' }, { status: 400 });
         }
-        const rule = await prisma.availabilityRule.create({
-          data: { wineryId, experienceId: parsed.experienceId, dayOfWeek: parsed.dayOfWeek, time: parsed.time, capacity: parsed.capacity, isActive: parsed.isActive }
-        });
-        return NextResponse.json({ success: true, data: rule });
+        try {
+          const rule = await prisma.availabilityRule.create({
+            data: { wineryId, experienceId: parsed.experienceId, dayOfWeek: parsed.dayOfWeek, time: parsed.time, capacity: parsed.capacity, isActive: parsed.isActive }
+          });
+          return NextResponse.json({ success: true, data: rule });
+        } catch (createErr: unknown) {
+          if (typeof createErr === 'object' && createErr !== null && 'code' in createErr && (createErr as { code: string }).code === 'P2002') {
+            return NextResponse.json({ success: false, error: 'Rule already exists for this time' }, { status: 400 });
+          }
+          throw createErr;
+        }
       }
 
       case 'UPDATE_RULE': {
@@ -108,15 +116,22 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ success: false, error: 'Rule already exists for this time' }, { status: 400 });
           }
         }
-        const rule = await prisma.availabilityRule.update({
-          where: { id: parsed.id },
-          data: { 
-            ...(parsed.time !== undefined && { time: parsed.time }),
-            ...(parsed.capacity !== undefined && { capacity: parsed.capacity }),
-            ...(parsed.isActive !== undefined && { isActive: parsed.isActive })
+        try {
+          const rule = await prisma.availabilityRule.update({
+            where: { id: parsed.id },
+            data: { 
+              ...(parsed.time !== undefined && { time: parsed.time }),
+              ...(parsed.capacity !== undefined && { capacity: parsed.capacity }),
+              ...(parsed.isActive !== undefined && { isActive: parsed.isActive })
+            }
+          });
+          return NextResponse.json({ success: true, data: rule });
+        } catch (updateErr: unknown) {
+          if (typeof updateErr === 'object' && updateErr !== null && 'code' in updateErr && (updateErr as { code: string }).code === 'P2002') {
+            return NextResponse.json({ success: false, error: 'Rule already exists for this time' }, { status: 400 });
           }
-        });
-        return NextResponse.json({ success: true, data: rule });
+          throw updateErr;
+        }
       }
 
       case 'DELETE_RULE': {
@@ -146,16 +161,28 @@ export async function POST(request: NextRequest) {
             const m = (currentMins % 60).toString().padStart(2, '0');
             const timeStr = `${h}:${m}`;
 
-            const exists = await prisma.availabilityRule.findUnique({
-              where: { experienceId_dayOfWeek_time: { experienceId: parsed.experienceId, dayOfWeek: day, time: timeStr } }
+            // Upsert rule: if rule already exists for this day/time, leave its capacity/isActive untouched,
+            // preserving existing customization while creating missing slots safely.
+            await prisma.availabilityRule.upsert({
+              where: {
+                experienceId_dayOfWeek_time: {
+                  experienceId: parsed.experienceId,
+                  dayOfWeek: day,
+                  time: timeStr,
+                },
+              },
+              create: {
+                wineryId,
+                experienceId: parsed.experienceId,
+                dayOfWeek: day,
+                time: timeStr,
+                capacity: parsed.capacity,
+                isActive: parsed.isActive,
+              },
+              update: {},
             });
-            
-            if (!exists) {
-              await prisma.availabilityRule.create({
-                data: { wineryId, experienceId: parsed.experienceId, dayOfWeek: day, time: timeStr, capacity: parsed.capacity, isActive: parsed.isActive }
-              });
-              count++;
-            }
+            count++;
+
             currentMins += parsed.intervalMinutes;
           }
         }

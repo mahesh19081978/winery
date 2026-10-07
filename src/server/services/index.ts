@@ -785,13 +785,14 @@ export class AvailabilityService {
   }
 
   static async getAvailabilityOverview(wineryId: string) {
-    const [rules, overrides, closures, expClosures] = await Promise.all([
+    const [experiences, rules, overrides, closures, expClosures] = await Promise.all([
+      AvailabilityRepository.findEligibleExperiences(wineryId),
       AvailabilityRepository.findAllRules(wineryId),
       AvailabilityRepository.findAllOverrides(wineryId),
       AvailabilityRepository.findAllClosures(wineryId),
       AvailabilityRepository.findAllExperienceClosures(wineryId),
     ]);
-    return { rules, overrides, closures, expClosures };
+    return { experiences, rules, overrides, closures, expClosures };
   }
 
   static async getScheduleView(wineryId: string, startDate: string, endDate: string) {
