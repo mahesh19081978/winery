@@ -32,6 +32,7 @@ import {
 import {
   BookingCreateSchema,
   BookingCreateRawInput,
+  BookingRescheduleSchema,
   EventBookingCreateSchema,
   EventBookingCreateRawInput,
   GuestProfileUpdateInput,
@@ -1066,6 +1067,109 @@ export class BookingService {
     const cancelled = await BookingRepository.cancelBooking(booking.id, reason);
     await GuestNotificationService.notifyExperienceBookingCancelled(booking, reason);
     return cancelled;
+  }
+
+  static async rescheduleBooking(
+    bookingNumber: string,
+    rawInput: import('@/server/validators').BookingRescheduleRawInput,
+    rescheduledBy: string,
+    sessionContext?: { role: UserRole; wineryId: string | null }
+  ) {
+    const input = BookingRescheduleSchema.parse(rawInput);
+    const booking = await BookingRepository.findByBookingNumber(bookingNumber);
+    if (!booking) {
+      throw new Error(`Booking ${bookingNumber} not found`);
+    }
+
+    // 1. Enforce tenant isolation exactly like updateBookingStatus
+    if (sessionContext) {
+      if (sessionContext.role !== UserRole.SUPER_ADMIN) {
+        if (!sessionContext.wineryId) {
+          throw new Error('Forbidden: session is not bound to a winery');
+        }
+        if (booking.wineryId !== sessionContext.wineryId) {
+          throw new Error('Forbidden: reservation belongs to another winery');
+        }
+      }
+    }
+
+    // 2. Status verification: CONFIRMED only
+    if (booking.status !== BookingStatus.CONFIRMED) {
+      throw new Error(`Only CONFIRMED bookings can be rescheduled. Current status: ${booking.status}`);
+    }
+
+    // 3. Extract experience details
+    const primaryItem = booking.items.find((item) => item.experienceId != null) || booking.items[0];
+    if (!primaryItem || !primaryItem.experience || !primaryItem.experienceId) {
+      throw new Error('Booking has no valid experience attached');
+    }
+    const experience = primaryItem.experience;
+
+    // Format existing date to YYYY-MM-DD for comparison
+    const existingDateStr = booking.date.toISOString().split('T')[0];
+
+    // 4. Same date/time idempotent no-op check
+    if (existingDateStr === input.date && booking.time === input.time) {
+      return booking;
+    }
+
+    // 5. Destination must be in the future (relative to winery timezone)
+    const winery = await prisma.winery.findUnique({
+      where: { id: booking.wineryId },
+      select: { timezone: true },
+    });
+    const wineryTz = winery?.timezone || 'America/Los_Angeles';
+
+    const { parseEventDateTimeInTimezone } = await import('@/lib/events/timing');
+    const destinationInstant = parseEventDateTimeInTimezone(input.date, input.time, wineryTz);
+    if (destinationInstant.getTime() <= Date.now()) {
+      throw new Error('Cannot reschedule to a past date or time');
+    }
+
+    // 6. Pre-flight availability check reusing AvailabilityService (WineryClosure, ExperienceClosure, rules, overrides)
+    const availability = await AvailabilityService.getAvailableSlots(experience.slug, input.date);
+
+    if (availability.isClosed) {
+      throw new Error(`Cannot reschedule: experience is closed on ${input.date}. Reason: ${availability.closureReason || 'Closed'}`);
+    }
+
+    if (availability.status === 'NO_CONFIGURATION') {
+      throw new Error(`Cannot reschedule: no operational schedule configured for ${input.date}`);
+    }
+
+    const targetSlot = availability.availableSlots.find((s) => s.time === input.time);
+    if (!targetSlot) {
+      throw new Error(`Time slot '${input.time}' is not available on ${input.date}`);
+    }
+
+    if (!targetSlot.isAvailable) {
+      throw new Error(`Time slot '${input.time}' on ${input.date} is unavailable or blocked: ${targetSlot.reason || 'Slot full or blocked'}`);
+    }
+
+    // In preflight check, note whether remainingCapacity is sufficient
+    // (If same slot on same date, remainingCapacity wouldn't apply, but that was handled by the no-op check above)
+    if (targetSlot.remainingCapacity < booking.totalGuests) {
+      throw new Error(
+        `Insufficient capacity. Requested ${booking.totalGuests} guests, but only ${targetSlot.remainingCapacity} seats remain.`
+      );
+    }
+
+    const maxAllowedCapacity = targetSlot.capacity;
+    const newDate = new Date(input.date);
+
+    // 7. Atomic transaction with row-level locking on Experience
+    const updated = await BookingRepository.rescheduleBookingWithTransaction({
+      bookingId: booking.id,
+      targetExperienceId: experience.id,
+      newDate,
+      newTime: input.time,
+      rescheduledBy,
+      reason: input.reason,
+      maxAllowedCapacity,
+      wineryId: sessionContext?.role !== UserRole.SUPER_ADMIN ? (sessionContext?.wineryId || undefined) : undefined,
+    });
+
+    return updated;
   }
 }
 

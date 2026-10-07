@@ -652,6 +652,7 @@ model Booking {
   items               BookingItem[]
   attendees           BookingGuest[]
   statusHistory       BookingStatusHistory[]
+  rescheduleHistory   BookingRescheduleHistory[]
   payments            Payment[]
   tastingSessions     TastingSession[]
   reviews             Review[]
@@ -712,6 +713,25 @@ model BookingStatusHistory {
 
   @@index([bookingId])
   @@map("booking_status_histories")
+}
+
+model BookingRescheduleHistory {
+  id                   String   @id @default(uuid())
+  bookingId            String
+  previousDate         DateTime @db.Date
+  previousTime         String
+  newDate              DateTime @db.Date
+  newTime              String
+  previousExperienceId String?
+  newExperienceId      String?
+  rescheduledBy        String
+  reason               String?
+  createdAt            DateTime @default(now())
+
+  booking              Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@map("booking_reschedule_histories")
 }
 
 model Payment {

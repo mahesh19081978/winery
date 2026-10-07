@@ -243,6 +243,15 @@ export const BookingStatusUpdateSchema = z.object({
 
 export type BookingStatusUpdateInput = z.infer<typeof BookingStatusUpdateSchema>;
 
+export const BookingRescheduleSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD'),
+  time: z.string().trim().min(1, 'Time is required'),
+  reason: z.string().trim().max(1000, 'Reason cannot exceed 1000 characters').optional().nullable(),
+});
+
+export type BookingRescheduleInput = z.infer<typeof BookingRescheduleSchema>;
+export type BookingRescheduleRawInput = z.input<typeof BookingRescheduleSchema>;
+
 export const AdminLoginSchema = z.object({
   email: z.string().email('Valid email is required'),
   password: z.string().min(8, 'Password must be at least 8 characters'),

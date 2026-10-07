@@ -848,6 +848,7 @@ export class BookingRepository {
         },
         attendees: true,
         statusHistory: { orderBy: { createdAt: 'asc' } },
+        rescheduleHistory: { orderBy: { createdAt: 'asc' } },
       },
     });
   }
@@ -1178,6 +1179,114 @@ export class BookingRepository {
       return booking;
     },
     { maxWait: 30000, timeout: 30000 }
+    );
+  }
+
+  static async rescheduleBookingWithTransaction(params: {
+    bookingId: string;
+    targetExperienceId: string;
+    newDate: Date;
+    newTime: string;
+    rescheduledBy: string;
+    reason?: string | null;
+    maxAllowedCapacity: number;
+    wineryId?: string;
+  }) {
+    return prisma.$transaction(
+      async (tx) => {
+        // 1. Fetch existing booking with pessimistic lock on the booking record
+        const booking = await tx.booking.findUnique({
+          where: { id: params.bookingId },
+          include: {
+            items: { include: { experience: true } },
+            winery: { select: { timezone: true } },
+          },
+        });
+
+        if (!booking) {
+          throw new Error('Booking not found');
+        }
+
+        if (params.wineryId && booking.wineryId !== params.wineryId) {
+          throw new Error('Forbidden: booking belongs to another winery');
+        }
+
+        if (booking.status !== BookingStatus.CONFIRMED) {
+          throw new Error(`Only CONFIRMED bookings can be rescheduled. Current status: ${booking.status}`);
+        }
+
+        // Validate same experience
+        const primaryItem = booking.items.find((item) => item.experienceId != null) || booking.items[0];
+        if (!primaryItem || !primaryItem.experienceId) {
+          throw new Error('Booking has no valid experience attached');
+        }
+
+        if (primaryItem.experienceId !== params.targetExperienceId) {
+          throw new Error('Experience booking rescheduling is only permitted for the same experience');
+        }
+
+        // 2. Acquire pessimistic row-level lock on the Experience to serialize concurrent reservations/reschedules
+        await tx.$queryRaw`SELECT id FROM "experiences" WHERE id = ${params.targetExperienceId} FOR UPDATE`;
+
+        // 3. Re-verify capacity on the destination slot inside the transaction
+        // Exclude the current booking if it was already occupying this slot (e.g. edge cases)
+        const bookedGuestsRecords = await tx.booking.findMany({
+          where: {
+            id: { not: params.bookingId },
+            items: { some: { experienceId: params.targetExperienceId } },
+            date: params.newDate,
+            time: params.newTime,
+            status: { in: [BookingStatus.CONFIRMED, BookingStatus.CHECKED_IN, BookingStatus.PENDING] },
+          },
+          select: { totalGuests: true },
+        });
+
+        const currentBookedGuests = bookedGuestsRecords.reduce((sum, b) => sum + b.totalGuests, 0);
+        const remainingCapacity = params.maxAllowedCapacity - currentBookedGuests;
+
+        if (remainingCapacity < booking.totalGuests) {
+          throw new Error(
+            `Insufficient capacity for rescheduling. Remaining: ${remainingCapacity}, Requested: ${booking.totalGuests}`
+          );
+        }
+
+        const previousDate = booking.date;
+        const previousTime = booking.time;
+
+        // 4. Update booking date and time (preserving bookingNumber, guests, items, payments)
+        const updatedBooking = await tx.booking.update({
+          where: { id: params.bookingId },
+          data: {
+            date: params.newDate,
+            time: params.newTime,
+          },
+          include: {
+            guestProfile: { include: { user: true } },
+            items: { include: { experience: true } },
+            attendees: true,
+            statusHistory: { orderBy: { createdAt: 'asc' } },
+            rescheduleHistory: { orderBy: { createdAt: 'asc' } },
+          },
+        });
+
+        // 5. Create audit record in BookingRescheduleHistory
+        await tx.bookingRescheduleHistory.create({
+          data: {
+            bookingId: booking.id,
+            previousDate,
+            previousTime,
+            newDate: params.newDate,
+            newTime: params.newTime,
+            previousExperienceId: primaryItem.experienceId,
+            newExperienceId: params.targetExperienceId,
+            rescheduledBy: params.rescheduledBy,
+            reason: params.reason || null,
+          },
+        });
+
+        return updatedBooking;
+      },
+      { maxWait: 30000, timeout: 30000 }
     );
   }
 
