@@ -1216,17 +1216,23 @@ export class BookingRepository {
    * - CHECKED_IN bookings past experience end time -> COMPLETED
    * Returns count of updated bookings.
    */
-  static async reconcileExpiredExperienceBookings(wineryId?: string): Promise<{
+  static async reconcileExpiredExperienceBookings(wineryIdOrOptions?: string | {
+    wineryId?: string;
+    guestProfileId?: string;
+  }): Promise<{
     noShowCount: number;
     completedCount: number;
     updatedBookingNumbers: string[];
   }> {
+    const wineryId = typeof wineryIdOrOptions === 'string' ? wineryIdOrOptions : wineryIdOrOptions?.wineryId;
+    const guestProfileId = typeof wineryIdOrOptions === 'object' ? wineryIdOrOptions.guestProfileId : undefined;
     const { isExperiencePastEndTime } = await import('@/lib/events/timing');
 
     // Find active candidates (CONFIRMED or CHECKED_IN)
     const where: Prisma.BookingWhereInput = {
       status: { in: [BookingStatus.CONFIRMED, BookingStatus.CHECKED_IN] },
       ...(wineryId ? { wineryId } : {}),
+      ...(guestProfileId ? { guestProfileId } : {}),
     };
 
     const candidates = await prisma.booking.findMany({
@@ -3408,17 +3414,23 @@ export class EventBookingRepository {
    * - CHECKED_IN bookings past event end time -> COMPLETED
    * Returns count of updated bookings.
    */
-  static async reconcileExpiredEventBookings(wineryId?: string): Promise<{
+  static async reconcileExpiredEventBookings(wineryIdOrOptions?: string | {
+    wineryId?: string;
+    guestProfileId?: string;
+  }): Promise<{
     noShowCount: number;
     completedCount: number;
     updatedBookingNumbers: string[];
   }> {
+    const wineryId = typeof wineryIdOrOptions === 'string' ? wineryIdOrOptions : wineryIdOrOptions?.wineryId;
+    const guestProfileId = typeof wineryIdOrOptions === 'object' ? wineryIdOrOptions.guestProfileId : undefined;
     const { isEventPastEndTime } = await import('@/lib/events/timing');
 
     // Find active candidates (CONFIRMED or CHECKED_IN)
     const where: Prisma.EventBookingWhereInput = {
       status: { in: [BookingStatus.CONFIRMED, BookingStatus.CHECKED_IN] },
       ...(wineryId ? { event: { wineryId } } : {}),
+      ...(guestProfileId ? { guestProfileId } : {}),
     };
 
     const candidates = await prisma.eventBooking.findMany({

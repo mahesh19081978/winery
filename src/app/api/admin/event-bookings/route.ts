@@ -7,8 +7,6 @@ export async function GET(request: NextRequest) {
     const guard = await requireApiPermission('eventBookings.manage');
     if (!guard.ok) return guard.response;
 
-    await EventBookingService.reconcileExpiredBookings(guard.session.wineryId || undefined);
-
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search') || undefined;
     const status = searchParams.get('status') || undefined;

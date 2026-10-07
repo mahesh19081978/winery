@@ -846,6 +846,8 @@ export class BookingService {
     guestProfileId: string,
     filters: { page?: number; pageSize?: number; filter?: GuestBookingTimelineFilter } = {}
   ) {
+    // Automatically reconcile expired experience bookings scoped strictly to this guest
+    await BookingRepository.reconcileExpiredExperienceBookings({ guestProfileId });
     return BookingRepository.findByGuestProfileId(guestProfileId, filters);
   }
 
@@ -1080,6 +1082,8 @@ export class EventBookingService {
     guestProfileId: string,
     filters: { page?: number; pageSize?: number; filter?: GuestBookingTimelineFilter } = {}
   ) {
+    // Automatically reconcile expired event bookings scoped strictly to this guest
+    await EventBookingRepository.reconcileExpiredEventBookings({ guestProfileId });
     return EventBookingRepository.findByGuestProfileId(guestProfileId, filters);
   }
 
@@ -1307,6 +1311,10 @@ export class EventBookingService {
     page?: number;
     pageSize?: number;
   }) {
+    // Automatically reconcile expired event bookings scoped by wineryId if provided
+    await EventBookingRepository.reconcileExpiredEventBookings(
+      filters.wineryId && filters.wineryId !== '__no_tenant__' ? filters.wineryId : undefined
+    );
     return EventBookingRepository.findManyAdmin(filters);
   }
 

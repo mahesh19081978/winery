@@ -4,7 +4,9 @@ import { EventBookingService } from '@/server/services';
 /**
  * Scheduled Cron Endpoint: Reconcile Expired Event Bookings
  *
- * Runs automatically (e.g. every 15 minutes via Vercel Cron or external scheduler).
+ * Runs automatically once daily (0 2 * * * via Vercel Cron or external scheduler)
+ * as a safety-net cleanup for unvisited bookings, complementing request-time reconciliation
+ * on operational flows. Compatible with Vercel Hobby plan limitations.
  *
  * Security:
  * - Checks Authorization: Bearer <CRON_SECRET> header.
