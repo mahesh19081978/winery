@@ -252,6 +252,14 @@ export const BookingRescheduleSchema = z.object({
 export type BookingRescheduleInput = z.infer<typeof BookingRescheduleSchema>;
 export type BookingRescheduleRawInput = z.input<typeof BookingRescheduleSchema>;
 
+export const EventBookingRescheduleSchema = z.object({
+  eventScheduleId: z.string().uuid('Valid event schedule ID is required'),
+  reason: z.string().trim().max(1000, 'Reason cannot exceed 1000 characters').optional().nullable(),
+});
+
+export type EventBookingRescheduleInput = z.infer<typeof EventBookingRescheduleSchema>;
+export type EventBookingRescheduleRawInput = z.input<typeof EventBookingRescheduleSchema>;
+
 export const AdminLoginSchema = z.object({
   email: z.string().email('Valid email is required'),
   password: z.string().min(8, 'Password must be at least 8 characters'),

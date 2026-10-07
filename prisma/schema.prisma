@@ -868,6 +868,7 @@ model EventBooking {
   guestProfile    GuestProfile               @relation(fields: [guestProfileId], references: [id], onDelete: Restrict)
   tickets         EventBookingTicket[]
   statusHistory   EventBookingStatusHistory[]
+  rescheduleHistory EventBookingRescheduleHistory[]
   payments        Payment[]
 
   @@index([eventId])
@@ -908,6 +909,23 @@ model EventBookingStatusHistory {
 
   @@index([eventBookingId])
   @@map("event_booking_status_histories")
+}
+
+model EventBookingRescheduleHistory {
+  id                 String       @id @default(uuid())
+  eventBookingId     String
+  previousScheduleId String
+  previousTimeSlot   String
+  newScheduleId      String
+  newTimeSlot        String
+  rescheduledBy      String
+  reason             String?
+  createdAt          DateTime     @default(now())
+
+  eventBooking       EventBooking @relation(fields: [eventBookingId], references: [id], onDelete: Cascade)
+
+  @@index([eventBookingId])
+  @@map("event_booking_reschedule_histories")
 }
 
 // ----------------------------------------------------

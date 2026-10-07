@@ -3095,6 +3095,7 @@ export class EventBookingRepository {
           include: { ticketType: true },
         },
         statusHistory: { orderBy: { createdAt: 'asc' } },
+        rescheduleHistory: { orderBy: { createdAt: 'asc' } },
         payments: { orderBy: { createdAt: 'desc' } },
       },
     });
@@ -3126,6 +3127,7 @@ export class EventBookingRepository {
           include: { ticketType: true },
         },
         statusHistory: { orderBy: { createdAt: 'asc' } },
+        rescheduleHistory: { orderBy: { createdAt: 'asc' } },
       },
     });
   }
@@ -3365,6 +3367,143 @@ export class EventBookingRepository {
       }
 
       return updated;
+      },
+      { maxWait: 15000, timeout: 15000 }
+    );
+  }
+
+  static async rescheduleScheduleWithTransaction(params: {
+    eventBookingId: string;
+    targetScheduleId: string;
+    rescheduledBy: string;
+    reason?: string | null;
+    wineryId?: string;
+  }) {
+    return prisma.$transaction(
+      async (tx) => {
+        // 1. Pessimistic lock on the EventBooking row
+        await tx.$queryRaw`SELECT id FROM "event_bookings" WHERE id = ${params.eventBookingId} FOR UPDATE`;
+
+        const booking = await tx.eventBooking.findUnique({
+          where: { id: params.eventBookingId },
+          include: {
+            event: {
+              include: {
+                winery: { select: { timezone: true } },
+              },
+            },
+            eventSchedule: true,
+            tickets: { include: { ticketType: true } },
+            payments: { orderBy: { createdAt: 'desc' } },
+            statusHistory: { orderBy: { createdAt: 'asc' } },
+            rescheduleHistory: { orderBy: { createdAt: 'asc' } },
+          },
+        });
+
+        if (!booking) {
+          throw new Error('Event booking not found');
+        }
+
+        if (params.wineryId && booking.event.wineryId !== params.wineryId) {
+          throw new Error('Forbidden: event booking belongs to another winery');
+        }
+
+        // 2. Status verification: CONFIRMED only
+        if (booking.status !== BookingStatus.CONFIRMED) {
+          throw new Error(`Only CONFIRMED bookings can be rescheduled. Current status: ${booking.status}`);
+        }
+
+        // 3. Parent event verification: not cancelled, completed, or past
+        if (booking.event.status === 'CANCELLED' || booking.event.status === 'COMPLETED' || booking.event.isPast) {
+          throw new Error(`Event is not bookable or has ended (status: ${booking.event.status})`);
+        }
+
+        // 4. Same schedule idempotent no-op check
+        if (booking.eventScheduleId === params.targetScheduleId) {
+          return { booking, isNoOp: true };
+        }
+
+        // 5. Verify target schedule exists and belongs to the same event
+        const targetSchedule = await tx.eventSchedule.findUnique({
+          where: { id: params.targetScheduleId },
+        });
+
+        if (!targetSchedule) {
+          throw new Error(`Target event schedule '${params.targetScheduleId}' not found`);
+        }
+
+        if (targetSchedule.eventId !== booking.eventId) {
+          throw new Error('Target schedule does not belong to the same event');
+        }
+
+        // 6. Timing verification: target schedule has not elapsed
+        const { calculateEventStartBoundary } = await import('@/lib/events/timing');
+        const wineryTimezone = booking.event.winery?.timezone || 'America/Los_Angeles';
+        const targetStartBoundary = calculateEventStartBoundary({
+          eventDate: booking.event.eventDate,
+          scheduleTimeSlot: targetSchedule.timeSlot,
+          timeZone: wineryTimezone,
+        });
+
+        if (targetStartBoundary.getTime() <= Date.now()) {
+          throw new Error('Cannot reschedule to an event session that has already elapsed');
+        }
+
+        const previousScheduleId = booking.eventScheduleId;
+        const previousTimeSlot = booking.eventSchedule?.timeSlot || 'Unknown';
+
+        // 7. Atomically update eventScheduleId
+        const updatedBooking = await tx.eventBooking.update({
+          where: { id: params.eventBookingId },
+          data: {
+            eventScheduleId: params.targetScheduleId,
+          },
+          include: {
+            event: {
+              include: {
+                winery: { select: { timezone: true } },
+              },
+            },
+            eventSchedule: true,
+            guestProfile: {
+              include: {
+                user: { select: { id: true, email: true } },
+              },
+            },
+            tickets: { include: { ticketType: true } },
+            payments: { orderBy: { createdAt: 'desc' } },
+            statusHistory: { orderBy: { createdAt: 'asc' } },
+            rescheduleHistory: { orderBy: { createdAt: 'asc' } },
+          },
+        });
+
+        // 8. Create EventBookingRescheduleHistory record
+        await tx.eventBookingRescheduleHistory.create({
+          data: {
+            eventBookingId: booking.id,
+            previousScheduleId,
+            previousTimeSlot,
+            newScheduleId: targetSchedule.id,
+            newTimeSlot: targetSchedule.timeSlot,
+            rescheduledBy: params.rescheduledBy,
+            reason: params.reason || null,
+          },
+        });
+
+        return {
+          booking: updatedBooking,
+          isNoOp: false,
+          previousSchedule: {
+            id: previousScheduleId,
+            timeSlot: previousTimeSlot,
+            activity: booking.eventSchedule?.activity || '',
+          },
+          newSchedule: {
+            id: targetSchedule.id,
+            timeSlot: targetSchedule.timeSlot,
+            activity: targetSchedule.activity,
+          },
+        };
       },
       { maxWait: 15000, timeout: 15000 }
     );

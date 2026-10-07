@@ -83,8 +83,10 @@ export interface GuestNotificationEmailPayload {
   recipientName?: string;
   eventType:
     | 'BOOKING_CONFIRMATION'
+    | 'BOOKING_MODIFICATION'
     | 'BOOKING_CANCELLATION'
     | 'EVENT_BOOKING_CONFIRMATION'
+    | 'EVENT_BOOKING_MODIFICATION'
     | 'EVENT_BOOKING_CANCELLATION'
     | 'REVIEW_APPROVED'
     | 'REVIEW_REJECTED';

@@ -35,6 +35,7 @@ import {
   BookingRescheduleSchema,
   EventBookingCreateSchema,
   EventBookingCreateRawInput,
+  EventBookingRescheduleSchema,
   GuestProfileUpdateInput,
   AdminGuestUpdateInput,
   GuestTagCreateInput,
@@ -1509,6 +1510,94 @@ export class EventBookingService {
       notes,
       sessionContext && sessionContext.role !== UserRole.SUPER_ADMIN ? (sessionContext.wineryId || undefined) : undefined
     );
+  }
+
+  static async rescheduleBooking(
+    bookingNumber: string,
+    rawInput: import('@/server/validators').EventBookingRescheduleRawInput,
+    rescheduledBy: string,
+    sessionContext?: { role: UserRole; wineryId: string | null }
+  ) {
+    const input = EventBookingRescheduleSchema.parse(rawInput);
+    const booking = await EventBookingRepository.findByBookingNumberAdmin(bookingNumber);
+    if (!booking) {
+      throw new EventBookingError(`Event booking ${bookingNumber} not found`, 404);
+    }
+
+    // 1. Enforce tenant isolation
+    if (sessionContext && sessionContext.role !== UserRole.SUPER_ADMIN) {
+      if (!sessionContext.wineryId) {
+        throw new EventBookingError('Forbidden: session is not bound to a winery', 403);
+      }
+      if (booking.event.wineryId !== sessionContext.wineryId) {
+        throw new EventBookingError('Forbidden: event booking belongs to another winery', 403);
+      }
+    }
+
+    // 2. Status verification: CONFIRMED only
+    if (booking.status !== BookingStatus.CONFIRMED) {
+      throw new EventBookingError(
+        `Only CONFIRMED bookings can be rescheduled. Current status: ${booking.status}`,
+        400
+      );
+    }
+
+    // 3. Parent event verification: not cancelled, completed, or past
+    if (booking.event.status === 'CANCELLED' || booking.event.status === 'COMPLETED' || booking.event.isPast) {
+      throw new EventBookingError(
+        `Event '${booking.event.title}' is not bookable or has ended (status: ${booking.event.status})`,
+        400
+      );
+    }
+
+    // 4. Validate target schedule exists and belongs to the same event
+    const targetSchedule = await prisma.eventSchedule.findUnique({
+      where: { id: input.eventScheduleId },
+    });
+    if (!targetSchedule) {
+      throw new EventBookingError(`Target event schedule '${input.eventScheduleId}' not found`, 404);
+    }
+    if (targetSchedule.eventId !== booking.eventId) {
+      throw new EventBookingError('Target schedule does not belong to the same event', 400);
+    }
+
+    // 5. Same schedule idempotent no-op check
+    if (booking.eventScheduleId === input.eventScheduleId) {
+      return booking;
+    }
+
+    // 6. Timing verification: target schedule has not elapsed
+    const { calculateEventStartBoundary } = await import('@/lib/events/timing');
+    const wineryTimezone = booking.event.winery?.timezone || 'America/Los_Angeles';
+    const targetStartBoundary = calculateEventStartBoundary({
+      eventDate: booking.event.eventDate,
+      scheduleTimeSlot: targetSchedule.timeSlot,
+      timeZone: wineryTimezone,
+    });
+    if (targetStartBoundary.getTime() <= Date.now()) {
+      throw new EventBookingError('Cannot reschedule to an event session that has already elapsed', 400);
+    }
+
+    // 7. Atomic transaction
+    const result = await EventBookingRepository.rescheduleScheduleWithTransaction({
+      eventBookingId: booking.id,
+      targetScheduleId: input.eventScheduleId,
+      rescheduledBy,
+      reason: input.reason,
+      wineryId: sessionContext && sessionContext.role !== UserRole.SUPER_ADMIN ? (sessionContext.wineryId || undefined) : undefined,
+    });
+
+    // 8. Dispatch notification asynchronously after successful database transaction
+    if (!result.isNoOp && result.previousSchedule && result.newSchedule) {
+      await GuestNotificationService.notifyEventBookingRescheduled(
+        result.booking,
+        result.previousSchedule,
+        result.newSchedule,
+        input.reason
+      );
+    }
+
+    return result.booking;
   }
 
   static async reconcileExpiredBookings(wineryId?: string) {
@@ -3375,6 +3464,72 @@ export class GuestNotificationService {
       }
     } catch (err) {
       console.error('[GuestNotificationService] Failed to create event cancellation notification:', err);
+    }
+  }
+
+  static async notifyEventBookingRescheduled(
+    booking: {
+      bookingNumber: string;
+      guestProfileId: string;
+      event?: { title: string } | null;
+    },
+    oldSchedule: { timeSlot: string; activity: string },
+    newSchedule: { timeSlot: string; activity: string },
+    reason?: string | null
+  ): Promise<void> {
+    try {
+      const profile = await prisma.guestProfile.findUnique({
+        where: { id: booking.guestProfileId },
+        select: {
+          id: true,
+          name: true,
+          emailNotifications: true,
+          user: { select: { email: true } },
+        },
+      });
+
+      if (!profile?.user?.email) return;
+
+      const eventTitle = booking.event?.title || 'Estate Event';
+      const title = `Event Reservation Rescheduled: ${eventTitle}`;
+      const reasonPart = reason ? ` Reason: ${reason}` : '';
+      const message = `Your reservation ${booking.bookingNumber} for ${eventTitle} has been rescheduled from ${oldSchedule.timeSlot} (${oldSchedule.activity}) to ${newSchedule.timeSlot} (${newSchedule.activity}).${reasonPart}`;
+
+      await NotificationRepository.create({
+        recipient: profile.user.email,
+        channel: NotificationChannel.PUSH,
+        type: NotificationType.BOOKING_MODIFICATION,
+        title,
+        content: message,
+        metadata: {
+          read: false,
+          readAt: null,
+          guestProfileId: profile.id,
+          bookingNumber: booking.bookingNumber,
+          eventType: 'EVENT_BOOKING_MODIFICATION',
+          targetUrl: '/app/bookings',
+        },
+      });
+
+      if (profile.emailNotifications) {
+        try {
+          await sendGuestNotificationEmail({
+            to: profile.user.email,
+            recipientName: profile.name,
+            eventType: 'BOOKING_MODIFICATION',
+            title,
+            message,
+            bookingNumber: booking.bookingNumber,
+            time: newSchedule.timeSlot,
+            itemTitle: eventTitle,
+            targetUrl: '/app/bookings',
+          });
+        } catch (emailErr) {
+          console.error('[GuestNotificationService] Failed to send event reschedule email:', emailErr);
+        }
+      }
+    } catch (err) {
+      console.error('[GuestNotificationService] Failed to create event reschedule notification:', err);
     }
   }
 
